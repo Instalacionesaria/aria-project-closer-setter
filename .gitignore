@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.vercel
+.env*
+
+# build artifacts
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
