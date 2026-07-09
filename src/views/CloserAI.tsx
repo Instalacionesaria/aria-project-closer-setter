@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, createContext, useContext } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   House,
@@ -29,6 +29,10 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import ContactDrawer from "./ContactDrawer";
+
+/** Provides a callback to open the shared contact drawer from any nested component. */
+const OpenContactCtx = createContext<(name: string) => void>(() => {});
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -469,6 +473,7 @@ const INTERVENTIONS: Intervention[] = [
 ];
 
 function MiDiaTab() {
+  const openContact = useContext(OpenContactCtx);
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Two big KPI cards */}
@@ -590,7 +595,10 @@ function MiDiaTab() {
                     {item.time}
                   </span>
                   <Avatar grade={item.grade} />
-                  <span className="font-semibold text-sm truncate uppercase flex items-center gap-2">
+                  <span
+                    onClick={() => openContact(item.name)}
+                    className="font-semibold text-sm truncate uppercase flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"
+                  >
                     {item.name}
                     {item.badge && (
                       <span className="bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider">
@@ -673,7 +681,10 @@ function MiDiaTab() {
                   <div className="flex items-center justify-between w-full mb-1.5">
                     <div className="flex items-center gap-2">
                       <Avatar grade={iv.grade} />
-                      <h4 className="font-semibold text-[15px] truncate max-w-[150px] uppercase">
+                      <h4
+                        onClick={() => openContact(iv.name)}
+                        className="font-semibold text-[15px] truncate max-w-[150px] uppercase cursor-pointer hover:text-primary transition-colors"
+                      >
                         {iv.name}
                       </h4>
                     </div>
@@ -814,6 +825,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
 ];
 
 function PipelineTab() {
+  const openContact = useContext(OpenContactCtx);
   const [grade, setGrade] = useState<Grade | null>(null);
   const [destacados, setDestacados] = useState(false);
 
@@ -990,7 +1002,10 @@ function PipelineTab() {
                           <td className="p-4 align-middle font-medium whitespace-nowrap px-8 py-4">
                             <div className="flex items-center gap-4">
                               <Avatar grade={r.grade} />
-                              <span className="w-40 truncate uppercase tracking-wide text-xs">
+                              <span
+                                onClick={() => openContact(r.name)}
+                                className="w-40 truncate uppercase tracking-wide text-xs cursor-pointer hover:text-primary transition-colors"
+                              >
                                 {r.name}
                               </span>
                               <div className="flex items-center gap-3 shrink-0 ml-4">
@@ -1106,6 +1121,7 @@ const SCHEDULE: ScheduleSlot[] = [
 ];
 
 function AgendaTab() {
+  const openContact = useContext(OpenContactCtx);
   return (
     <div className="max-w-[1100px] mx-auto w-full pb-32 pt-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between mb-8">
@@ -1243,7 +1259,10 @@ function AgendaTab() {
                     <div className="flex-1 p-5 rounded-2xl border shadow-sm transition-all cursor-pointer bg-background border-border/60 hover:shadow-md hover:border-sky-200/60">
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <h4 className="text-base font-semibold mb-1 text-foreground">
+                          <h4
+                            onClick={() => openContact(s.name)}
+                            className="text-base font-semibold mb-1 text-foreground cursor-pointer hover:text-primary transition-colors"
+                          >
                             {s.name}
                           </h4>
                           <div className="flex flex-col gap-1 text-xs text-muted-foreground mt-2">
@@ -1311,20 +1330,24 @@ function AgendaTab() {
 
 export default function CloserAI() {
   const [tab, setTab] = useState<TabKey>("inicio");
+  const [openContact, setOpenContact] = useState<string | null>(null);
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden relative bg-background">
-      <div className="flex-1 flex flex-col overflow-hidden bg-[#fcfcfd] dark:bg-background">
-        <div className="flex-1 overflow-y-auto">
-          <div className="p-8 max-w-[1600px] mx-auto space-y-8">
-            <Header tab={tab} setTab={setTab} />
-            {tab === "inicio" && <InicioTab />}
-            {tab === "midia" && <MiDiaTab />}
-            {tab === "pipeline" && <PipelineTab />}
-            {tab === "agenda" && <AgendaTab />}
+    <OpenContactCtx.Provider value={setOpenContact}>
+      <div className="flex-1 flex flex-col overflow-hidden relative bg-background">
+        <div className="flex-1 flex flex-col overflow-hidden bg-[#fcfcfd] dark:bg-background">
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-8 max-w-[1600px] mx-auto space-y-8">
+              <Header tab={tab} setTab={setTab} />
+              {tab === "inicio" && <InicioTab />}
+              {tab === "midia" && <MiDiaTab />}
+              {tab === "pipeline" && <PipelineTab />}
+              {tab === "agenda" && <AgendaTab />}
+            </div>
           </div>
         </div>
+        <ContactDrawer name={openContact} onClose={() => setOpenContact(null)} />
       </div>
-    </div>
+    </OpenContactCtx.Provider>
   );
 }
