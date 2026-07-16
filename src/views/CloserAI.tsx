@@ -1,4 +1,5 @@
-import { useState, createContext, useContext } from "react";
+import { useEffect, useState } from "react";
+import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
   House,
@@ -17,6 +18,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Pin,
   Plus,
   Search,
   Users,
@@ -30,35 +32,30 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
+import {
+  useClosurer,
+  STAGE_META,
+  STAGE_ORDER,
+  botIconVisual,
+  countCallsContestadas,
+  countSalesCalls,
+  pendingTasksBreakdown,
+  type Grade,
+  type ClosurerContact,
+  type BotEstado,
+  type CallRecord,
+  type StageKey,
+} from "../lib/closerStore";
+import { useSettings } from "../lib/settingsStore";
+import { useAgentAudit } from "../lib/agentAuditStore";
 
-/** Provides a callback to open the shared contact drawer from any nested component. */
-const OpenContactCtx = createContext<(name: string) => void>(() => {});
+const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
 /* ------------------------------------------------------------------ */
 
 type TabKey = "inicio" | "midia" | "pipeline" | "agenda";
-type Grade = "A" | "B" | "C" | "D";
-
-interface PipelineRow {
-  name: string;
-  grade: Grade;
-  situacion: string;
-  when: string;
-  activity: string;
-  starred?: boolean;
-}
-
-interface PipelineStage {
-  name: string;
-  count: number;
-  dot: string;
-  headerBg: string;
-  labelColor: string;
-  pill: string;
-  rows: PipelineRow[];
-}
 
 /* ------------------------------------------------------------------ */
 /* Shared helpers                                                      */
@@ -84,44 +81,175 @@ function Avatar({ grade }: { grade: Grade }) {
   );
 }
 
-/** Row of contact-status icons used across Mi Día and Pipeline. */
-function StatusIcons({
-  size = "w-3.5 h-3.5",
-  gap = "gap-4",
-  cal = true,
-  phone = false,
-  bot = false,
-  alarm = false,
-  dollar = false,
-}: {
-  size?: string;
-  gap?: string;
-  cal?: boolean;
-  phone?: boolean;
-  bot?: boolean;
-  alarm?: boolean;
-  dollar?: boolean;
-}) {
-  const items: Array<[LucideIcon, boolean]> = [
-    [Calendar, cal],
-    [Phone, phone],
-    [Bot, bot],
-    [AlarmClock, alarm],
-    [DollarSign, dollar],
-  ];
+/** Columna de ancho fijo para cada ícono de estado — garantiza que todas las filas alineen entre sí, aunque un slot (ej. 📞 "2✗") sea más ancho que un ícono suelto. */
+function IconSlot({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
+  return <div className={cn("flex items-center justify-center shrink-0", wide ? "w-7" : "w-3.5")}>{children}</div>;
+}
+
+/**
+ * 📞 con contador de llamadas de IA contestadas — regla de oro: 0 = icono atenuado, sin número.
+ * Derivado de `contact.llamadas` (§ auditoría íconos, 2026-07-10) — nunca un campo seteado a mano.
+ * Cuenta ÚNICAMENTE Lead Flow Voz + App Flow Voz; las sales calls jamás suman aquí (regla de la spec).
+ */
+function CallsBadge({ llamadas }: { llamadas?: CallRecord[] }) {
+  const count = countCallsContestadas(llamadas);
+  if (count === 0) {
+    return <Phone className="w-3.5 h-3.5 text-[#6b6980]/25 shrink-0" />;
+  }
   return (
-    <div className={cn("flex items-center shrink-0", gap)}>
-      {items.map(([Icon, active], i) => (
-        <div
-          key={i}
-          className={cn(
-            "flex items-center gap-1 transition-colors",
-            active ? "text-[#6b6980]" : "text-[#6b6980]/25",
-          )}
-        >
-          <Icon className={size} />
+    <span className="flex items-center gap-0.5 text-[11px] font-semibold shrink-0 text-[#6b6980]">
+      <Phone className="w-3.5 h-3.5" />
+      {count}✓
+    </span>
+  );
+}
+
+/**
+ * 📹 con contador de llamadas/reuniones con el closer (2026-07-11) — reemplaza al viejo flag 🎙
+ * y a la derivación por `agenda.meetUrl`. Mismo patrón que `CallsBadge`: 0 = ícono atenuado sin número.
+ */
+function VideoCallBadge({ llamadas }: { llamadas?: CallRecord[] }) {
+  const count = countSalesCalls(llamadas);
+  if (count === 0) {
+    return <Video className="w-3.5 h-3.5 text-[#6b6980]/25 shrink-0" />;
+  }
+  return (
+    <span className="flex items-center gap-0.5 text-[11px] font-semibold shrink-0 text-[#6b6980]">
+      <Video className="w-3.5 h-3.5" />
+      {count}
+    </span>
+  );
+}
+
+/** 🤖 — misma fuente de verdad que el toggle del compositor (botIconVisual, regla D.7). "LT" = derivado a low-ticket. */
+function BotIcon({ estado }: { estado?: BotEstado }) {
+  const v = botIconVisual(estado);
+  if (v.label) {
+    return (
+      <span className={cn("flex items-center gap-0.5 text-[11px] font-semibold shrink-0", v.className)} title={v.title}>
+        <Bot className="w-3.5 h-3.5" />
+        {v.label}
+      </span>
+    );
+  }
+  return (
+    <span className="flex items-center shrink-0" title={v.title}>
+      <Bot className={cn("w-3.5 h-3.5", v.className)} />
+    </span>
+  );
+}
+
+/**
+ * Fila de contacto de Mi Día — estructura inquebrantable compartida por
+ * Urgentes / Respondieron / Seguimientos: Score · Nombre · Fuente · Píldora ·
+ * microtexto de evento real · iconos de estado · chevron.
+ */
+function MiDiaRow({
+  c,
+  onOpen,
+  microtext,
+  microClass,
+  prefix,
+  badge,
+  highlighted,
+  completed = false,
+}: {
+  c: ClosurerContact;
+  onOpen: (name: string) => void;
+  microtext: string;
+  microClass?: string;
+  /** Ej. "Falla detectada por IA:" en Urgentes. */
+  prefix?: string;
+  /** Ej. "Abierta hace 767 días" en Urgentes. */
+  badge?: string;
+  highlighted?: boolean;
+  /** Completadas Hoy: fila atenuada + nombre tachado, pero fuente/píldora/iconos SIGUEN visibles (regla de Francisco, 2026-07-10). */
+  completed?: boolean;
+}) {
+  const pinned = !completed && c.pinned;
+  return (
+    <div
+      onClick={() => onOpen(c.name)}
+      className={cn(
+        "flex items-center justify-between gap-4 px-6 py-4 cursor-pointer transition-colors group",
+        highlighted
+          ? "bg-rose-500/5 hover:bg-rose-500/10 border-l-2 border-rose-500"
+          : pinned
+            ? "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-amber-400"
+            : "hover:bg-muted/30",
+        completed && "opacity-75 hover:opacity-100",
+      )}
+    >
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <Avatar grade={c.grade} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span
+              className={cn(
+                "font-medium text-sm truncate group-hover:text-primary transition-colors flex items-center gap-1.5",
+                completed && "line-through decoration-muted-foreground/60 text-muted-foreground",
+              )}
+            >
+              {c.name}
+              {pinned && <Pin className="w-3 h-3 text-amber-500 shrink-0" />}
+            </span>
+            {pinned && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 shrink-0">
+                <Clock className="w-2.5 h-2.5" /> Le debes respuesta
+              </span>
+            )}
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 shrink-0">
+              {c.fuente ?? "DIRECTO"}
+            </span>
+            <span
+              className={cn(
+                "text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border shrink-0",
+                completed ? "bg-muted text-muted-foreground border-border" : STAGE_META[c.stage].pill,
+              )}
+            >
+              {c.situacion}
+            </span>
+          </div>
+          <p className={cn("text-xs truncate max-w-[420px]", microClass ?? "text-muted-foreground")}>
+            {prefix && <span className="font-semibold text-foreground/70">{prefix} </span>}
+            {microtext}
+            {badge && (
+              <span className="ml-2 font-bold uppercase tracking-wider text-[10px] bg-rose-500/20 px-1.5 py-0.5 rounded-sm">
+                {badge}
+              </span>
+            )}
+          </p>
         </div>
-      ))}
+      </div>
+      <div className="flex items-center gap-4 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <IconSlot wide>
+            <VideoCallBadge llamadas={c.llamadas} />
+          </IconSlot>
+          <IconSlot>
+            <Calendar
+              className={cn("w-3.5 h-3.5", c.agenda ? "text-[#6b6980]" : "text-[#6b6980]/25")}
+            />
+          </IconSlot>
+          <IconSlot wide>
+            <CallsBadge llamadas={c.llamadas} />
+          </IconSlot>
+          <IconSlot wide>
+            <BotIcon estado={c.botEstado} />
+          </IconSlot>
+          <IconSlot>
+            <AlarmClock
+              className={cn("w-3.5 h-3.5", c.cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")}
+            />
+          </IconSlot>
+          <IconSlot>
+            <DollarSign
+              className={cn("w-3.5 h-3.5", c.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")}
+            />
+          </IconSlot>
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
+      </div>
     </div>
   );
 }
@@ -130,14 +258,22 @@ function StatusIcons({
 /* Header + tab bar                                                    */
 /* ------------------------------------------------------------------ */
 
-const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon; badge?: string }> = [
+const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
   { key: "inicio", label: "Inicio", icon: House },
-  { key: "midia", label: "Mi Día", icon: LayoutList, badge: "7" },
+  { key: "midia", label: "Mi Día", icon: LayoutList },
   { key: "pipeline", label: "Pipeline", icon: SquareKanban },
   { key: "agenda", label: "Agenda", icon: Calendar },
 ];
 
+/**
+ * § ciclo de vida de tareas en Mi Día (2026-07-11): el badge de "Mi Día" del nav, el header de
+ * Mi Día y el puente de Inicio deben derivar del MISMO `pendingTasksBreakdown()` — antes cada uno
+ * tenía su propia fórmula (nav: "7" hardcodeado; Inicio: "28" hardcodeado + "11 espera" hardcodeado;
+ * Mi Día: fórmula real pero nunca comparada con las otras dos) y mostraban 3 números distintos.
+ */
 function Header({ tab, setTab }: { tab: TabKey; setTab: (t: TabKey) => void }) {
+  const { contacts } = useClosurer();
+  const { total: midiaBadge } = pendingTasksBreakdown(contacts);
   return (
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-8 border-b border-border/30">
       <div>
@@ -158,8 +294,9 @@ function Header({ tab, setTab }: { tab: TabKey; setTab: (t: TabKey) => void }) {
       </div>
       <div className="flex items-center gap-3 pr-14 lg:pr-0">
         <div className="flex items-center gap-1.5 bg-card border border-border/40 rounded-full p-1.5 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)]">
-          {TABS.map(({ key, label, icon: Icon, badge }) => {
+          {TABS.map(({ key, label, icon: Icon }) => {
             const active = tab === key;
+            const badge = key === "midia" && midiaBadge > 0 ? String(midiaBadge) : undefined;
             return (
               <button
                 key={key}
@@ -196,58 +333,93 @@ function Header({ tab, setTab }: { tab: TabKey; setTab: (t: TabKey) => void }) {
 /* INICIO — cockpit                                                    */
 /* ================================================================== */
 
-interface Kpi {
-  label: string;
-  icon: LucideIcon;
-  value: string;
-  extra: string;
-  extraClass?: string;
+const RING_ANIM_DURATION = 1.8;
+
+/**
+ * Contador animado (§ Anillo Dorado / Cash Collected, 2026-07-11) — anima desde el valor previo
+ * (o 0 en el primer render) hacia `value` cada vez que cambia, ej. al montar el dashboard o al
+ * registrar una venta nueva. Sincronizado en duración con `GoldRing` para que ambos "terminen de
+ * cargar" al mismo tiempo.
+ */
+function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {
+  const motionVal = useMotionValue(0);
+  const display = useTransform(motionVal, (v) => format(Math.round(v)));
+  useEffect(() => {
+    const controls = animate(motionVal, value, { duration: RING_ANIM_DURATION, ease: "easeOut" });
+    return () => controls.stop();
+  }, [value]);
+  return <motion.span>{display}</motion.span>;
 }
 
-const INICIO_KPIS: Kpi[] = [
-  {
-    label: "Cash Collected · Julio",
-    icon: DollarSign,
-    value: "$34,000",
-    extra: "▲ $5,100",
-    extraClass: "text-emerald-600 dark:text-emerald-400",
-  },
-  { label: "Ventas", icon: Target, value: "8", extra: "tasa 20.0%" },
-  { label: "Acuerdos", icon: TrendingUp, value: "$2,000", extra: "4 leads" },
-  { label: "Calls Mes", icon: PhoneCall, value: "80", extra: "20 semanales" },
-  { label: "Show Rate", icon: Users, value: "60%", extra: "meta 70%" },
-  {
-    label: "Comisión",
-    icon: DollarSign,
-    value: "$3,400",
-    extra: "Faltan $-400 para meta ≈ 0 ventas más",
-  },
-];
+/**
+ * Anillo dorado de progreso hacia la meta mensual — real, no decorativo: el trazo dorado se anima
+ * (stroke-dashoffset) desde "vacío" hasta el % logrado (tope visual 100%, aunque el texto del centro
+ * puede superar el 100% si la meta ya se superó). `percentage` ya debe venir capado por el caller.
+ */
+function GoldRing({ percentage }: { percentage: number }) {
+  const r = 46;
+  const circumference = 2 * Math.PI * r;
+  const targetOffset = circumference - (percentage / 100) * circumference;
+  const offset = useMotionValue(circumference);
+  useEffect(() => {
+    const controls = animate(offset, targetOffset, { duration: RING_ANIM_DURATION, ease: "easeOut" });
+    return () => controls.stop();
+  }, [targetOffset]);
+  return (
+    <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
+      <motion.circle
+        cx="50"
+        cy="50"
+        r={r}
+        fill="none"
+        stroke="url(#gold-gradient)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={circumference}
+        style={{ strokeDashoffset: offset }}
+      />
+      <defs>
+        <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="#FFE5A3" />
+          <stop offset="50%" stopColor="#D4AF37" />
+          <stop offset="100%" stopColor="#997A15" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
 
-const INGRESOS: Array<{ mes: string; valor: number; label: string }> = [
-  { mes: "Mar", valor: 0, label: "$0" },
-  { mes: "Abr", valor: 8500, label: "$8.5k" },
-  { mes: "May", valor: 17000, label: "$17k" },
-  { mes: "Jun", valor: 25500, label: "$25.5k" },
-  { mes: "Jul", valor: 34000, label: "$34k" },
-];
-
-const COCKPIT_STATS = [
-  { l: "Ventas", v: "8", s: "tasa 20.0%" },
-  { l: "Acuerdos", v: "$2,000", s: "4 leads" },
-  { l: "Calls Mes", v: "80", s: "20 semanales" },
-  { l: "Show rate", v: "60%", s: "meta 70%" },
-];
-const CHART = [
+const CHART_HIST = [
   { mes: "Abr", valor: 8500 },
   { mes: "May", valor: 17000 },
   { mes: "Jun", valor: 25500 },
-  { mes: "Jul", valor: 34000 },
 ];
-const Y_TICKS = ["$34k", "$25.5k", "$17k", "$8.5k", "$0"];
 
-function InicioTab() {
-  const max = 34000;
+function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
+  const { cockpit, contacts } = useClosurer();
+  const { miCuenta } = useSettings();
+  const cierreEnCurso = Object.values(contacts).filter((c) => c.stage === "cierre");
+  const cierreMonto = cierreEnCurso.reduce((s, c) => s + (c.monto ?? 0), 0);
+  const tareas = pendingTasksBreakdown(contacts);
+  const closeRate = cockpit.ventas > 0 ? ((cockpit.ventas / 40) * 100).toFixed(1) : "0.0";
+  const falta = miCuenta.metaComision - cockpit.comision;
+  const avgComision = cockpit.ventas > 0 ? cockpit.comision / cockpit.ventas : 0;
+  const ventasFaltantes = falta > 0 && avgComision > 0 ? Math.ceil(falta / avgComision) : 0;
+  // § auditoría v2 (2026-07-11): "Meta superada" nunca debe mostrarse con comisión $0 — evita el caso
+  // contradictorio (meta mal configurada en $0/negativa + comisión $0 celebrando una meta "superada").
+  const metaSuperada = falta <= 0 && cockpit.comision > 0;
+  // Anillo dorado (§ 2026-07-11): % real hacia la meta, capado a 100 solo para el SVG — el texto puede superar el 100%.
+  const ringPercentage = miCuenta.metaComision > 0 ? Math.min((cockpit.comision / miCuenta.metaComision) * 100, 100) : 0;
+  const cockpitStats = [
+    { l: "Ventas", v: String(cockpit.ventas), s: `tasa ${closeRate}%` },
+    { l: "Acuerdos", v: money(cierreMonto), s: `${cierreEnCurso.length} leads` },
+    { l: "Calls Mes", v: String(cockpit.callsMes), s: "20 semanales" },
+    { l: "Show rate", v: "60%", s: "meta 70%" },
+  ];
+  const chart = [...CHART_HIST, { mes: "Jul", valor: cockpit.cashCollected }];
+  const max = Math.max(...chart.map((c) => c.valor));
+  const yTicks = [max, max * 0.75, max * 0.5, max * 0.25, 0].map((v) => (v === 0 ? "$0" : `$${(v / 1000).toFixed(1).replace(".0", "")}k`));
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-5xl mx-auto pb-12">
       {/* Hero negro/dorado */}
@@ -263,8 +435,11 @@ function InicioTab() {
               <Zap className="w-3 h-3" />
               Cash Collected · JULIO
             </div>
-            <div className="text-6xl sm:text-[90px] font-light tracking-tighter mb-6 leading-[0.9] text-transparent bg-clip-text bg-gradient-to-br from-white via-[#F5D78D] to-[#C99738]">
-              $34,000
+            <div
+              className="text-6xl sm:text-[90px] font-light tracking-tighter mb-6 leading-[0.9] text-transparent bg-clip-text bg-gradient-to-br from-white via-[#F5D78D] to-[#C99738]"
+              style={{ filter: "drop-shadow(0 0 24px rgba(212,175,55,0.35))" }}
+            >
+              <AnimatedNumber value={cockpit.cashCollected} format={money} />
             </div>
             <div className="flex flex-col gap-3 text-sm text-white/60 font-light mb-10">
               <p className="flex items-center gap-2">
@@ -274,7 +449,7 @@ function InicioTab() {
               </p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4">
-              {COCKPIT_STATS.map((x) => (
+              {cockpitStats.map((x) => (
                 <div key={x.l} className="flex flex-col">
                   <p className="text-[10px] uppercase tracking-widest text-white/40 mb-1">{x.l}</p>
                   <p className="text-2xl font-light text-white/90">{x.v}</p>
@@ -290,56 +465,50 @@ function InicioTab() {
                 className="absolute inset-0 bg-[#D4AF37]/10 rounded-full blur-xl animate-pulse"
                 style={{ animationDuration: "3s" }}
               />
-              <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
-                <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
-                <circle
-                  cx="50"
-                  cy="50"
-                  r="46"
-                  fill="none"
-                  stroke="url(#gold-gradient)"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeDasharray="289"
-                />
-                <defs>
-                  <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" stopColor="#FFE5A3" />
-                    <stop offset="50%" stopColor="#D4AF37" />
-                    <stop offset="100%" stopColor="#997A15" />
-                  </linearGradient>
-                </defs>
-              </svg>
+              <GoldRing percentage={ringPercentage} />
               <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-                <span className="text-3xl font-light text-white tracking-tight">$3,400</span>
+                <span className="text-3xl font-light text-white tracking-tight">
+                  <AnimatedNumber value={cockpit.comision} format={money} />
+                </span>
                 <span className="text-[9px] uppercase tracking-widest text-white/40 mt-1">Comisión</span>
               </div>
             </div>
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 w-full text-center backdrop-blur-sm">
-              <p className="text-xs font-light text-white/70 mb-1">
-                Faltan <span className="text-white font-medium">$-400</span> para meta
+              {!metaSuperada ? (
+                <p className="text-xs font-light text-white/70 mb-1">
+                  Faltan <span className="text-white font-medium">{money(Math.max(falta, 0))}</span> para meta
+                </p>
+              ) : (
+                <p className="text-xs font-light text-white/70 mb-1">
+                  Meta superada por <span className="text-white font-medium">{money(-falta)}</span>
+                </p>
+              )}
+              <p className="text-sm font-medium text-[#D4AF37]">
+                {!metaSuperada ? `≈ ${ventasFaltantes} ventas más` : "🎉 ¡Meta superada!"}
               </p>
-              <p className="text-sm font-medium text-[#D4AF37]">≈ 0 ventas más</p>
             </div>
           </div>
         </div>
       </div>
 
       {/* 28 tareas pendientes */}
-      <div className="rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div
+        onClick={onGoToMiDia}
+        className="rounded-2xl border border-border/50 bg-card/50 backdrop-blur-sm p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 cursor-pointer hover:border-border hover:bg-card/80 transition-colors"
+      >
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center text-red-500 shrink-0">
             <Zap className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-foreground mb-1">28 tareas pendientes</h3>
+            <h3 className="text-base font-semibold text-foreground mb-1">{tareas.total} tareas pendientes</h3>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
               <span className="text-red-500 font-medium flex items-center gap-1">
-                <span className="text-sm">🔥</span> 5 urgente
+                <span className="text-sm">🔥</span> {tareas.urgentes} urgente
               </span>
               <span className="text-muted-foreground/30">•</span>
               <span className="text-blue-500 font-medium flex items-center gap-1">
-                <span className="text-sm">💬</span> 11 espera
+                <span className="text-sm">💬</span> {tareas.respondieron} espera
               </span>
               <span className="text-muted-foreground/30">•</span>
               <span className="flex items-center gap-1">
@@ -363,12 +532,12 @@ function InicioTab() {
         </div>
         <div className="h-[220px] w-full flex">
           <div className="flex flex-col justify-between text-[10px] text-muted-foreground/40 pr-3 text-right shrink-0">
-            {Y_TICKS.map((t) => (
+            {yTicks.map((t) => (
               <span key={t}>{t}</span>
             ))}
           </div>
           <div className="flex-1 flex items-end justify-around border-l border-b border-border/30 pl-2">
-            {CHART.map((c) => (
+            {chart.map((c) => (
               <div key={c.mes} className="flex-1 flex flex-col items-center justify-end h-full">
                 <div
                   className="w-6 rounded-t bg-[#D4AF37] opacity-90 hover:opacity-100 transition-opacity"
@@ -388,7 +557,7 @@ function InicioTab() {
           post-call 9 min.
         </p>
         <p className="text-[10px] text-muted-foreground/40">
-          Prototipo · datos demo · InmoLead AI — las acciones simulan los eventos que en producción
+          Prototipo · datos demo · Comando Central — las acciones simulan los eventos que en producción
           vienen de GHL.
         </p>
       </div>
@@ -400,80 +569,37 @@ function InicioTab() {
 /* MI DÍA                                                              */
 /* ================================================================== */
 
-interface AgendaItem {
-  time: string;
-  name: string;
-  grade: Grade;
-  badge?: string;
-  expanded?: boolean;
-  briefing?: string;
-  videoPre?: string;
-  icons: { phone?: boolean; bot?: boolean; alarm?: boolean; dollar?: boolean };
-}
-
-const MIDIA_AGENDA: AgendaItem[] = [
-  {
-    time: "10:00",
-    name: "JUAN PEREZ",
-    grade: "C",
-    badge: "EN 15 MIN",
-    expanded: true,
-    briefing:
-      "Llamada agendada para hoy. El prospecto está muy interesado en automatizar su agencia.",
-    videoPre: "✓ Vio el video pre-call (100%)",
-    icons: { bot: true },
-  },
-  { time: "11:00", name: "MARTA PEREZ", grade: "B", icons: { bot: true } },
-  { time: "12:00", name: "LUIS GOMEZ", grade: "D", icons: {} },
-  { time: "13:00", name: "SOFIA SANCHEZ", grade: "B", icons: { bot: true } },
-  { time: "14:00", name: "CARMEN GOMEZ", grade: "A", icons: { bot: true } },
-];
-
-interface Intervention {
-  name: string;
-  grade: Grade;
-  situacion: string;
-  pill: string;
-  detail: string;
-  highlighted?: boolean;
-  detailClass?: string;
-  daysBadge?: string;
-  phone?: boolean;
-}
-
-const INTERVENTIONS: Intervention[] = [
-  {
-    name: "ARIEL MENDEZ",
-    grade: "B",
-    situacion: "No interesado • Precio",
-    pill: "bg-rose-50 text-rose-700 border-rose-200/60 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/30",
-    detail:
-      "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió. Requiere intervención inmediata para no perder la venta.",
-    highlighted: true,
-    detailClass: "text-rose-700 dark:text-rose-400 font-medium",
-    daysBadge: "Abierta hace 767 días",
-    phone: true,
-  },
-  {
-    name: "PEDRO GOMEZ",
-    grade: "C",
-    situacion: "No-show • Plantón",
-    pill: "bg-orange-50 text-orange-700 border-orange-200/60 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30",
-    detail: "venía muy seguro · plantó",
-    detailClass: "text-muted-foreground",
-  },
-  {
-    name: "ANA MARTINEZ",
-    grade: "C",
-    situacion: "No-show • Plantón",
-    pill: "bg-orange-50 text-orange-700 border-orange-200/60 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30",
-    detail: "venía muy seguro · plantó",
-    detailClass: "text-muted-foreground",
-  },
-];
+const scrollToSection = (id: string) =>
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
 function MiDiaTab() {
-  const openContact = useContext(OpenContactCtx);
+  const { contacts, openContact } = useClosurer();
+  const all = Object.values(contacts);
+  const urgentes = all.filter((c) => c.urgente && !c.completedToday);
+  // Pineados ("mantener") primero — § ciclo de vida de tareas, 2026-07-11.
+  const respondieron = all
+    .filter((c) => c.respondido && !c.completedToday)
+    .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+  const respondieronPinnedCount = respondieron.filter((c) => c.pinned).length;
+  // Pineados primero también en Seguimientos — § correcciones toast/pin v2, 2026-07-11: es una tarea de conversación igual que Respondieron.
+  const seguimientosHoy = all
+    .filter((c) => c.seguimientoPendiente && !c.completedToday)
+    .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+  const seguimientosPinnedCount = seguimientosHoy.filter((c) => c.pinned).length;
+  const agendaHoy = all
+    .filter((c) => c.agenda && !c.completedToday)
+    .sort((a, b) => (a.agenda!.time > b.agenda!.time ? 1 : -1));
+  const completadas = all.filter((c) => c.completedToday);
+  const [expandedAgenda, setExpandedAgenda] = useState<Set<string>>(
+    () => new Set(all.filter((c) => c.agenda?.expanded).map((c) => c.name)),
+  );
+  const toggleAgendaExpanded = (name: string) =>
+    setExpandedAgenda((prev) => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  const tareasHoy = pendingTasksBreakdown(contacts).total;
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Two big KPI cards */}
@@ -500,47 +626,60 @@ function MiDiaTab() {
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-5xl font-light tracking-tight">30</span>
+            <span className="text-5xl font-light tracking-tight">{tareasHoy}</span>
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex items-center gap-1.5 bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border border-red-500/20">
-                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />5 requiere
-                atención ya
-              </div>
+              <button
+                onClick={() => scrollToSection("midia-urgentes")}
+                className="inline-flex items-center gap-1.5 bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border border-red-500/20 hover:bg-red-500/20 transition-colors"
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                {urgentes.length ? `${urgentes.length} urgentes` : "Sin urgentes"}
+              </button>
+              <button
+                onClick={() => scrollToSection("midia-completadas")}
+                className="inline-flex items-center gap-1.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors"
+              >
+                ✓ {completadas.length} completadas
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Three small KPI cards */}
+      {/* Three small KPI cards — anclas de scroll a cada sección */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {[
           {
             icon: CirclePause,
-            value: "5",
+            value: String(urgentes.length),
             label: "Intervención urgente",
             bg: "bg-red-500/10",
             fg: "text-red-500",
             hover: "group-hover:text-red-500",
+            target: "midia-urgentes",
           },
           {
             icon: MessageCircle,
-            value: "11",
-            label: "Mensajes buzón general",
+            value: String(respondieron.length),
+            label: "Respondieron (buzón general)",
             bg: "bg-purple-500/10",
             fg: "text-purple-500",
             hover: "group-hover:text-purple-500",
+            target: "midia-respondieron",
           },
           {
             icon: RefreshCw,
-            value: "12",
+            value: String(seguimientosHoy.length),
             label: "Seguimientos hoy",
             bg: "bg-yellow-500/10",
             fg: "text-yellow-600",
             hover: "group-hover:text-yellow-600",
+            target: "midia-seguimientos",
           },
         ].map((c) => (
           <div
             key={c.label}
+            onClick={() => scrollToSection(c.target)}
             className="flex flex-col p-4 rounded-[1.5rem] bg-card/50 backdrop-blur-sm border border-border/40 hover:bg-muted/30 transition-all cursor-pointer group shadow-sm"
           >
             <div className="flex items-center justify-between mb-2">
@@ -574,153 +713,218 @@ function MiDiaTab() {
             Agenda de Hoy
           </h3>
           <span className="bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-            6
+            {agendaHoy.length}
           </span>
         </div>
         <div className="pl-3 border-l-[1.5px] border-blue-500/30 space-y-3 relative ml-1.5 py-0.5">
-          {MIDIA_AGENDA.map((item, idx) => (
-            <div
-              key={item.time}
-              className="relative group cursor-pointer flex flex-col pl-2 py-1 hover:bg-muted/30 rounded-lg transition-colors"
-            >
+          {agendaHoy.map((item, idx) => {
+            const isOpen = expandedAgenda.has(item.name);
+            return (
               <div
-                className={cn(
-                  "absolute -left-[17.5px] top-[14px] w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition-transform",
-                  idx === 0 ? "ring-4 ring-blue-500/20" : "ring-4 ring-background",
-                )}
-              />
-              <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-3">
-                  <span className="font-bold text-xs text-blue-600 shrink-0 w-10">
-                    {item.time}
-                  </span>
-                  <Avatar grade={item.grade} />
-                  <span
-                    onClick={() => openContact(item.name)}
-                    className="font-semibold text-sm truncate uppercase flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"
-                  >
-                    {item.name}
-                    {item.badge && (
-                      <span className="bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider">
-                        {item.badge}
-                      </span>
-                    )}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 shrink-0 pr-2">
-                  {idx === 0 ? (
-                    <button className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white rounded-full text-[10px] font-bold transition-all shadow-sm mr-2">
-                      <Video className="w-3 h-3" />
-                      <span>Unirse</span>
-                    </button>
-                  ) : (
-                    <button className="flex items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 rounded-full transition-all mr-2">
-                      <Video className="w-4 h-4" />
-                    </button>
+                key={item.name}
+                className="relative group flex flex-col pl-2 py-1 hover:bg-muted/30 rounded-lg transition-colors"
+              >
+                <div
+                  className={cn(
+                    "absolute -left-[17.5px] top-[14px] w-2 h-2 rounded-full bg-blue-500 group-hover:scale-125 transition-transform",
+                    idx === 0 ? "ring-4 ring-blue-500/20" : "ring-4 ring-background",
                   )}
-                  <StatusIcons
-                    gap="gap-2"
-                    phone={item.icons.phone}
-                    bot={item.icons.bot}
-                    alarm={item.icons.alarm}
-                    dollar={item.icons.dollar}
-                  />
-                  <button className="ml-2 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-muted/50">
-                    <ChevronDown
-                      className={cn(
-                        "w-4 h-4 transition-transform duration-200",
-                        idx === 0 && "rotate-180",
-                      )}
-                    />
-                  </button>
-                </div>
-              </div>
-              {item.expanded && (
-                <div className="mt-2 ml-[52px] mr-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg animate-in slide-in-from-top-2 fade-in duration-200">
-                  <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
-                    <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
-                      Briefing IA:
+                />
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-3 cursor-pointer" onClick={() => toggleAgendaExpanded(item.name)}>
+                    <span className="font-bold text-xs text-blue-600 shrink-0 w-10">
+                      {item.agenda!.time}
                     </span>
-                    {item.briefing}
-                  </p>
-                  {item.videoPre && (
-                    <p className="text-[11px] font-medium mt-2 text-emerald-600 dark:text-emerald-400">
-                      {item.videoPre}
-                    </p>
-                  )}
+                    <Avatar grade={item.grade} />
+                    <span
+                      onClick={(e) => { e.stopPropagation(); openContact(item.name); }}
+                      className="font-semibold text-sm truncate uppercase flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"
+                    >
+                      {item.name}
+                      {item.agenda!.badge && (
+                        <span className="bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-bold px-1.5 py-0.5 rounded-sm uppercase tracking-wider">
+                          {item.agenda!.badge}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0 pr-2">
+                    {item.agenda!.meetUrl ? (
+                      idx === 0 ? (
+                        <button
+                          onClick={() => window.open(item.agenda!.meetUrl, "_blank")}
+                          className="flex items-center gap-1.5 px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white rounded-full text-[10px] font-bold transition-all shadow-sm mr-2"
+                        >
+                          <Video className="w-3 h-3" />
+                          <span>Unirse</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => window.open(item.agenda!.meetUrl, "_blank")}
+                          className="flex items-center gap-1.5 px-2 py-1 text-muted-foreground hover:text-blue-600 dark:hover:text-blue-400 rounded-full transition-all mr-2"
+                          title="Link del Meet"
+                        >
+                          <Video className="w-4 h-4" />
+                        </button>
+                      )
+                    ) : (
+                      <div className="flex items-center gap-1.5 px-2 py-1 text-[#6b6980]/25 mr-2" title="Sin sala de Meet">
+                        <Video className="w-4 h-4" />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2.5">
+                      <IconSlot wide>
+                        <VideoCallBadge llamadas={item.llamadas} />
+                      </IconSlot>
+                      <IconSlot>
+                        <Calendar className="w-3.5 h-3.5 text-[#6b6980]" />
+                      </IconSlot>
+                      <IconSlot wide>
+                        <CallsBadge llamadas={item.llamadas} />
+                      </IconSlot>
+                      <IconSlot wide>
+                        <BotIcon estado={item.botEstado} />
+                      </IconSlot>
+                      <IconSlot>
+                        <AlarmClock className={cn("w-3.5 h-3.5", item.cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
+                      </IconSlot>
+                      <IconSlot>
+                        <DollarSign className={cn("w-3.5 h-3.5", item.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} />
+                      </IconSlot>
+                    </div>
+                    <button
+                      onClick={() => toggleAgendaExpanded(item.name)}
+                      className="ml-2 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-muted/50"
+                    >
+                      <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isOpen && "rotate-180")} />
+                    </button>
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
+                {item.agenda!.briefing && (
+                  <div className={cn("grid transition-[grid-template-rows] duration-300 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                    <div className="overflow-hidden">
+                      <div className="mt-2 ml-[52px] mr-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
+                        <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+                          <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
+                            Briefing IA:
+                          </span>
+                          {item.agenda!.briefing}
+                        </p>
+                        {item.agenda!.videoPre && (
+                          <p className="text-[11px] font-medium mt-2 text-emerald-600 dark:text-emerald-400">
+                            {item.agenda!.videoPre}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Intervenciones urgentes */}
-      <div className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm">
+      <div id="midia-urgentes" className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm scroll-mt-6">
         <div className="bg-rose-500/10 px-6 py-4 border-b border-border flex items-center gap-3">
           <h3 className="text-[13px] font-semibold text-rose-900 dark:text-rose-300 uppercase tracking-wide">
             Intervenciones urgentes
           </h3>
           <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-            5
+            {urgentes.length}
           </span>
         </div>
         <div className="divide-y divide-border">
-          {INTERVENTIONS.map((iv) => (
-            <div
+          {urgentes.map((iv) => (
+            <MiDiaRow
               key={iv.name}
-              className={cn(
-                "p-6 transition-all duration-200 even:bg-muted/30 flex items-center justify-between group cursor-pointer",
-                iv.highlighted
-                  ? "bg-rose-500/5 hover:bg-rose-500/10 border-l-2 border-rose-500"
-                  : "bg-background/50 hover:bg-muted/50",
-              )}
-            >
-              <div className="w-full">
-                <div className="w-full">
-                  <div className="flex items-center justify-between w-full mb-1.5">
-                    <div className="flex items-center gap-2">
-                      <Avatar grade={iv.grade} />
-                      <h4
-                        onClick={() => openContact(iv.name)}
-                        className="font-semibold text-[15px] truncate max-w-[150px] uppercase cursor-pointer hover:text-primary transition-colors"
-                      >
-                        {iv.name}
-                      </h4>
-                    </div>
-                    <StatusIcons size="w-4 h-4" gap="gap-4" phone={iv.phone} />
-                  </div>
-                  <div className="flex items-center gap-2 mb-1.5 mt-1">
-                    <span
-                      className={cn(
-                        "text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border",
-                        iv.pill,
-                      )}
-                    >
-                      {iv.situacion}
-                    </span>
-                  </div>
+              c={iv}
+              onOpen={openContact}
+              microtext={iv.urgente!.detail}
+              microClass={iv.urgente!.detailClass}
+              prefix="Falla detectada por IA:"
+              badge={iv.urgente!.daysBadge}
+              highlighted={iv.urgente!.highlighted}
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Respondieron (buzón general) */}
+      <div id="midia-respondieron" className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm scroll-mt-6">
+        <div className="bg-purple-500/10 px-6 py-4 border-b border-border flex items-center gap-3">
+          <h3 className="text-[13px] font-semibold text-purple-900 dark:text-purple-300 uppercase tracking-wide">
+            Respondieron · Buzón general
+          </h3>
+          <span className="bg-purple-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+            {respondieron.length}
+          </span>
+        </div>
+        <div className="divide-y divide-border">
+          {respondieron.map((c, i) => (
+            <div key={c.name}>
+              {i === respondieronPinnedCount && respondieronPinnedCount > 0 && (
+                <div className="px-6 py-1.5 bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-y border-border/60">
+                  Sin atender
                 </div>
-                <p
-                  className={cn(
-                    "text-xs truncate max-w-[400px] mt-1",
-                    iv.detailClass ?? "text-muted-foreground",
-                  )}
-                >
-                  <span className="font-semibold text-foreground/70">
-                    Falla detectada por IA:
-                  </span>{" "}
-                  {iv.detail}
-                  {iv.daysBadge && (
-                    <span className="ml-2 font-bold uppercase tracking-wider text-[10px] bg-rose-500/20 px-1.5 py-0.5 rounded-sm">
-                      {iv.daysBadge}
-                    </span>
-                  )}
-                </p>
-              </div>
+              )}
+              <MiDiaRow c={c} onOpen={openContact} microtext={c.respondido!.microtext} />
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Seguimientos de hoy */}
+      <div id="midia-seguimientos" className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm scroll-mt-6">
+        <div className="bg-amber-500/10 px-6 py-4 border-b border-border flex items-center gap-3">
+          <h3 className="text-[13px] font-semibold text-amber-900 dark:text-amber-300 uppercase tracking-wide">
+            Seguimientos de hoy
+          </h3>
+          <span className="bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+            {seguimientosHoy.length}
+          </span>
+        </div>
+        <div className="divide-y divide-border">
+          {seguimientosHoy.map((c, i) => (
+            <div key={c.name}>
+              {i === seguimientosPinnedCount && seguimientosPinnedCount > 0 && (
+                <div className="px-6 py-1.5 bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-y border-border/60">
+                  Sin atender
+                </div>
+              )}
+              <MiDiaRow
+                c={c}
+                onOpen={openContact}
+                microtext={c.seguimientoPendiente!.microtext}
+                microClass={c.seguimientoPendiente!.vencido ? "text-red-600 dark:text-red-400 font-medium" : "text-muted-foreground"}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Completadas Hoy — regla §4.1: siempre visible, aunque esté vacía. Tono gris/neutral: ya no requiere atención. */}
+      <div id="midia-completadas" className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm scroll-mt-6">
+        <div className="bg-muted/40 px-6 py-4 border-b border-border flex items-center gap-3">
+          <h3 className="text-[13px] font-semibold text-muted-foreground uppercase tracking-wide">
+            ✓ Completadas Hoy
+          </h3>
+          <span className="bg-muted-foreground/60 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+            {completadas.length}
+          </span>
+        </div>
+        {completadas.length === 0 ? (
+          <div className="px-6 py-8 text-center text-xs text-muted-foreground">
+            Todavía no completaste ninguna gestión hoy.
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {completadas.map((c) => (
+              <MiDiaRow key={c.name} c={c} onOpen={openContact} microtext={c.activity} completed />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -730,114 +934,29 @@ function MiDiaTab() {
 /* PIPELINE                                                            */
 /* ================================================================== */
 
-const PIPELINE_STAGES: PipelineStage[] = [
-  {
-    name: "Agendado",
-    count: 14,
-    dot: "bg-indigo-500",
-    headerBg: "bg-indigo-50/50 dark:bg-indigo-900/10",
-    labelColor: "text-foreground",
-    pill: "bg-sky-50 text-sky-700 border-sky-200/60 dark:bg-sky-500/20 dark:text-sky-300 dark:border-sky-500/30",
-    rows: [
-      { name: "PABLO MUÑOZ", grade: "D", situacion: "Agendado", when: "hace 3 días", activity: "agendó" },
-      { name: "LUIS FERNANDEZ", grade: "A", situacion: "Agendado", when: "hace 2 días", activity: "agendó" },
-      {
-        name: "JUAN PEREZ",
-        grade: "C",
-        situacion: "Agendado",
-        when: "hace 1 día",
-        activity: "Llamada agendada para hoy. El prospecto está muy interesado en automatizar su agencia.",
-        starred: true,
-      },
-      { name: "MARTA PEREZ", grade: "B", situacion: "Agendado", when: "hace 1 día", activity: "agendó" },
-    ],
-  },
-  {
-    name: "Seguimiento",
-    count: 24,
-    dot: "bg-amber-500",
-    headerBg: "bg-amber-50/30 dark:bg-amber-900/5",
-    labelColor: "text-foreground",
-    pill: "bg-amber-50 text-amber-700 border-amber-200/60 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30",
-    rows: [
-      { name: "CARLOS RUIZ", grade: "A", situacion: "Seguimiento · A futuro", when: "hace 17 días", activity: "El prospecto tiene dudas sobre el ROI." },
-      { name: "ELENA MARTIN", grade: "D", situacion: "Seguimiento · Muy seguro", when: "hace 15 días", activity: "respondió · esperando respuesta" },
-      { name: "FERNANDO LOPEZ", grade: "C", situacion: "Seguimiento · Muy seguro", when: "hace 14 días", activity: "respondió · esperando respuesta" },
-      { name: "DIEGO RODRIGUEZ", grade: "B", situacion: "Seguimiento · Muy seguro", when: "hace 14 días", activity: "respondió · esperando respuesta", starred: true },
-    ],
-  },
-  {
-    name: "Cierre en curso · 🔥 $2,000 SOBRE LA MESA",
-    count: 4,
-    dot: "bg-amber-500",
-    headerBg: "bg-amber-50/50 dark:bg-amber-900/10",
-    labelColor: "text-amber-700 dark:text-amber-500",
-    pill: "bg-indigo-50 text-indigo-700 border-indigo-200/60 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30",
-    rows: [
-      { name: "ELENA ALVAREZ", grade: "B", situacion: "Acordó comprar, falta pago · $500", when: "hace 15 días", activity: "link enviado · sin pago" },
-      { name: "LUCIA ROMERO", grade: "B", situacion: "Acordó comprar, falta pago · $500", when: "hace 8 días", activity: "link enviado · sin pago" },
-      { name: "RAUL FERNANDEZ", grade: "A", situacion: "Acordó comprar, falta pago · $500", when: "hace 7 días", activity: "link enviado · sin pago" },
-      { name: "MARTA MARTIN", grade: "B", situacion: "Acordó comprar, falta pago · $500", when: "hace 5 días", activity: "link enviado · sin pago" },
-    ],
-  },
-  {
-    name: "Ganado",
-    count: 4,
-    dot: "bg-emerald-500",
-    headerBg: "bg-emerald-50/50 dark:bg-emerald-900/10",
-    labelColor: "text-foreground",
-    pill: "bg-emerald-50 text-emerald-700 border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30",
-    rows: [
-      { name: "JORGE ALVAREZ", grade: "A", situacion: "Venta · Contado", when: "hace 8 días", activity: "" },
-      { name: "DIEGO GOMEZ", grade: "C", situacion: "Venta · Contado", when: "hace 10 días", activity: "" },
-      { name: "MIGUEL PEREZ", grade: "C", situacion: "Venta · Contado", when: "hace 12 días", activity: "" },
-      { name: "SHIRLEY FAJARDO", grade: "A", situacion: "Venta · Contado", when: "hace 18 días", activity: "Todo bajo control. Venta cerrada." },
-    ],
-  },
-  {
-    name: "No-show",
-    count: 26,
-    dot: "bg-orange-500",
-    headerBg: "bg-orange-50/50 dark:bg-orange-900/10",
-    labelColor: "text-foreground",
-    pill: "bg-orange-50 text-orange-700 border-orange-200/60 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30",
-    rows: [
-      { name: "ALFREDO", grade: "A", situacion: "No-show", when: "hace 20 días", activity: "La conversación se ha estancado. El usuario no responde." },
-      { name: "LUCIA FERNANDEZ", grade: "C", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó" },
-      { name: "CARMEN MARTIN", grade: "A", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó" },
-      { name: "CARLOS PEREZ", grade: "C", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó" },
-    ],
-  },
-  {
-    name: "Descalificado",
-    count: 8,
-    dot: "bg-rose-500",
-    headerBg: "bg-muted/5",
-    labelColor: "text-foreground",
-    pill: "bg-rose-50 text-rose-700 border-rose-200/60 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/30",
-    rows: [
-      { name: "MIGUEL SANCHEZ", grade: "C", situacion: "No interesado · Precio", when: "hace 2 días", activity: "" },
-      { name: "LAURA RODRIGUEZ", grade: "D", situacion: "No interesado · Precio", when: "hace 5 días", activity: "" },
-      { name: "LAURA MUÑOZ", grade: "D", situacion: "No interesado · Precio", when: "hace 5 días", activity: "" },
-      { name: "PABLO MORENO", grade: "D", situacion: "No interesado · Precio", when: "hace 5 días", activity: "" },
-    ],
-  },
-];
 
 function PipelineTab() {
-  const openContact = useContext(OpenContactCtx);
+  const { contacts, openContact, cierreEnCursoMonto } = useClosurer();
   const [grade, setGrade] = useState<Grade | null>(null);
   const [destacados, setDestacados] = useState(false);
+  const [etapaFilter, setEtapaFilter] = useState<StageKey | null>(null);
+  const [etapaMenuOpen, setEtapaMenuOpen] = useState(false);
 
   const chipBase = "w-7 h-7 rounded-full text-xs font-bold transition-all";
 
-  const filterRow = (r: PipelineRow) =>
+  const filterRow = (r: ClosurerContact) =>
     (grade === null || r.grade === grade) && (!destacados || Boolean(r.starred));
 
   const reset = () => {
     setGrade(null);
     setDestacados(false);
+    setEtapaFilter(null);
   };
+
+  // Invariante: toda etapa que el filtro ofrece DEBE tener su sección — nunca se omite
+  // por estar vacía (§ "Pipeline del Closer — etapas fantasma", 2026-07-11). "Todas" ofrece
+  // las 7; elegir una etapa puntual ofrece esa sola, pero siempre la muestra.
+  const stagesToRender = etapaFilter ? [etapaFilter] : STAGE_ORDER;
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -851,10 +970,50 @@ function PipelineTab() {
             <span>Todos</span>
             <ChevronDown className="h-4 w-4 opacity-50" />
           </button>
-          <button className="flex h-10 items-center justify-between border px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 w-[160px] rounded-full bg-background border-border/60 hover:bg-muted/30 transition-colors">
-            <span>Etapa: Todas</span>
-            <ChevronDown className="h-4 w-4 opacity-50" />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setEtapaMenuOpen((v) => !v)}
+              className="flex h-10 items-center justify-between border px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 w-[200px] rounded-full bg-background border-border/60 hover:bg-muted/30 transition-colors"
+            >
+              <span className="truncate">Etapa: {etapaFilter ? STAGE_META[etapaFilter].label : "Todas"}</span>
+              <ChevronDown className="h-4 w-4 opacity-50 shrink-0" />
+            </button>
+            {etapaMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setEtapaMenuOpen(false)} />
+                <div className="absolute top-full left-0 mt-2 w-56 bg-popover text-popover-foreground border border-border rounded-xl shadow-xl p-1.5 z-20 animate-in fade-in slide-in-from-top-2 duration-150">
+                  <button
+                    onClick={() => {
+                      setEtapaFilter(null);
+                      setEtapaMenuOpen(false);
+                    }}
+                    className={cn(
+                      "w-full flex items-center px-3 py-2 rounded-lg text-sm text-left transition-colors hover:bg-muted",
+                      etapaFilter === null && "font-semibold text-primary",
+                    )}
+                  >
+                    Todas
+                  </button>
+                  {STAGE_ORDER.map((stageKey) => (
+                    <button
+                      key={stageKey}
+                      onClick={() => {
+                        setEtapaFilter(stageKey);
+                        setEtapaMenuOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-left transition-colors hover:bg-muted",
+                        etapaFilter === stageKey && "font-semibold text-primary",
+                      )}
+                    >
+                      <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", STAGE_META[stageKey].dot)} />
+                      {STAGE_META[stageKey].label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <div className="flex items-center gap-1.5 bg-background border border-border/60 rounded-full p-1">
             {(["A", "B", "C"] as Grade[]).map((g) => (
               <button
@@ -938,7 +1097,7 @@ function PipelineTab() {
           </div>
           <div>
             <div className="text-4xl font-light tracking-tight text-amber-700 dark:text-amber-400">
-              $2,000
+              {money(cierreEnCursoMonto)}
             </div>
             <p className="text-[10px] font-medium text-amber-700 mt-2 uppercase tracking-wider">
               En cierre en curso
@@ -947,35 +1106,47 @@ function PipelineTab() {
         </div>
       </div>
 
-      {/* Stage sections */}
+      {/* Stage sections — invariante: toda etapa que el filtro ofrece se renderiza, aunque esté vacía */}
       <div className="space-y-6 mt-8">
-        {PIPELINE_STAGES.map((stage) => {
-          const rows = stage.rows.filter(filterRow);
-          if (rows.length === 0) return null;
+        {stagesToRender.map((stageKey) => {
+          const meta = STAGE_META[stageKey];
+          const members = Object.values(contacts).filter((c) => c.stage === stageKey);
+          const rows = members.filter(filterRow);
+          const label =
+            stageKey === "cierre"
+              ? `${meta.label} · 🔥 ${money(cierreEnCursoMonto)} SOBRE LA MESA`
+              : meta.label;
           return (
             <div
-              key={stage.name}
+              key={stageKey}
               className="bg-card/50 backdrop-blur-sm rounded-[2rem] border border-border/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden"
             >
               <div
                 className={cn(
                   "py-4 px-8 border-b border-border/40 flex items-center gap-2",
-                  stage.headerBg,
+                  meta.headerBg,
                 )}
               >
-                <span className={cn("w-2 h-2 rounded-full", stage.dot)} />
+                <span className={cn("w-2 h-2 rounded-full", meta.dot)} />
                 <span
                   className={cn(
                     "font-semibold text-[11px] uppercase tracking-widest",
-                    stage.labelColor,
+                    meta.labelColor,
                   )}
                 >
-                  {stage.name}
+                  {label}
                 </span>
                 <div className="inline-flex items-center border py-0.5 font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 ml-2 text-[10px] h-5 px-1.5 shadow-none rounded-full">
-                  {stage.count}
+                  {meta.hiddenOffset + members.length}
                 </div>
               </div>
+              {rows.length === 0 ? (
+                <div className="p-10 text-center text-sm text-muted-foreground">
+                  {members.length === 0
+                    ? "Sin contactos en esta etapa."
+                    : "Ningún contacto coincide con el filtro seleccionado."}
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <div className="relative w-full overflow-auto">
                   <table className="w-full caption-bottom text-sm">
@@ -1004,18 +1175,29 @@ function PipelineTab() {
                               <Avatar grade={r.grade} />
                               <span
                                 onClick={() => openContact(r.name)}
-                                className="w-40 truncate uppercase tracking-wide text-xs cursor-pointer hover:text-primary transition-colors"
+                                className="w-40 truncate uppercase tracking-wide text-xs cursor-pointer hover:text-primary transition-colors flex items-center gap-1.5"
                               >
                                 {r.name}
                               </span>
-                              <div className="flex items-center gap-3 shrink-0 ml-4">
-                                <StatusIcons
-                                  gap="gap-3"
-                                  bot={
-                                    r.situacion.startsWith("Agendado") ||
-                                    r.situacion.startsWith("Seguimiento")
-                                  }
-                                />
+                              <div className="flex items-center gap-2.5 shrink-0 ml-4">
+                                <IconSlot wide>
+                                  <VideoCallBadge llamadas={r.llamadas} />
+                                </IconSlot>
+                                <IconSlot>
+                                  <Calendar className={cn("w-3.5 h-3.5", r.agenda ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
+                                </IconSlot>
+                                <IconSlot wide>
+                                  <CallsBadge llamadas={r.llamadas} />
+                                </IconSlot>
+                                <IconSlot wide>
+                                  <BotIcon estado={r.botEstado} />
+                                </IconSlot>
+                                <IconSlot>
+                                  <AlarmClock className={cn("w-3.5 h-3.5", r.cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
+                                </IconSlot>
+                                <IconSlot>
+                                  <DollarSign className={cn("w-3.5 h-3.5", r.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} />
+                                </IconSlot>
                               </div>
                             </div>
                           </td>
@@ -1023,7 +1205,7 @@ function PipelineTab() {
                             <div
                               className={cn(
                                 "inline-flex items-center rounded-full py-0.5 h-6 text-[10px] uppercase tracking-wider font-semibold border-0 shadow-none px-2",
-                                stage.pill,
+                                meta.pill,
                               )}
                             >
                               {r.situacion}
@@ -1067,6 +1249,7 @@ function PipelineTab() {
                   </table>
                 </div>
               </div>
+              )}
             </div>
           );
         })}
@@ -1095,33 +1278,79 @@ interface ScheduleSlot {
   time: string;
   ampm: string;
   name: string;
+  grade: Grade;
   duration: string;
   tag?: string;
   hint: string;
+  estadoCita: "confirmada" | "reprogramada" | "pendiente";
   briefing?: string;
-  join?: boolean;
+  videoPre?: { visto: boolean; pct?: number };
+  meetUrl: string;
 }
+
+const ESTADO_CITA_PILL: Record<ScheduleSlot["estadoCita"], { label: string; cls: string }> = {
+  confirmada: { label: "Confirmada", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" },
+  reprogramada: { label: "Reprogramada", cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" },
+  pendiente: { label: "Pendiente", cls: "bg-muted text-muted-foreground" },
+};
 
 const SCHEDULE: ScheduleSlot[] = [
   {
     time: "9:00",
     ampm: "AM",
     name: "VALENTINA GOMEZ",
+    grade: "A",
     duration: "45 min",
     tag: "Masterclass",
     hint: "9:00 AM tu hora · 9:30 AM hora del contacto",
+    estadoCita: "confirmada",
     briefing: "venta low-ticket cerrada exitosamente",
-    join: true,
+    videoPre: { visto: true, pct: 100 },
+    meetUrl: "https://meet.google.com/valentina-gomez-0900",
   },
-  { time: "11:00", ampm: "AM", name: "JUAN PEREZ", duration: "45 min", hint: "11:00 AM tu hora · 11:30 AM hora del contacto" },
-  { time: "1:00", ampm: "PM", name: "MARTA PEREZ", duration: "45 min", hint: "1:00 PM tu hora · 1:30 PM hora del contacto" },
-  { time: "3:00", ampm: "PM", name: "LUIS GOMEZ", duration: "45 min", hint: "3:00 PM tu hora · 3:30 PM hora del contacto" },
-  { time: "5:00", ampm: "PM", name: "SOFIA SANCHEZ", duration: "45 min", hint: "5:00 PM tu hora · 5:30 PM hora del contacto" },
-  { time: "7:00", ampm: "PM", name: "CARMEN GOMEZ", duration: "45 min", hint: "7:00 PM tu hora · 7:30 PM hora del contacto" },
+  {
+    time: "11:00", ampm: "AM", name: "JUAN PEREZ", grade: "C", duration: "45 min",
+    hint: "11:00 AM tu hora · 11:30 AM hora del contacto", estadoCita: "confirmada",
+    briefing: "Lead calificado vía Meta Ads. Busca escalar a $10k/mes pero tiene cuello de botella en prospección. Tiene capital disponible.",
+    videoPre: { visto: true, pct: 87 },
+    meetUrl: "https://meet.google.com/juan-perez-1100",
+  },
+  {
+    time: "1:00", ampm: "PM", name: "MARTA PEREZ", grade: "B", duration: "45 min",
+    hint: "1:00 PM tu hora · 1:30 PM hora del contacto", estadoCita: "reprogramada",
+    meetUrl: "https://meet.google.com/marta-perez-1300",
+  },
+  {
+    time: "3:00", ampm: "PM", name: "LUIS GOMEZ", grade: "D", duration: "45 min",
+    hint: "3:00 PM tu hora · 3:30 PM hora del contacto", estadoCita: "pendiente",
+    briefing: "Sin calificación previa registrada. Primera toma de contacto por voz.",
+    videoPre: { visto: false },
+    meetUrl: "https://meet.google.com/luis-gomez-1500",
+  },
+  {
+    time: "5:00", ampm: "PM", name: "SOFIA SANCHEZ", grade: "B", duration: "45 min",
+    hint: "5:00 PM tu hora · 5:30 PM hora del contacto", estadoCita: "confirmada",
+    briefing: "Viene de un webinar. Le preocupa el tiempo de implementación más que el precio.",
+    videoPre: { visto: true, pct: 64 },
+    meetUrl: "https://meet.google.com/sofia-sanchez-1700",
+  },
+  {
+    time: "7:00", ampm: "PM", name: "CARMEN GOMEZ", grade: "A", duration: "45 min",
+    hint: "7:00 PM tu hora · 7:30 PM hora del contacto", estadoCita: "confirmada",
+    meetUrl: "https://meet.google.com/carmen-gomez-1900",
+  },
 ];
 
 function AgendaTab() {
-  const openContact = useContext(OpenContactCtx);
+  const { contacts, openContact } = useClosurer();
+  const schedule = SCHEDULE.filter((s) => !contacts[s.name]?.completedToday);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (name: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
   return (
     <div className="max-w-[1100px] mx-auto w-full pb-32 pt-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between mb-8">
@@ -1245,76 +1474,111 @@ function AgendaTab() {
                 </div>
               </div>
               <div className="space-y-4 relative before:absolute before:inset-0 before:ml-[5.5rem] before:-translate-x-px before:h-full before:w-0.5 before:bg-border/40">
-                {SCHEDULE.map((s) => (
-                  <div key={s.time} className="relative flex items-start gap-6 group">
-                    <div className="w-16 shrink-0 text-right pt-4">
-                      <div className="text-sm font-bold text-foreground">{s.time}</div>
-                      <div className="text-[10px] font-medium text-muted-foreground uppercase">
-                        {s.ampm}
+                {schedule.map((s) => {
+                  const isOpen = expanded.has(s.name);
+                  const estado = ESTADO_CITA_PILL[s.estadoCita];
+                  return (
+                    <div key={s.time} className="relative flex items-start gap-6 group">
+                      <div className="w-16 shrink-0 text-right pt-4">
+                        <div className="text-sm font-bold text-foreground">{s.time}</div>
+                        <div className="text-[10px] font-medium text-muted-foreground uppercase">
+                          {s.ampm}
+                        </div>
                       </div>
-                    </div>
-                    <div className="relative flex items-center justify-center w-8 h-8 rounded-full border-4 border-background shrink-0 mt-2.5 z-10 bg-sky-100 text-sky-600 dark:bg-sky-900/30">
-                      <Video className="w-3.5 h-3.5" />
-                    </div>
-                    <div className="flex-1 p-5 rounded-2xl border shadow-sm transition-all cursor-pointer bg-background border-border/60 hover:shadow-md hover:border-sky-200/60">
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4
-                            onClick={() => openContact(s.name)}
-                            className="text-base font-semibold mb-1 text-foreground cursor-pointer hover:text-primary transition-colors"
-                          >
-                            {s.name}
-                          </h4>
-                          <div className="flex flex-col gap-1 text-xs text-muted-foreground mt-2">
-                            <div className="flex items-center gap-3">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3.5 h-3.5" />
-                                {s.duration}
-                              </span>
-                              {s.tag && (
+                      <div className="relative flex items-center justify-center w-8 h-8 rounded-full border-4 border-background shrink-0 mt-2.5 z-10 bg-sky-100 text-sky-600 dark:bg-sky-900/30">
+                        <Video className="w-3.5 h-3.5" />
+                      </div>
+                      <div className="flex-1 p-5 rounded-2xl border shadow-sm transition-all bg-card border-border hover:shadow-md hover:border-sky-200/60">
+                        <div className="flex items-start justify-between mb-1 gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <Avatar grade={s.grade} />
+                            <div className="min-w-0">
+                              <h4
+                                onClick={() => openContact(s.name)}
+                                className="text-base font-semibold text-foreground cursor-pointer hover:text-primary transition-colors truncate"
+                              >
+                                {s.name}
+                              </h4>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
                                 <span className="flex items-center gap-1">
-                                  <Tag className="w-3.5 h-3.5" />
-                                  {s.tag}
+                                  <Clock className="w-3.5 h-3.5" />
+                                  {s.duration}
                                 </span>
-                              )}
+                                {s.tag && (
+                                  <span className="flex items-center gap-1">
+                                    <Tag className="w-3.5 h-3.5" />
+                                    {s.tag}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <span className="opacity-70 mt-1">{s.hint}</span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <div
+                              className={cn(
+                                "inline-flex items-center rounded-full font-semibold text-[10px] uppercase tracking-widest px-2.5 py-1",
+                                estado.cls,
+                              )}
+                            >
+                              {estado.label}
+                            </div>
+                            <button
+                              onClick={() => toggleExpanded(s.name)}
+                              className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-muted/50"
+                            >
+                              <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", isOpen && "rotate-180")} />
+                            </button>
                           </div>
                         </div>
-                        <div className="inline-flex items-center rounded-full border font-semibold transition-colors border-transparent bg-sky-50 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300 border-none text-[10px] uppercase tracking-widest px-2.5 py-1">
-                          AGENDADO
-                        </div>
-                      </div>
-                      {s.briefing && (
-                        <div className="mt-3 mb-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
-                          <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
-                            <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
-                              Briefing IA:
-                            </span>
-                            {s.briefing}
-                          </p>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/40">
-                        {s.join ? (
-                          <button className="justify-center whitespace-nowrap ring-offset-background transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 py-2 rounded-xl h-9 px-5 text-xs font-medium bg-[#00796B] hover:bg-[#00695C] text-white border-0 shadow-sm flex items-center gap-2">
-                            <Video className="w-4 h-4" />
-                            Unirse al Meet
-                          </button>
-                        ) : (
-                          <button className="justify-center whitespace-nowrap text-sm font-medium ring-offset-background transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:bg-accent py-2 rounded-xl h-9 px-3 text-muted-foreground hover:text-[#00796B] hover:border-[#00796B]/30 border-border/60 shadow-sm flex items-center gap-2">
-                            <Video className="w-4 h-4" />
-                          </button>
-                        )}
-                        <div>
-                          <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap ring-offset-background transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background hover:text-accent-foreground py-2 rounded-xl h-9 px-4 text-xs font-medium border-border/60 hover:bg-muted/50">
-                            Reprogramar
-                          </button>
+                        <p className="text-xs text-muted-foreground opacity-70 mb-1">{s.hint}</p>
+
+                        <div className={cn("grid transition-[grid-template-rows] duration-300 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                          <div className="overflow-hidden">
+                            {s.briefing && (
+                              <div className="mt-3 mb-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
+                                <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+                                  <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
+                                    Briefing IA:
+                                  </span>
+                                  {s.briefing}
+                                </p>
+                                {s.videoPre && (
+                                  <p
+                                    className={cn(
+                                      "text-[11px] font-medium mt-2",
+                                      s.videoPre.visto
+                                        ? "text-emerald-600 dark:text-emerald-400"
+                                        : "text-amber-600 dark:text-amber-400",
+                                    )}
+                                  >
+                                    {s.videoPre.visto
+                                      ? `✓ Vio el video pre-call (${s.videoPre.pct}%)`
+                                      : "⚠ No vio el video pre-call"}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                            <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/40">
+                              <button
+                                onClick={() => window.open(s.meetUrl, "_blank", "noopener,noreferrer")}
+                                className="justify-center whitespace-nowrap ring-offset-background transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 py-2 rounded-xl h-9 px-5 text-xs font-medium bg-[#00796B] hover:bg-[#00695C] text-white border-0 shadow-sm flex items-center gap-2"
+                              >
+                                <Video className="w-4 h-4" />
+                                Link del Meet
+                              </button>
+                              <button
+                                onClick={() => openContact(s.name)}
+                                className="inline-flex items-center justify-center gap-2 whitespace-nowrap ring-offset-background transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background dark:bg-secondary hover:text-accent-foreground py-2 rounded-xl h-9 px-4 text-xs font-medium border-border/60 hover:bg-muted/50"
+                              >
+                                Abrir Ficha
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -1328,26 +1592,50 @@ function AgendaTab() {
 /* Root                                                                */
 /* ================================================================== */
 
-export default function CloserAI() {
+function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
   const [tab, setTab] = useState<TabKey>("inicio");
-  const [openContact, setOpenContact] = useState<string | null>(null);
+  const { contacts, openContactName, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useClosurer();
+  const { resolveAlertsForContact } = useAgentAudit();
+  const openContact = contacts[openContactName ?? ""] ?? null;
+
+  useEffect(() => {
+    onScreenChange?.(TABS.find((t) => t.key === tab)?.label ?? "Inicio");
+  }, [tab, onScreenChange]);
 
   return (
-    <OpenContactCtx.Provider value={setOpenContact}>
-      <div className="flex-1 flex flex-col overflow-hidden relative bg-background">
-        <div className="flex-1 flex flex-col overflow-hidden bg-[#fcfcfd] dark:bg-background">
-          <div className="flex-1 overflow-y-auto">
-            <div className="p-8 max-w-[1600px] mx-auto space-y-8">
-              <Header tab={tab} setTab={setTab} />
-              {tab === "inicio" && <InicioTab />}
-              {tab === "midia" && <MiDiaTab />}
-              {tab === "pipeline" && <PipelineTab />}
-              {tab === "agenda" && <AgendaTab />}
-            </div>
+    <div className="flex-1 flex flex-col overflow-hidden relative bg-background">
+      <div className="flex-1 flex flex-col overflow-hidden bg-[#fcfcfd] dark:bg-background">
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-8 max-w-[1600px] mx-auto space-y-8">
+            <Header tab={tab} setTab={setTab} />
+            {tab === "inicio" && <InicioTab onGoToMiDia={() => setTab("midia")} />}
+            {tab === "midia" && <MiDiaTab />}
+            {tab === "pipeline" && <PipelineTab />}
+            {tab === "agenda" && <AgendaTab />}
           </div>
         </div>
-        <ContactDrawer name={openContact} onClose={() => setOpenContact(null)} />
       </div>
-    </OpenContactCtx.Provider>
+      <ContactDrawer
+        name={openContactName}
+        onClose={closeContact}
+        role="closer"
+        contact={openContact}
+        onAdvance={(result) => openContactName && result.stage && advance(openContactName, { ...result, stage: result.stage })}
+        onAddNota={(texto) => openContactName && addNota(openContactName, texto)}
+        onResolveIntervention={() => {
+          if (!openContactName) return;
+          resolveIntervention(openContactName);
+          resolveAlertsForContact(openContactName);
+        }}
+        onBotStateChange={(estado, evento, autor) => openContactName && setBotEstado(openContactName, estado, evento, autor)}
+        onPin={() => openContactName && pinTask(openContactName)}
+        onComplete={() => openContactName && completeTask(openContactName)}
+        onRevive={() => openContactName && reviveTask(openContactName)}
+      />
+    </div>
   );
+}
+
+export default function CloserAI({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
+  return <CloserAIInner onScreenChange={onScreenChange} />;
 }

@@ -35,32 +35,37 @@
   }
 
   .dark {
-    --background: 240 10% 3.9%;
+    /* Dark Mode Premium — sistema de capas por elevación (2026-07-13, lineamientos de Francisco).
+       Nivel 0 = fondo del lienzo; Nivel 1 = tarjetas/paneles/sidebar flotantes; Nivel 2 = elementos
+       interactivos dentro de una tarjeta (inputs, botones secundarios, hover). Cada nivel sube en
+       luminosidad para separarse del anterior — las sombras casi no se ven en fondos oscuros, así
+       que la separación real la da esta escala + los bordes de --border/--input, nunca drop-shadow. */
+    --background: 240 10% 4%;        /* Nivel 0 */
     --foreground: 0 0% 98%;
-    --card: 240 10% 3.9%;
+    --card: 240 5% 15%;              /* Nivel 1 */
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
+    --popover: 240 5% 15%;           /* Nivel 1 */
     --popover-foreground: 0 0% 98%;
     --primary: 262.1 83.3% 57.8%;
     --primary-foreground: 210 40% 98%;
-    --secondary: 240 3.7% 15.9%;
+    --secondary: 240 3.7% 22%;       /* Nivel 2 */
     --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
+    --muted: 240 3.7% 22%;           /* Nivel 2 */
+    --muted-foreground: 240 5% 70%;
+    --accent: 240 3.7% 22%;          /* Nivel 2 */
     --accent-foreground: 0 0% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
+    --border: 240 3.7% 26%;          /* Separadores — define por borde, no por sombra */
+    --input: 240 3.7% 26%;           /* Separadores interactivos */
     --ring: 262.1 83.3% 57.8%;
-    --sidebar-background: 240 5.9% 10%;
+    --sidebar-background: 240 5% 15%;   /* Nivel 1 — el sidebar es un panel flotante, no el fondo */
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 262.1 83.3% 57.8%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent: 240 3.7% 22%;      /* Nivel 2 */
     --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-border: 240 3.7% 26%;
     --sidebar-ring: 262.1 83.3% 57.8%;
   }
 }

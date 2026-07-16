@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Zap,
   UserCheck,
@@ -14,7 +14,12 @@ import { cn } from "./lib/utils";
 import CloserAI from "./views/CloserAI";
 import SetterView from "./views/SetterView";
 import AgentsAudit from "./views/AgentsAudit";
+import Gerencia from "./views/Gerencia";
 import Ajustes from "./views/Ajustes";
+import { SettingsProvider, useSettings } from "./lib/settingsStore";
+import { ClosurerProvider } from "./lib/closerStore";
+import { SetterProvider } from "./lib/setterStore";
+import { AgentAuditProvider } from "./lib/agentAuditStore";
 
 type View = "closer" | "setter" | "sales_calls" | "agents_audit" | "gerencia" | "ajustes";
 
@@ -26,19 +31,22 @@ const NAV: {
   soon?: boolean;
   extra?: string;
 }[] = [
-  { key: "closer", label: "Closer", icon: UserCheck },
+  { key: "closer", label: "Closer AI", icon: UserCheck },
   { key: "setter", label: "Setter", icon: Bot },
-  { key: "sales_calls", label: "Sales Calls Audit", icon: PhoneCall, disabled: true },
-  { key: "agents_audit", label: "Agents Audit", icon: BrainCircuit },
-  { key: "gerencia", label: "Gerencia", icon: TrendingUp, disabled: true, soon: true },
+  { key: "sales_calls", label: "Auditoría de Llamadas", icon: PhoneCall, disabled: true, soon: true },
+  { key: "agents_audit", label: "Auditoría de Agentes", icon: BrainCircuit },
+  { key: "gerencia", label: "Gerencia", icon: TrendingUp },
   { key: "ajustes", label: "Ajustes", icon: Settings, extra: "mt-4" },
 ];
 
-export default function App() {
+function AppInner() {
   const [view, setView] = useState<View>("closer");
   const [role, setRole] = useState<"admin" | "closer" | "setter">("admin");
   const [dark, setDark] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestText, setSuggestText] = useState("");
+  const [screenLabel, setScreenLabel] = useState("Inicio");
+  const { addSugerencia } = useSettings();
 
   const toggleDark = () => {
     const next = !dark;
@@ -48,6 +56,32 @@ export default function App() {
 
   const cycleRole = () =>
     setRole((r) => (r === "admin" ? "closer" : r === "closer" ? "setter" : "admin"));
+
+  // Closer/Setter reportan su propia sub-pestaña (Mi Día, Pipeline Setter, etc.) vía onScreenChange;
+  // el resto de las vistas no tienen sub-pestañas, así que usan directamente el label de NAV.
+  useEffect(() => {
+    if (view !== "closer" && view !== "setter" && view !== "gerencia") {
+      setScreenLabel(NAV.find((n) => n.key === view)?.label ?? "");
+    }
+  }, [view]);
+
+  // Gerencia es nivel dueño/admin (§ IMPLEMENTACION-Gerencia-VSCode.md) — ni el ítem del sidebar
+  // ni la vista deben quedar accesibles para roles operativos. Si el usuario cambia de rol
+  // mientras está parado en Gerencia, lo devuelve a un default seguro.
+  useEffect(() => {
+    if (role !== "admin" && view === "gerencia") setView("closer");
+  }, [role, view]);
+
+  const visibleNav = NAV.filter((n) => n.key !== "gerencia" || role === "admin");
+
+  const enviarSugerencia = () => {
+    const texto = suggestText.trim();
+    if (!texto) return;
+    const autor = role.charAt(0).toUpperCase() + role.slice(1);
+    addSugerencia(texto, screenLabel, autor);
+    setSuggestText("");
+    setSuggestOpen(false);
+  };
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-foreground">
@@ -64,7 +98,7 @@ export default function App() {
           <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.15em] mb-4 px-2">
             Vistas de Operación
           </div>
-          {NAV.map(({ key, label, icon: Icon, disabled, soon, extra }) => {
+          {visibleNav.map(({ key, label, icon: Icon, disabled, soon, extra }) => {
             const active = view === key;
             return (
               <button
@@ -72,7 +106,7 @@ export default function App() {
                 disabled={disabled}
                 onClick={() => !disabled && setView(key)}
                 className={cn(
-                  "inline-flex items-center whitespace-nowrap text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 py-2 w-full justify-start gap-3 rounded-2xl h-12 px-4 transition-all",
+                  "inline-flex items-center text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 py-2 w-full justify-start gap-3 rounded-2xl min-h-12 px-4 transition-all",
                   extra,
                   disabled
                     ? "opacity-40 cursor-not-allowed text-muted-foreground"
@@ -81,12 +115,16 @@ export default function App() {
                       : "text-muted-foreground hover:bg-muted/50 hover:text-accent-foreground"
                 )}
               >
-                <Icon className="w-4 h-4" />
-                {label}
-                {soon && (
-                  <span className="ml-auto text-[9px] font-bold uppercase tracking-wider bg-muted/50 px-1.5 py-0.5 rounded-sm">
-                    Próximamente
+                <Icon className="w-4 h-4 shrink-0" />
+                {soon ? (
+                  <span className="flex flex-col items-start min-w-0">
+                    <span className="truncate">{label}</span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                      Próximamente
+                    </span>
                   </span>
+                ) : (
+                  <span className="truncate">{label}</span>
                 )}
               </button>
             );
@@ -133,13 +171,16 @@ export default function App() {
                 <div className="space-y-3">
                   <h4 className="text-sm font-medium">¿Qué mejorarías de esta pantalla?</h4>
                   <textarea
+                    value={suggestText}
+                    onChange={(e) => setSuggestText(e.target.value)}
                     className="flex w-full rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-sm min-h-[100px] resize-none"
                     placeholder="Escribe tu sugerencia aquí..."
                   />
                   <div className="flex justify-end">
                     <button
-                      onClick={() => setSuggestOpen(false)}
-                      className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 h-9 rounded-md px-3"
+                      onClick={enviarSugerencia}
+                      disabled={!suggestText.trim()}
+                      className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:pointer-events-none h-9 rounded-md px-3"
                     >
                       Enviar
                     </button>
@@ -153,11 +194,26 @@ export default function App() {
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        {view === "closer" && <CloserAI />}
-        {view === "setter" && <SetterView />}
-        {view === "agents_audit" && <AgentsAudit />}
+        {view === "closer" && <CloserAI onScreenChange={setScreenLabel} />}
+        {view === "setter" && <SetterView onScreenChange={setScreenLabel} />}
+        {view === "agents_audit" && <AgentsAudit onScreenChange={setScreenLabel} />}
+        {view === "gerencia" && <Gerencia role={role} onScreenChange={setScreenLabel} />}
         {view === "ajustes" && <Ajustes role={role} />}
       </div>
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <SettingsProvider>
+      <AgentAuditProvider>
+        <ClosurerProvider>
+          <SetterProvider>
+            <AppInner />
+          </SetterProvider>
+        </ClosurerProvider>
+      </AgentAuditProvider>
+    </SettingsProvider>
   );
 }
