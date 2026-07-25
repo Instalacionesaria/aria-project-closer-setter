@@ -42,6 +42,7 @@ import {
   Check,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { isoEnDias, fechaCorta } from "../lib/fechas";
 import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, callsIASummary, type ClosurerContact, type StageKey, type BotEstado, type CallRecord, type CallOrigin, type Sentimiento, type PerfilField, type PerfilGroup, type PerfilFormulario, type VideoPreCallInfo } from "../lib/closerStore";
 import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTagTone, type SetterAdvanceInput } from "../lib/setterStore";
 import { useSettings } from "../lib/settingsStore";
@@ -70,13 +71,6 @@ const TABS: { key: DrawerTab; label: string; icon: typeof X; disabled?: boolean 
 /* ================================================================== */
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
-const shortDate = (iso: string) =>
-  iso ? new Date(`${iso}T00:00:00`).toLocaleDateString("es-ES", { day: "2-digit", month: "short" }).replace(".", "") : "";
-const isoInDays = (days: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-};
 
 type AvanzarResult = {
   pildora: string;
@@ -556,7 +550,9 @@ function SeguimientoScreen({
     if (key !== "Personalizada") setCustomFecha("");
   };
 
-  const manualOk = manualPick === "Personalizada" ? !!customFecha : !!manualPick;
+  // El `min` del input es solo una pista visual — se puede tipear igual. La fecha
+  // tiene que ser futura de verdad: comparar strings ISO alcanza (ordenan igual que las fechas).
+  const manualOk = manualPick === "Personalizada" ? !!customFecha && customFecha >= isoEnDias(1) : !!manualPick;
   const canConfirm = !!autoPick || (!!manualPick && manualOk);
 
   const confirm = () => {
@@ -573,11 +569,11 @@ function SeguimientoScreen({
       });
       return;
     }
-    const effectiveFecha = manualPick === "Personalizada" ? customFecha : isoInDays(manualPick === "Mañana" ? 1 : manualPick === "En 3 días" ? 3 : 7);
+    const effectiveFecha = manualPick === "Personalizada" ? customFecha : isoEnDias(manualPick === "Mañana" ? 1 : manualPick === "En 3 días" ? 3 : 7);
     onConfirm({
-      pildora: situacionPill ? `SEGUIMIENTO · ${situacionPill}` : `SEGUIMIENTO — ${shortDate(effectiveFecha).toUpperCase()}`,
-      texto: `Seguimiento manual · para el ${shortDate(effectiveFecha)}`,
-      toast: `Seguimiento programado — ${shortDate(effectiveFecha)}`,
+      pildora: situacionPill ? `SEGUIMIENTO · ${situacionPill}` : `SEGUIMIENTO — ${fechaCorta(effectiveFecha).toUpperCase()}`,
+      texto: `Seguimiento manual · para el ${fechaCorta(effectiveFecha)}`,
+      toast: `Seguimiento programado — ${fechaCorta(effectiveFecha)}`,
       nota: nota.trim() || undefined,
       stage,
       setterStage,
@@ -604,6 +600,9 @@ function SeguimientoScreen({
           <input
             type="date"
             value={customFecha}
+            /* Mínimo mañana: un seguimiento "para hoy" caería en el mismo día en que la
+               tarea ya se completó, y nunca aparecería en la cola. */
+            min={isoEnDias(1)}
             onChange={(e) => setCustomFecha(e.target.value)}
             className="w-full rounded-md border border-input bg-background dark:bg-secondary px-3 py-2 text-sm"
           />
