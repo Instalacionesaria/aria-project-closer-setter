@@ -57,6 +57,22 @@ Ninguna lleva prefijo `VITE_`: eso las expondría en el bundle del browser.
 En local van en `.env.local`. En Vercel, en Project Settings → Environment Variables —
 y ojo con marcar los tres entornos si se quiere que funcionen también los previews.
 
+## Por qué existe `vercel.json`
+
+El primer despliegue devolvió el `index.html` de la app para **todas** las rutas, incluidas
+`/api/*` y rutas inventadas: había una reescritura catch-all configurada en el dashboard
+—sin `vercel.json` en el repo— que mandaba todo al SPA y se tragaba también las funciones.
+
+El `vercel.json` la hace explícita y con una excepción:
+
+```
+"source": "/((?!api/).*)"
+```
+
+Todo lo que **no** empiece con `api/` va al `index.html`; el resto lo resuelven las
+funciones. Y al vivir en el repo, la regla se versiona junto al código que depende de ella,
+en vez de en una pantalla que nadie recuerda haber tocado.
+
 ## Typecheck
 
 `api/` está incluido en el `tsconfig.json` raíz a propósito. Sin eso, `npm run build`
