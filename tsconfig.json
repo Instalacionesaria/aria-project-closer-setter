@@ -19,6 +19,7 @@
     "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src"],
+  "//include": "`api/` va acá a propósito: `npm run build` es `tsc -b && vite build`, así que sin esto las funciones de Vercel compilarían verdes con errores de tipo dentro. NO agregarlo a tsconfig.node.json — ese proyecto es `composite: true` y emitiría .js sueltos dentro de api/.",
+  "include": ["src", "api"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -8,6 +8,8 @@ dist-ssr
 !.vscode/extensions.json
 .vercel
 .env*
+# La plantilla SÍ se versiona — la regla `.env*` de arriba se la tragaría.
+!.env.example
 
 # build artifacts
 *.tsbuildinfo
