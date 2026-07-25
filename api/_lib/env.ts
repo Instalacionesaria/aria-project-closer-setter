@@ -21,8 +21,18 @@ export const env = {
   supabaseUrl: () => requerida("SUPABASE_URL"),
   supabaseServiceKey: () => requerida("SUPABASE_SERVICE_ROLE_KEY"),
 
-  ghlApiKey: () => requerida("GHL_API_KEY"),
+  /**
+   * Private Integration Token de GHL.
+   *
+   * Se acepta `GHL_PIT` (el nombre con el que ya está configurado en Vercel) y
+   * `GHL_API_KEY` como alias. Un solo nombre habría obligado a renombrar la variable
+   * existente, que es justo el tipo de cambio que rompe un deploy sin dejar rastro.
+   */
+  ghlApiKey: () => process.env.GHL_PIT ?? requerida("GHL_API_KEY"),
   ghlLocationId: () => requerida("GHL_LOCATION_ID"),
+
+  /** Calendario "Aria | Llamada de Descubrimiento". Sin uso todavía — es para los links del menú "+" (§10). */
+  ghlCalendarioPorDefecto: () => process.env.GHL_DEFAULT_CALENDAR_ID,
 
   /**
    * `real` activa las llamadas a GHL. Cualquier otro valor (o ausencia) deja el stub, que
@@ -35,6 +45,6 @@ export const env = {
   ghlModo: (): "real" | "stub" => (process.env.GHL_MODO === "real" ? "real" : "stub"),
 
   /** Presencia de credenciales, sin exponerlas — para el endpoint de diagnóstico. */
-  tieneCredencialesGhl: () => Boolean(process.env.GHL_API_KEY && process.env.GHL_LOCATION_ID),
+  tieneCredencialesGhl: () => Boolean((process.env.GHL_PIT ?? process.env.GHL_API_KEY) && process.env.GHL_LOCATION_ID),
   tieneCredencialesSupabase: () => Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
 };

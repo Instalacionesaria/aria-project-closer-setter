@@ -58,14 +58,27 @@ export const TAGS = {
    * humano, para no dispararle nunca la serie automática. La fecha vive del lado del tool
    * porque es lógica de cola, no de negocio.
    *
-   * PENDIENTE: el contrato no lo lista. Decidido en la sesión del 2026-07-25; hay que
-   * pedirle a Francisco que lo cree en GHL antes de activar el adapter real.
+   * No está en el contrato escrito (se decidió el 2026-07-25), pero se verificó contra la
+   * subcuenta el mismo día: el tag EXISTE. Confirmado por comprobación directa, no por doc.
    */
   seguimientoManual: {
     valor: "seguimiento_manual",
-    confianza: "pendiente",
-    fuente: "Decidido 2026-07-25 — PENDIENTE de crear en GHL",
+    confianza: "confirmado",
+    fuente: "Verificado en la subcuenta DbWG5cimcumPcKk5p3xC el 2026-07-25",
     uso: "Modo manual: marca que un humano lo retoma, para que ningún workflow lo persiga.",
+  },
+
+  /**
+   * Existe en la cuenta pero NO está en el contrato. Por el nombre parece la marca de
+   * "serie terminada", que es justo el disparador que falta para la tarea de §16.1.D
+   * ("Seguimiento agotado — revisar"). Sin confirmar quién lo aplica ni cuándo, así que
+   * por ahora solo se lee, nunca se escribe.
+   */
+  seguimientoTerminado: {
+    valor: "seguimiento_terminado",
+    confianza: "pendiente",
+    fuente: "Encontrado en la subcuenta el 2026-07-25 — no documentado en CONTRATO-GHL.md",
+    uso: "Candidato a disparador de 'serie agotada'. Solo lectura hasta confirmar su semántica.",
   },
 
   /** Series del setter — acá solo se leen, para no pisarlas desde el territorio del closer. */
@@ -255,19 +268,21 @@ export interface SituacionDef {
 }
 
 /**
- * El dropdown `nivel_de_inters_seguimiento` tiene CUATRO valores en el contrato, pero la
- * pantalla aprobada (§39.1, marcada DISEÑO APROBADO) tiene CINCO tarjetas. "Otro" queda
- * como `pendiente`: la tarjeta se sigue mostrando, pero si se elige no se escribe el campo
- * en GHL hasta que Francisco agregue el valor al dropdown. La píldora en ese caso queda
- * solo `SEGUIMIENTO`, sin subcategoría — honesto, en vez de forzar al closer a mentir
- * eligiendo una de las otras cuatro.
+ * Los cinco labels coinciden EXACTAMENTE con las opciones del dropdown en la subcuenta,
+ * verificado el 2026-07-25 contra el campo `iZN1zfDlTOrPvjssFjrX` (tipo SINGLE_OPTIONS):
+ *   Próximo a pagar | Muy interesado | Dudando | Enfriándose | Otro
+ *
+ * El contrato escrito lista solo cuatro (le falta "Otro"), pero la cuenta ya lo tiene, así
+ * que la pantalla aprobada de §39.1 —que siempre tuvo cinco tarjetas— queda cubierta.
+ * Si alguno de estos strings cambia en GHL, la escritura del campo falla en silencio:
+ * son los valores literales del dropdown, no etiquetas de UI.
  */
 export const SITUACIONES: readonly SituacionDef[] = [
   { slug: "proximo_a_pagar", label: "Próximo a pagar", confianza: "confirmado" },
   { slug: "muy_interesado", label: "Muy interesado", confianza: "confirmado" },
   { slug: "dudando", label: "Dudando", confianza: "confirmado" },
   { slug: "enfriandose", label: "Enfriándose", confianza: "confirmado" },
-  { slug: "otro", label: "Otro", confianza: "pendiente" },
+  { slug: "otro", label: "Otro", confianza: "confirmado" },
 ];
 
 export const situacionPorSlug = (slug: SituacionSeguimiento): SituacionDef =>

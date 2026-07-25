@@ -17,28 +17,39 @@ import { armarPildora } from "../pildora";
 
 describe("assertEnviable — un literal inventado no puede llegar a GHL", () => {
   it("en modo stub deja pasar todo, para poder ejercitar la lógica completa", () => {
-    expect(() => assertEnviable(TAGS.seguimientoManual, false)).not.toThrow();
+    expect(() => assertEnviable(TAGS.seguimientoTerminado, false)).not.toThrow();
   });
 
   it("en modo real lanza ante un literal pendiente de confirmar", () => {
-    expect(() => assertEnviable(TAGS.seguimientoManual, true)).toThrow(LiteralNoConfirmadoError);
+    expect(() => assertEnviable(TAGS.seguimientoTerminado, true)).toThrow(LiteralNoConfirmadoError);
   });
 
-  it("en modo real deja pasar los confirmados por el contrato", () => {
+  it("en modo real deja pasar los confirmados", () => {
     expect(() => assertEnviable(TAGS.seguimientoRecupero, true)).not.toThrow();
+    expect(() => assertEnviable(TAGS.seguimientoManual, true)).not.toThrow();
     expect(() => assertEnviable(TAGS.ventaGanada, true)).not.toThrow();
     expect(() => assertEnviable(CAMPOS.nivelInteresSeguimiento, true)).not.toThrow();
   });
 
   it("el error dice qué falta y a quién pedírselo", () => {
-    expect(() => assertEnviable(TAGS.seguimientoManual, true)).toThrow(/seguimiento_manual/);
-    expect(() => assertEnviable(TAGS.seguimientoManual, true)).toThrow(/Francisco/);
+    expect(() => assertEnviable(TAGS.seguimientoTerminado, true)).toThrow(/seguimiento_terminado/);
+    expect(() => assertEnviable(TAGS.seguimientoTerminado, true)).toThrow(/Francisco/);
   });
 });
 
 describe("literales del contrato", () => {
-  it("hoy falta confirmar exactamente uno: el tag de modo manual", () => {
-    expect(literalesPendientes().map((l) => l.valor)).toEqual(["seguimiento_manual"]);
+  /**
+   * Verificado contra la subcuenta DbWG5cimcumPcKk5p3xC el 2026-07-25: los 11 tags que este
+   * módulo escribe o lee EXISTEN. El único pendiente es uno que encontramos en la cuenta y
+   * NO está en el contrato, así que no sabemos qué lo dispara.
+   */
+  it("todo lo que el módulo escribe está confirmado; solo queda pendiente lo no documentado", () => {
+    expect(literalesPendientes().map((l) => l.valor)).toEqual(["seguimiento_terminado"]);
+  });
+
+  it("el tag de modo manual existe en la cuenta — verificado, no supuesto", () => {
+    expect(TAGS.seguimientoManual.confianza).toBe("confirmado");
+    expect(TAGS.seguimientoManual.fuente).toMatch(/Verificado en la subcuenta/);
   });
 
   it("el tag de la serie del closer es seguimiento_recupero — seguimiento_activo fue ELIMINADO", () => {
@@ -93,13 +104,24 @@ describe("zona_closer — el portón de entrada al módulo del closer", () => {
 });
 
 describe("situaciones del seguimiento", () => {
-  it("las cuatro del contrato están confirmadas", () => {
-    const confirmadas = SITUACIONES.filter((s) => s.confianza === "confirmado").map((s) => s.label);
-    expect(confirmadas).toEqual(["Próximo a pagar", "Muy interesado", "Dudando", "Enfriándose"]);
+  /**
+   * Los labels no son texto de UI: son los valores literales del dropdown
+   * `contact.nivel_de_inters_seguimiento` (campo iZN1zfDlTOrPvjssFjrX, SINGLE_OPTIONS).
+   * Verificados uno por uno contra la subcuenta el 2026-07-25. Si alguno cambia acá y no
+   * en GHL, la escritura del campo falla en silencio.
+   */
+  it("los cinco labels son exactamente las opciones del dropdown en la cuenta", () => {
+    expect(SITUACIONES.map((s) => s.label)).toEqual([
+      "Próximo a pagar",
+      "Muy interesado",
+      "Dudando",
+      "Enfriándose",
+      "Otro",
+    ]);
   });
 
-  it('"Otro" existe en la pantalla aprobada (§39.1) pero no en el dropdown de GHL', () => {
-    expect(situacionPorSlug("otro").confianza).toBe("pendiente");
+  it('"Otro" ya está en el dropdown — la pantalla de §39.1 queda cubierta', () => {
+    expect(situacionPorSlug("otro").confianza).toBe("confirmado");
   });
 
   it("lee el valor que devuelve GHL, tolerando espacios y mayúsculas", () => {
