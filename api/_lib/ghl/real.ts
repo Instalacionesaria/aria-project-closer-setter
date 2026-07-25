@@ -57,6 +57,48 @@ async function llamar(
   }
 }
 
+/* ================================================================== */
+/* Catálogo de custom fields                                          */
+/* ================================================================== */
+
+/**
+ * Los custom fields se escriben por id, pero el resto del código habla en las unique keys
+ * del contrato. Este catálogo traduce en ambos sentidos.
+ *
+ * Se cachea por proceso: en una función serverless dura lo que dura la instancia caliente,
+ * que es exactamente la vida útil que queremos — sin invalidación que mantener, y como
+ * mucho una llamada extra por arranque en frío.
+ */
+let cacheCampos: { claveAId: Map<string, string>; idAClave: Map<string, string> } | null = null;
+
+/** GHL a veces devuelve la key con prefijo `contact.` y a veces sin él. */
+const normalizar = (k: string) => k.replace(/^contact\./, "").toLowerCase();
+
+async function catalogoCampos() {
+  if (cacheCampos) return cacheCampos;
+
+  const r = await llamar("GET", `/locations/${env.ghlLocationId()}/customFields`);
+  const claveAId = new Map<string, string>();
+  const idAClave = new Map<string, string>();
+
+  if (r.ok) {
+    for (const f of r.datos?.customFields ?? []) {
+      const clave = f.fieldKey ?? f.key;
+      if (!clave || !f.id) continue;
+      claveAId.set(normalizar(clave), f.id);
+      idAClave.set(f.id, clave);
+    }
+    // Solo se cachea un catálogo que se pudo leer. Cachear el vacío convertiría un fallo de
+    // red pasajero en un "el campo no existe" permanente hasta el próximo arranque.
+    cacheCampos = { claveAId, idAClave };
+  }
+
+  return { claveAId, idAClave };
+}
+
+const idDeCampo = async (clave: string) => (await catalogoCampos()).claveAId.get(normalizar(clave));
+const mapaIdAClave = async () => (await catalogoCampos()).idAClave;
+
 const aResultado = (r: Awaited<ReturnType<typeof llamar>>): ResultadoGhl =>
   r.ok
     ? { ok: true, aplicado: true, detalle: r.datos }
@@ -76,14 +118,30 @@ export const ghlReal: GhlPort = {
     return aResultado(await llamar("DELETE", `/contacts/${ghlContactId}/tags`, { tags }));
   },
 
+  /**
+   * ⚠️ El PUT de contacto **exige el id** del custom field. Mandarlo por `key` —que es como
+   * lo documenta CONTRATO-GHL.md §4 y como parecía natural— devuelve **200 y no escribe
+   * nada**. Comprobado el 2026-07-25 con las tres variantes sobre un contacto desechable:
+   * `{key, field_value}` → 200 y el campo vacío; `{id, field_value}` → escribe; `{id, value}`
+   * → escribe.
+   *
+   * Es justo el fallo silencioso que hace peligrosa esta integración: sin verificar
+   * leyendo, el sistema habría reportado "situación guardada" durante meses.
+   */
   async escribirCampo({ ghlContactId, campo, valor }: CampoInput) {
-    // El PUT de contacto acepta `customFields` por `key` (la unique key del contrato) o
-    // por `id`. Usamos la key, que es lo que documenta CONTRATO-GHL.md §4.
-    return aResultado(
-      await llamar("PUT", `/contacts/${ghlContactId}`, {
-        customFields: [{ key: campo, field_value: valor }],
-      }),
-    );
+    const id = await idDeCampo(campo);
+    if (!id) {
+      return {
+        ok: false,
+        reintentable: false,
+        error: `El custom field "${campo}" no existe en la location. Sin su id, GHL acepta el PUT y no escribe nada.`,
+      };
+    }
+
+    const r = await llamar("PUT", `/contacts/${ghlContactId}`, {
+      customFields: [{ id, field_value: valor }],
+    });
+    return aResultado(r);
   },
 
   async obtenerContacto(ghlContactId: string): Promise<ContactoGhl | null> {
@@ -93,9 +151,12 @@ export const ghlReal: GhlPort = {
     const c = r.datos?.contact ?? r.datos;
     if (!c?.id) return null;
 
+    // Al leer, GHL devuelve `{ id, value }` — sin la key. Se traduce de vuelta para que el
+    // resto del código siga hablando en las unique keys del contrato y no en ids opacos.
+    const porId = await mapaIdAClave();
     const customFields: Record<string, string> = {};
     for (const f of c.customFields ?? []) {
-      const clave = f.key ?? f.id;
+      const clave = porId.get(f.id) ?? f.key ?? f.id;
       if (clave) customFields[clave] = f.field_value ?? f.value ?? "";
     }
 

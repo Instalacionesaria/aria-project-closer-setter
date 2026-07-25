@@ -130,6 +130,100 @@ describeSi("integración — Supabase real, GHL en stub", () => {
   });
 });
 
+/**
+ * Escritura REAL en GHL, sobre un contacto de prueba que crea y borra el propio test.
+ *
+ * Doble compuerta — `INTEGRACION=1` **y** `INTEGRACION_ESCRITURA=1` — porque esto modifica
+ * la cuenta de producción.
+ *
+ * Solo prueba el modo **manual**. Confirmado con Francisco: `seguimiento_manual` no tiene
+ * ningún workflow enganchado, así que aplicarlo no envía nada. El modo automático queda
+ * deliberadamente fuera: `seguimiento_recupero` dispara la serie Recupero, que manda tres
+ * mensajes durante siete días, y eso no se deshace quitando el tag.
+ *
+ * El contacto se crea sin teléfono y con un email en `example.com`, que es el dominio
+ * reservado para pruebas: aunque algo intentara enviarle, no llega a ninguna parte.
+ */
+const describeEscritura = activa && process.env.INTEGRACION_ESCRITURA === "1" ? describe : describe.skip;
+
+describeEscritura("integración — ESCRITURA real en GHL", () => {
+  let contactoId = "";
+  let ghlReal: typeof import("./ghl/real").ghlReal;
+  let db: typeof import("./repo").db;
+  let registrarSeguimiento: typeof import("./seguimientos").registrarSeguimiento;
+
+  const BASE = "https://services.leadconnectorhq.com";
+  const cab = () => ({
+    Authorization: `Bearer ${process.env.GHL_PIT ?? process.env.GHL_API_KEY}`,
+    Version: "2021-07-28",
+    "Content-Type": "application/json",
+  });
+
+  beforeAll(async () => {
+    process.env.GHL_MODO = "real";
+    ({ ghlReal } = await import("./ghl/real"));
+    ({ db } = await import("./repo"));
+    ({ registrarSeguimiento } = await import("./seguimientos"));
+
+    const r = await fetch(`${BASE}/contacts/`, {
+      method: "POST",
+      headers: cab(),
+      body: JSON.stringify({
+        locationId: process.env.GHL_LOCATION_ID,
+        firstName: "ZZ Prueba",
+        lastName: "Comando Central",
+        email: `prueba.comando.central.${Date.now()}@example.com`,
+        tags: ["zona_closer"],
+      }),
+    });
+    const j = await r.json();
+    contactoId = j?.contact?.id ?? "";
+    if (!contactoId) throw new Error(`No se pudo crear el contacto de prueba: ${JSON.stringify(j).slice(0, 300)}`);
+  }, 30_000);
+
+  afterAll(async () => {
+    if (db) {
+      for (const t of ["closer_ghl_outbox", "closer_contacto_eventos", "closer_seguimientos", "closer_contacto_tarea"]) {
+        await db().from(t).delete().eq("ghl_contact_id", contactoId);
+      }
+    }
+    if (contactoId) await fetch(`${BASE}/contacts/${contactoId}`, { method: "DELETE", headers: cab() });
+  }, 30_000);
+
+  it("el contacto de prueba nace con zona_closer y sin seguimiento", async () => {
+    const c = await ghlReal.obtenerContacto(contactoId);
+    expect(c?.tags).toContain("zona_closer");
+    expect(c?.tags ?? []).not.toContain("seguimiento_manual");
+  });
+
+  it("registrar un seguimiento manual aplica los tags EN GHL de verdad", async () => {
+    const r = await registrarSeguimiento({
+      ghlContactId: contactoId,
+      situacion: "dudando",
+      modo: "manual",
+      preset: "en_3_dias",
+      nota: "Prueba de escritura real.",
+      idempotencyKey: `escritura-${Date.now()}`,
+    });
+
+    // `aplicado: true` significa que GHL confirmó, no que lo intentamos.
+    expect(r.efectosGhl.filter((e) => !e.ok)).toEqual([]);
+    expect(r.efectosGhl.every((e) => e.aplicado)).toBe(true);
+
+    const c = await ghlReal.obtenerContacto(contactoId);
+    expect(c?.tags).toContain("seguimiento");
+    expect(c?.tags).toContain("seguimiento_manual");
+    // Exclusión mutua: el del modo automático no puede quedar puesto.
+    expect(c?.tags ?? []).not.toContain("seguimiento_recupero");
+  }, 30_000);
+
+  it("y escribe la situación en el custom field, con el label exacto del dropdown", async () => {
+    const c = await ghlReal.obtenerContacto(contactoId);
+    const valor = c?.customFields?.["contact.nivel_de_inters_seguimiento"] ?? c?.customFields?.["nivel_de_inters_seguimiento"];
+    expect(valor).toBe("Dudando");
+  }, 30_000);
+});
+
 /** Lectura contra la cuenta real. Sin efectos: solo GET. */
 describeSi("integración — lectura de GHL real", () => {
   it("lee un contacto real del territorio del closer", async () => {
