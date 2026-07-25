@@ -81,7 +81,9 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
 
       reporte.ghl = {
         ok: tagsFaltantes.length === 0 && camposFaltantes.length === 0,
-        locationId: conexion.locationId,
+        // Solo los últimos 4: alcanza para confirmar que es la subcuenta correcta, y este
+        // endpoint no tiene autenticación — cualquiera con la URL lo puede leer.
+        locationId: `…${conexion.locationId.slice(-4)}`,
         tagsEnLaCuenta: conexion.tags.length,
         camposEnLaCuenta: conexion.customFields.length,
         tagsRequeridos: TAGS_REQUERIDOS.map((t) => ({
