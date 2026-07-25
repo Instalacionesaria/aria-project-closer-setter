@@ -710,7 +710,13 @@ function MiDiaTab() {
         ))}
       </div>
 
-      {/* Agenda de hoy */}
+      {/*
+        Agenda de hoy — se oculta cuando está vacía, que es la regla §4.1 ("secciones vacías
+        en Mi Día se ocultan, excepto Completadas Hoy") y hasta ahora no se cumplía acá:
+        mostraba el encabezado con un "0" al lado. Relevante desde que se quitaron los
+        contactos de ejemplo con cita: sin esto quedaría una sección vacía permanente.
+      */}
+      {agendaHoy.length > 0 && (
       <div className="bg-card/50 backdrop-blur-sm border border-border/40 rounded-[2rem] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
         <div className="flex items-center gap-3 mb-4">
           <h3 className="text-[13px] font-semibold text-foreground uppercase tracking-wide">
@@ -828,6 +834,7 @@ function MiDiaTab() {
           })}
         </div>
       </div>
+      )}
 
       {/* Intervenciones urgentes */}
       <div id="midia-urgentes" className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm scroll-mt-6">
@@ -1312,7 +1319,7 @@ const SCHEDULE: ScheduleSlot[] = [
   {
     time: "9:00",
     ampm: "AM",
-    name: "VALENTINA GOMEZ",
+    name: "EJEMPLO VALENTINA GOMEZ",
     grade: "A",
     duration: "45 min",
     tag: "Masterclass",
@@ -1323,33 +1330,33 @@ const SCHEDULE: ScheduleSlot[] = [
     meetUrl: "https://meet.google.com/valentina-gomez-0900",
   },
   {
-    time: "11:00", ampm: "AM", name: "JUAN PEREZ", grade: "C", duration: "45 min",
+    time: "11:00", ampm: "AM", name: "EJEMPLO JUAN PEREZ", grade: "C", duration: "45 min",
     hint: "11:00 AM tu hora · 11:30 AM hora del contacto", estadoCita: "confirmada",
     briefing: "Lead calificado vía Meta Ads. Busca escalar a $10k/mes pero tiene cuello de botella en prospección. Tiene capital disponible.",
     videoPre: { visto: true, pct: 87 },
     meetUrl: "https://meet.google.com/juan-perez-1100",
   },
   {
-    time: "1:00", ampm: "PM", name: "MARTA PEREZ", grade: "B", duration: "45 min",
+    time: "1:00", ampm: "PM", name: "EJEMPLO MARTA PEREZ", grade: "B", duration: "45 min",
     hint: "1:00 PM tu hora · 1:30 PM hora del contacto", estadoCita: "reprogramada",
     meetUrl: "https://meet.google.com/marta-perez-1300",
   },
   {
-    time: "3:00", ampm: "PM", name: "LUIS GOMEZ", grade: "D", duration: "45 min",
+    time: "3:00", ampm: "PM", name: "EJEMPLO LUIS GOMEZ", grade: "D", duration: "45 min",
     hint: "3:00 PM tu hora · 3:30 PM hora del contacto", estadoCita: "pendiente",
     briefing: "Sin calificación previa registrada. Primera toma de contacto por voz.",
     videoPre: { visto: false },
     meetUrl: "https://meet.google.com/luis-gomez-1500",
   },
   {
-    time: "5:00", ampm: "PM", name: "SOFIA SANCHEZ", grade: "B", duration: "45 min",
+    time: "5:00", ampm: "PM", name: "EJEMPLO SOFIA SANCHEZ", grade: "B", duration: "45 min",
     hint: "5:00 PM tu hora · 5:30 PM hora del contacto", estadoCita: "confirmada",
     briefing: "Viene de un webinar. Le preocupa el tiempo de implementación más que el precio.",
     videoPre: { visto: true, pct: 64 },
     meetUrl: "https://meet.google.com/sofia-sanchez-1700",
   },
   {
-    time: "7:00", ampm: "PM", name: "CARMEN GOMEZ", grade: "A", duration: "45 min",
+    time: "7:00", ampm: "PM", name: "EJEMPLO CARMEN GOMEZ", grade: "A", duration: "45 min",
     hint: "7:00 PM tu hora · 7:30 PM hora del contacto", estadoCita: "confirmada",
     meetUrl: "https://meet.google.com/carmen-gomez-1900",
   },

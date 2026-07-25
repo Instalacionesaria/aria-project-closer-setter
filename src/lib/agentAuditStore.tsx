@@ -224,7 +224,7 @@ const SEED_ALERTS: AgentAlert[] = [
   {
     id: "promesa-financiamiento-1", agentId: "lead-flow-ai", errorCode: "promesa_vacia_financiamiento",
     title: "Promesa vacía — financiamiento", category: "comportamiento", severity: "rojo",
-    contactName: "CARLOS RUIZ", timestamp: "Hace 2 horas", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
+    contactName: "EJEMPLO CARLOS RUIZ", timestamp: "Hace 2 horas", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
     diagnostico: "El agente promete condiciones de financiamiento (meses sin intereses) que no están confirmadas en la base de conocimiento — genera una expectativa que el equipo de cierre no puede sostener.",
     correctionBlock: "No ofrezcas planes de financiamiento específicos sin verificarlos primero en la base de conocimiento. Si preguntan, responde que un asesor confirmará las opciones disponibles.",
     evidence: { kind: "chat", userMsg: "¿Tienen meses sin intereses?", aiMsg: "Sí, tenemos hasta 12 meses sin intereses." },
@@ -232,7 +232,7 @@ const SEED_ALERTS: AgentAlert[] = [
   {
     id: "promesa-financiamiento-2", agentId: "lead-flow-ai", errorCode: "promesa_vacia_financiamiento",
     title: "Promesa vacía — financiamiento", category: "comportamiento", severity: "rojo",
-    contactName: "ANA SILVA", timestamp: "Hace 5 horas", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
+    contactName: "EJEMPLO ANA SILVA", timestamp: "Hace 5 horas", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
     diagnostico: "El agente promete condiciones de financiamiento (meses sin intereses) que no están confirmadas en la base de conocimiento — genera una expectativa que el equipo de cierre no puede sostener.",
     correctionBlock: "No ofrezcas planes de financiamiento específicos sin verificarlos primero en la base de conocimiento. Si preguntan, responde que un asesor confirmará las opciones disponibles.",
     evidence: { kind: "chat", userMsg: "Me interesa a plazos", aiMsg: "Podemos hacerlo a 12 meses sin intereses." },
@@ -240,13 +240,13 @@ const SEED_ALERTS: AgentAlert[] = [
   ...makeFillerAlerts(13, {
     agentId: "lead-flow-ai", errorCode: "promesa_vacia_financiamiento", title: "Promesa vacía — financiamiento",
     category: "comportamiento", severity: "rojo", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
-  }, ["CARLOS RUIZ", "ANA SILVA"]),
+  }, ["EJEMPLO CARLOS RUIZ", "EJEMPLO ANA SILVA"]),
 
   // Lead Flow AI — "No detecta intención de pago" (rojo, ×9, abierto hace 1 día) — incluye a CARLA MENDOZA (Setter)
   {
     id: "no-detecta-pago-carla", agentId: "lead-flow-ai", errorCode: "no_detecta_intencion_pago",
     title: "No detecta intención de pago", category: "base_conocimiento", severity: "rojo",
-    contactName: "CARLA MENDOZA", timestamp: "Hace 3 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
+    contactName: "EJEMPLO CARLA MENDOZA", timestamp: "Hace 3 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
     diagnostico: "Fallo en webhook de Zapier al validar email — el agente no detecta que el intento de pago quedó pendiente de validación y deja la conversación pausada sin avisar al humano.",
     correctionBlock: "Si el webhook de validación no responde en 30s, pausa el bot y notifica a Intervenciones Urgentes en vez de continuar la conversación como si nada.",
     evidence: { kind: "chat", userMsg: "Ya pagué, ¿ahora qué sigo?", aiMsg: "¡Genial! Seguimos coordinando los detalles." },
@@ -254,7 +254,7 @@ const SEED_ALERTS: AgentAlert[] = [
   ...makeFillerAlerts(8, {
     agentId: "lead-flow-ai", errorCode: "no_detecta_intencion_pago", title: "No detecta intención de pago",
     category: "base_conocimiento", severity: "rojo", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
-  }, ["JORGE RUIZ", "IGNACIO PRADA"]),
+  }, ["EJEMPLO JORGE RUIZ", "EJEMPLO IGNACIO PRADA"]),
 
   // Lead Flow AI — "Respuestas demasiado largas" (amarillo, ×22, abierto hace 4 días)
   ...makeFillerAlerts(22, {
@@ -262,13 +262,13 @@ const SEED_ALERTS: AgentAlert[] = [
     category: "comportamiento", severity: "amarillo", openedAt: "03 Jul", openedDaysAgo: 4, status: "active",
     diagnostico: "El agente redacta respuestas de más de 4 párrafos en WhatsApp — el prospecto pierde el hilo y tarda más en responder.",
     correctionBlock: "Limita las respuestas a un máximo de 2 líneas cortas por mensaje. Si hay más información, ofrécela en un segundo mensaje solo si preguntan.",
-  }, ["FERNANDO LOPEZ", "ELENA MARTIN", "MIGUEL RUIZ"]),
+  }, ["EJEMPLO FERNANDO LOPEZ", "EJEMPLO ELENA MARTIN", "EJEMPLO MIGUEL RUIZ"]),
 
   // Appointment Flow AI — "No detecta solicitud de pago" (amarillo, ×6) — incluye a ARIEL MENDEZ (Closer)
   {
     id: "no-detecta-solicitud-pago-ariel", agentId: "appointment-flow-ai", errorCode: "no_detecta_solicitud_pago",
     title: "No detecta solicitud de pago", category: "comportamiento", severity: "amarillo",
-    contactName: "ARIEL MENDEZ", timestamp: "Hace 1 hora", openedAt: "07 Jul", openedDaysAgo: 0, status: "active",
+    contactName: "EJEMPLO ARIEL MENDEZ", timestamp: "Hace 1 hora", openedAt: "07 Jul", openedDaysAgo: 0, status: "active",
     diagnostico: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió — requiere intervención inmediata para no perder la venta.",
     correctionBlock: "Cuando el mensaje del contacto contenga palabras como \"link\", \"pago\" o \"cómo pago\", envía el enlace de pago de inmediato en vez de continuar el guión estándar.",
     evidence: { kind: "chat", userMsg: "¿Me pasás el link para pagar?", aiMsg: "¡Claro que sí! ¿Te gustaría agendar una llamada?" },
@@ -276,13 +276,13 @@ const SEED_ALERTS: AgentAlert[] = [
   ...makeFillerAlerts(5, {
     agentId: "appointment-flow-ai", errorCode: "no_detecta_solicitud_pago", title: "No detecta solicitud de pago",
     category: "comportamiento", severity: "amarillo", openedAt: "07 Jul", openedDaysAgo: 0, status: "active",
-  }, ["CARMEN MARTIN", "CARLOS PEREZ"]),
+  }, ["EJEMPLO CARMEN MARTIN", "EJEMPLO CARLOS PEREZ"]),
 
   // Lead Flow Voz — "Corta antes de que el cliente termine" (rojo, ×5, abierto hace 1 día) — 2 ejemplos reales de grabación/transcript
   {
     id: "corta-antes-tiempo-mateo", agentId: "lead-flow-voz", errorCode: "corta_antes_tiempo",
     title: "Corta antes de que el cliente termine", category: "comportamiento", severity: "rojo",
-    contactName: "MATEO DIAZ", timestamp: "Hace 4 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
+    contactName: "EJEMPLO MATEO DIAZ", timestamp: "Hace 4 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
     diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
     correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
     evidence: { kind: "call", duracion: "01:48", resultado: "Contestó · cortada", resumenIA: "Contestó y estaba respondiendo la calificación de presupuesto cuando la llamada se cortó abruptamente a mitad de su frase — el agente no esperó la pausa natural antes de continuar.", audioUrl: "https://example.com/audio/lead-flow-voz-md-1.mp3" },
@@ -290,7 +290,7 @@ const SEED_ALERTS: AgentAlert[] = [
   {
     id: "corta-antes-tiempo-rodrigo", agentId: "lead-flow-voz", errorCode: "corta_antes_tiempo",
     title: "Corta antes de que el cliente termine", category: "comportamiento", severity: "rojo",
-    contactName: "RODRIGO SILVA", timestamp: "Hace 8 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
+    contactName: "EJEMPLO RODRIGO SILVA", timestamp: "Hace 8 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
     diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
     correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
     evidence: { kind: "call", duracion: "02:05", resultado: "Contestó · cortada", resumenIA: "Estaba explicando por qué necesitaba pensar el precio con su socio cuando el agente lo interrumpió y cortó la llamada antes de que terminara la frase.", audioUrl: "https://example.com/audio/lead-flow-voz-rs-1.mp3" },
@@ -300,7 +300,7 @@ const SEED_ALERTS: AgentAlert[] = [
     category: "comportamiento", severity: "rojo", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
     diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
     correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
-  }, ["SANTIAGO TORRES", "RODRIGO SILVA"]),
+  }, ["EJEMPLO SANTIAGO TORRES", "EJEMPLO RODRIGO SILVA"]),
 ];
 
 // Filler alerts no llevan evidencia individual (`makeFillerAlerts` no la asigna) — solo inflan `casesCount`.

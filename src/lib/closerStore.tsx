@@ -336,15 +336,12 @@ const URGENTE_NARANJA: UrgenteInfo["pill"] =
   "bg-orange-50 text-orange-700 border-orange-200/60 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30";
 
 const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
-  { name: "PABLO MUÑOZ", grade: "D", stage: "agendado", situacion: "Agendado", when: "hace 3 días", activity: "agendó", botEstado: "activo" },
-  { name: "LUIS FERNANDEZ", grade: "A", stage: "agendado", situacion: "Agendado", when: "hace 2 días", activity: "agendó", botEstado: "activo" },
+  { name: "EJEMPLO PABLO MUÑOZ", grade: "D", stage: "agendado", situacion: "Agendado", when: "hace 3 días", activity: "agendó", botEstado: "activo" },
+  { name: "EJEMPLO LUIS FERNANDEZ", grade: "A", stage: "agendado", situacion: "Agendado", when: "hace 2 días", activity: "agendó", botEstado: "activo" },
   {
-    name: "JUAN PEREZ", grade: "C", stage: "agendado", situacion: "Agendado", when: "hace 1 día",
+    name: "EJEMPLO JUAN PEREZ", grade: "C", stage: "agendado", situacion: "Agendado", when: "hace 1 día",
     activity: "Llamada agendada para hoy. El prospecto está muy interesado en automatizar su agencia.", starred: true,
     botEstado: "activo",
-    agenda: { time: "10:00", badge: "EN 15 MIN", expanded: true, videoPre: "✓ Vio el video pre-call (87%)",
-      briefing: "Llamada agendada para hoy. El prospecto está muy interesado en automatizar su agencia.",
-      meetUrl: "https://meet.google.com/juan-perez-1100" },
     videoPreCall: { visto: true, pct: 87, fecha: "05 Jul" },
     llamadas: [
       {
@@ -382,118 +379,118 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
       { label: "Tiene equipo", value: "Sí, 2 personas en ventas", group: "calificacion", formulario: "vsl", procedencia: "vía agente IA" },
     ],
   },
-  { name: "MARTA PEREZ", grade: "B", stage: "agendado", situacion: "Agendado", when: "hace 1 día", activity: "agendó", botEstado: "activo", agenda: { time: "11:00", meetUrl: "https://meet.google.com/marta-perez-1300" } },
-  { name: "LUIS GOMEZ", grade: "D", stage: "agendado", situacion: "Agendado", when: "hoy", activity: "agendó", botEstado: "activo", agenda: { time: "12:00", meetUrl: "https://meet.google.com/luis-gomez-1500" } },
-  { name: "SOFIA SANCHEZ", grade: "B", stage: "agendado", situacion: "Agendado", when: "hoy", activity: "agendó", botEstado: "activo", agenda: { time: "13:00", meetUrl: "https://meet.google.com/sofia-sanchez-1700" } },
-  { name: "CARMEN GOMEZ", grade: "A", stage: "agendado", situacion: "Agendado", when: "hoy", activity: "agendó", botEstado: "activo", agenda: { time: "14:00", meetUrl: "https://meet.google.com/carmen-gomez-1900" } },
+  { name: "EJEMPLO MARTA PEREZ", grade: "B", stage: "agendado", situacion: "Agendado", when: "hace 1 día", activity: "agendó", botEstado: "activo" },
+  { name: "EJEMPLO LUIS GOMEZ", grade: "D", stage: "agendado", situacion: "Agendado", when: "hoy", activity: "agendó", botEstado: "activo" },
+  { name: "EJEMPLO SOFIA SANCHEZ", grade: "B", stage: "agendado", situacion: "Agendado", when: "hoy", activity: "agendó", botEstado: "activo" },
+  { name: "EJEMPLO CARMEN GOMEZ", grade: "A", stage: "agendado", situacion: "Agendado", when: "hoy", activity: "agendó", botEstado: "activo" },
 
   {
-    name: "CARLOS RUIZ", grade: "A", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hace 17 días", activity: "El prospecto tiene dudas sobre el ROI.",
+    name: "EJEMPLO CARLOS RUIZ", grade: "A", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hace 17 días", activity: "El prospecto tiene dudas sobre el ROI.",
     botEstado: "muerto_postcall",
     llamadas: [{ id: "cr-1", origin: "sales_call", fecha: "22 Jun", duracion: "38:20", contestada: true, resultado: "Resultado: Quiere pensarlo — dudas sobre el ROI" }],
   },
   {
-    name: "ELENA MARTIN", grade: "D", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hace 15 días", activity: "respondió · esperando respuesta",
+    name: "EJEMPLO ELENA MARTIN", grade: "D", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hace 15 días", activity: "respondió · esperando respuesta",
     botEstado: "muerto_postcall",
     llamadas: [{ id: "em-1", origin: "sales_call", fecha: "24 Jun", duracion: "41:10", contestada: true, resultado: "Resultado: Muy interesada, a seguir" }],
   },
   {
-    name: "FERNANDO LOPEZ", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hace 14 días", activity: "respondió · esperando respuesta",
+    name: "EJEMPLO FERNANDO LOPEZ", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hace 14 días", activity: "respondió · esperando respuesta",
     botEstado: "muerto_postcall",
     llamadas: [{ id: "fl-1", origin: "sales_call", fecha: "25 Jun", duracion: "33:50", contestada: true, resultado: "Resultado: Muy interesado, a seguir" }],
   },
   {
-    name: "DIEGO RODRIGUEZ", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Próximo a pagar", when: "hace 14 días", activity: "respondió · esperando respuesta", starred: true,
+    name: "EJEMPLO DIEGO RODRIGUEZ", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Próximo a pagar", when: "hace 14 días", activity: "respondió · esperando respuesta", starred: true,
     botEstado: "muerto_postcall",
     llamadas: [{ id: "dr-1", origin: "sales_call", fecha: "25 Jun", duracion: "36:05", contestada: true, resultado: "Resultado: Muy interesado, a seguir" }],
   },
 
   {
-    name: "ELENA ALVAREZ", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 15 días", activity: "link enviado · sin pago", monto: 500,
+    name: "EJEMPLO ELENA ALVAREZ", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 15 días", activity: "link enviado · sin pago", monto: 500,
     botEstado: "muerto_postcall",
     llamadas: [{ id: "ea-1", origin: "sales_call", fecha: "24 Jun", duracion: "42:15", contestada: true, resultado: "Resultado: Acordó comprar" }],
   },
   {
-    name: "LUCIA ROMERO", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 8 días", activity: "link enviado · sin pago", monto: 500,
+    name: "EJEMPLO LUCIA ROMERO", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 8 días", activity: "link enviado · sin pago", monto: 500,
     botEstado: "muerto_postcall",
     llamadas: [{ id: "lr-1", origin: "sales_call", fecha: "01 Jul", duracion: "39:40", contestada: true, resultado: "Resultado: Acordó comprar" }],
   },
   {
-    name: "RAUL FERNANDEZ", grade: "A", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 7 días", activity: "link enviado · sin pago", monto: 500,
+    name: "EJEMPLO RAUL FERNANDEZ", grade: "A", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 7 días", activity: "link enviado · sin pago", monto: 500,
     botEstado: "muerto_postcall",
     llamadas: [{ id: "rf-1", origin: "sales_call", fecha: "02 Jul", duracion: "45:30", contestada: true, resultado: "Resultado: Acordó comprar" }],
   },
   {
-    name: "MARTA MARTIN", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 5 días", activity: "link enviado · sin pago", monto: 500,
+    name: "EJEMPLO MARTA MARTIN", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 5 días", activity: "link enviado · sin pago", monto: 500,
     botEstado: "muerto_postcall",
     llamadas: [{ id: "mm-1", origin: "sales_call", fecha: "04 Jul", duracion: "37:00", contestada: true, resultado: "Resultado: Acordó comprar" }],
   },
 
   {
-    name: "JORGE ALVAREZ", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hace 8 días", activity: "",
+    name: "EJEMPLO JORGE ALVAREZ", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hace 8 días", activity: "",
     botEstado: "muerto_postcall", atribucionSetter: false,
     llamadas: [{ id: "ja-1", origin: "sales_call", fecha: "01 Jul", duracion: "40:00", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
   {
-    name: "DIEGO GOMEZ", grade: "C", stage: "ganado", situacion: "Venta · Contado", when: "hace 10 días", activity: "",
+    name: "EJEMPLO DIEGO GOMEZ", grade: "C", stage: "ganado", situacion: "Venta · Contado", when: "hace 10 días", activity: "",
     botEstado: "muerto_postcall", atribucionSetter: false,
     llamadas: [{ id: "dg-1", origin: "sales_call", fecha: "29 Jun", duracion: "35:20", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
   {
-    name: "MIGUEL PEREZ", grade: "C", stage: "ganado", situacion: "Venta · Contado", when: "hace 12 días", activity: "",
+    name: "EJEMPLO MIGUEL PEREZ", grade: "C", stage: "ganado", situacion: "Venta · Contado", when: "hace 12 días", activity: "",
     botEstado: "muerto_postcall", atribucionSetter: false,
     llamadas: [{ id: "mp-1", origin: "sales_call", fecha: "27 Jun", duracion: "44:10", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
   {
-    name: "SHIRLEY FAJARDO", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hace 18 días", activity: "Todo bajo control. Venta cerrada.",
+    name: "EJEMPLO SHIRLEY FAJARDO", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hace 18 días", activity: "Todo bajo control. Venta cerrada.",
     botEstado: "muerto_postcall", atribucionSetter: true,
     llamadas: [{ id: "sf-1", origin: "sales_call", fecha: "21 Jun", duracion: "50:05", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
 
   // No-show: única excepción a "muerto_postcall" — la IA se reactiva para correr el workflow de recuperación automática.
   {
-    name: "ALFREDO", grade: "A", stage: "no_show", situacion: "No-show", when: "hace 20 días", activity: "La conversación se ha estancado. El usuario no responde.",
+    name: "EJEMPLO ALFREDO", grade: "A", stage: "no_show", situacion: "No-show", when: "hace 20 días", activity: "La conversación se ha estancado. El usuario no responde.",
     botEstado: "activo",
   },
   {
-    name: "LUCIA FERNANDEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó",
+    name: "EJEMPLO LUCIA FERNANDEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó",
     botEstado: "activo",
   },
   {
-    name: "CARMEN MARTIN", grade: "A", stage: "no_show", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó",
+    name: "EJEMPLO CARMEN MARTIN", grade: "A", stage: "no_show", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó",
     botEstado: "activo",
   },
   {
-    name: "CARLOS PEREZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó",
+    name: "EJEMPLO CARLOS PEREZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hace 8 días", activity: "venía muy seguro · plantó",
     botEstado: "activo",
   },
   // El workflow de recuperación de no-show (arriba) puede fallar — ahí sí queda pausado_fallo + urgente, no "activo".
   {
-    name: "PEDRO GOMEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hoy", activity: "venía muy seguro · plantó",
+    name: "EJEMPLO PEDRO GOMEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hoy", activity: "venía muy seguro · plantó",
     fuente: "VSL OPT-IN", botEstado: "pausado_fallo",
     urgente: { pill: URGENTE_NARANJA, detail: "venía muy seguro · plantó", detailClass: "text-muted-foreground" },
   },
   {
-    name: "ANA MARTINEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hoy", activity: "venía muy seguro · plantó",
+    name: "EJEMPLO ANA MARTINEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hoy", activity: "venía muy seguro · plantó",
     fuente: "META ADS", botEstado: "derivado_lt",
   },
 
   // Nurture: maduración post-call — sub-origen decide el texto de la píldora "NURTURE · X".
   {
-    name: "SEBASTIAN LARA", grade: "B", stage: "nurture", nurtureOrigen: "no_show",
+    name: "EJEMPLO SEBASTIAN LARA", grade: "B", stage: "nurture", nurtureOrigen: "no_show",
     situacion: "NURTURE · NO-SHOW", when: "hace 25 días",
     activity: "serie de recuperación de no-show agotada sin respuesta", fuente: "VSL OPT-IN",
     botEstado: "apagado_manual",
   },
   {
-    name: "PATRICIA VEGA", grade: "C", stage: "nurture", nurtureOrigen: "pidio_tiempo",
+    name: "EJEMPLO PATRICIA VEGA", grade: "C", stage: "nurture", nurtureOrigen: "pidio_tiempo",
     situacion: "NURTURE · PIDIÓ TIEMPO", when: "hace 20 días",
     activity: "pidió tiempo tras la llamada · re-contacto programado en 30-60 días",
     botEstado: "muerto_postcall",
     llamadas: [{ id: "pv-1", origin: "sales_call", fecha: "18 Jun", duracion: "34:10", contestada: true, resultado: "Resultado: Quiere pensarlo — pidió tiempo" }],
   },
   {
-    name: "OSCAR JIMENEZ", grade: "D", stage: "nurture", nurtureOrigen: "se_enfrio",
+    name: "EJEMPLO OSCAR JIMENEZ", grade: "D", stage: "nurture", nurtureOrigen: "se_enfrio",
     situacion: "NURTURE · SE ENFRIÓ", when: "hace 30 días",
     activity: "sin respuesta tras varios seguimientos · pasa a solo contenido",
     botEstado: "muerto_postcall",
@@ -501,27 +498,27 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
 
   {
-    name: "MIGUEL SANCHEZ", grade: "C", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 2 días", activity: "",
+    name: "EJEMPLO MIGUEL SANCHEZ", grade: "C", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 2 días", activity: "",
     fuente: "META ADS", botEstado: "muerto_postcall",
     llamadas: [{ id: "ms-1", origin: "sales_call", fecha: "05 Jul", duracion: "28:40", contestada: true, resultado: "Resultado: No interesado" }],
   },
   {
-    name: "LAURA RODRIGUEZ", grade: "D", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 5 días", activity: "",
+    name: "EJEMPLO LAURA RODRIGUEZ", grade: "D", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 5 días", activity: "",
     botEstado: "muerto_postcall",
     llamadas: [{ id: "lrz-1", origin: "sales_call", fecha: "02 Jul", duracion: "22:15", contestada: true, resultado: "Resultado: No interesado" }],
   },
   {
-    name: "LAURA MUÑOZ", grade: "D", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 5 días", activity: "",
+    name: "EJEMPLO LAURA MUÑOZ", grade: "D", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 5 días", activity: "",
     botEstado: "muerto_postcall",
     llamadas: [{ id: "lm-1", origin: "sales_call", fecha: "02 Jul", duracion: "19:50", contestada: true, resultado: "Resultado: No interesado" }],
   },
   {
-    name: "PABLO MORENO", grade: "D", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 5 días", activity: "",
+    name: "EJEMPLO PABLO MORENO", grade: "D", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 5 días", activity: "",
     botEstado: "muerto_postcall",
     llamadas: [{ id: "pm-1", origin: "sales_call", fecha: "02 Jul", duracion: "25:30", contestada: true, resultado: "Resultado: No interesado" }],
   },
   {
-    name: "ARIEL MENDEZ", grade: "B", stage: "descalificado", situacion: "No interesado · Precio", when: "hoy",
+    name: "EJEMPLO ARIEL MENDEZ", grade: "B", stage: "descalificado", situacion: "No interesado · Precio", when: "hoy",
     activity: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió. Requiere intervención inmediata para no perder la venta.",
     fuente: "META ADS", botEstado: "pausado_fallo",
     urgente: {
@@ -543,9 +540,8 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
     ],
   },
   {
-    name: "VALENTINA GOMEZ", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hoy", activity: "venta low-ticket cerrada exitosamente",
+    name: "EJEMPLO VALENTINA GOMEZ", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hoy", activity: "venta low-ticket cerrada exitosamente",
     fuente: "META ADS", botEstado: "muerto_postcall", atribucionSetter: true,
-    agenda: { time: "9:00", briefing: "venta low-ticket cerrada exitosamente", meetUrl: "https://meet.google.com/valentina-gomez-0900" },
     llamadas: [{ id: "vg-1", origin: "sales_call", fecha: "Hoy", duracion: "33:15", contestada: true, resultado: "Resultado: Venta LT cerrada" }],
     perfil: [
       { label: "Teléfono", value: "+54 911 9988 7766", group: "detalles" },
@@ -562,7 +558,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
 
   // Respondieron (buzón general) — Mi Día
   {
-    name: "SANTIAGO TORRES", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
+    name: "EJEMPLO SANTIAGO TORRES", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
     activity: "respondió hace 2h", fuente: "META ADS", botEstado: "muerto_postcall",
     respondido: { microtext: "respondió hace 2h" },
     llamadas: [
@@ -572,14 +568,14 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
   {
     // IG no tiene bot (§11) — sin botEstado, el toggle del compositor no se renderiza para este contacto.
-    name: "CAMILA VEGA", grade: "A", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hoy",
+    name: "EJEMPLO CAMILA VEGA", grade: "A", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hoy",
     activity: "respondió hace 45 min", fuente: "📷 IG PROFILE", monto: 500,
     respondido: { microtext: "respondió hace 45 min" },
   },
 
   // Seguimientos de hoy — Mi Día (distinto del stage "Seguimiento" del Pipeline: son los que vencen/tocan hoy)
   {
-    name: "RODRIGO SILVA", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hoy",
+    name: "EJEMPLO RODRIGO SILVA", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hoy",
     activity: "vencido hace 1 día", fuente: "META ADS", botEstado: "muerto_postcall", seguimientoAutomaticoActivo: true,
     seguimientoPendiente: { microtext: "vencido hace 1 día", vencido: true },
     videoPreCall: { visto: false, diasSinAbrir: 2 },
@@ -591,7 +587,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
   {
     // IG no tiene bot (§11) — sin botEstado.
-    name: "VALERIA CASTRO", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
+    name: "EJEMPLO VALERIA CASTRO", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
     activity: "seguimiento programado para hoy", fuente: "📷 IG PROFILE", seguimientoAutomaticoActivo: true,
     seguimientoPendiente: { microtext: "seguimiento programado para hoy" },
   },

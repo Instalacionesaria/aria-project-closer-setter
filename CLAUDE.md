@@ -921,6 +921,26 @@ git config user.email instalacionesariaia@gmail.com
 
 La autoría real de quien escribe se conserva con un `Co-Authored-By` en el mensaje.
 
+### 50.10 Datos de demostración: prefijo `EJEMPLO` obligatorio
+
+Regla de Francisco (2026-07-25): **todo contacto de demostración empieza con `EJEMPLO`** —
+`EJEMPLO RODRIGO SILVA`. En producción hay que poder distinguir de un vistazo un contacto
+real de GHL de uno inventado, y con la app conectada esa confusión cuesta caro.
+
+El prefijo va en **los cuatro lugares a la vez**: `closerStore`, `setterStore`, el `SCHEDULE`
+de `CloserAI.tsx` y `agentAuditStore`. El nombre es a la vez texto visible **y** clave del
+`Record`, y Agents Audit cruza por nombre (`AgentsAudit.tsx:723`); si uno queda sin prefijar,
+abrir la ficha desde una evidencia deja de encontrar al contacto.
+
+**Los nombres de los agentes NO llevan prefijo** (`Lead Flow AI`, `Appointment Flow Voz`):
+son entidades reales del producto, no datos de demostración.
+
+**"Agenda de Hoy" quedó vacía a propósito.** Se quitó el campo `agenda` de los 6 contactos
+semilla que lo tenían, para que la prueba en producción se concentre en Seguimientos. De
+paso se le agregó el conditional que le faltaba: ahora la sección **se oculta cuando está
+vacía**, que es la regla §4.1 y hasta entonces no se cumplía ahí — mostraba el encabezado con
+un "0" al lado.
+
 ### 50.9 Los imports de `api/` llevan extensión `.js` — obligatorio
 
 `package.json` declara `"type": "module"` y el runtime de Vercel es Node 24. **ESM nativo no
