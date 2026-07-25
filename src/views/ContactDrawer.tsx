@@ -43,6 +43,8 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { isoEnDias, fechaCorta } from "../lib/fechas";
+import type { SituacionSeguimiento } from "../lib/ghl/contrato";
+import type { ModoSeguimiento } from "../lib/seguimientos/dominio";
 import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, callsIASummary, type ClosurerContact, type StageKey, type BotEstado, type CallRecord, type CallOrigin, type Sentimiento, type PerfilField, type PerfilGroup, type PerfilFormulario, type VideoPreCallInfo } from "../lib/closerStore";
 import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTagTone, type SetterAdvanceInput } from "../lib/setterStore";
 import { useSettings } from "../lib/settingsStore";
@@ -80,7 +82,15 @@ type AvanzarResult = {
   celebrate?: boolean;
   nota?: string;
   stage?: StageKey;
-  cadenciaActiva?: boolean;
+  seguimientoAutomaticoActivo?: boolean;
+  /* Solo la salida Seguimiento: lo que el backend necesita para persistir. La fecha viaja
+     como INTENCIÓN (`preset`), nunca calculada acá — el servidor la resuelve contra
+     America/Lima. El porqué está documentado en src/lib/fechas.ts. */
+  situacionSlug?: SituacionSeguimiento;
+  modo?: ModoSeguimiento;
+  preset?: string;
+  fechaPersonalizada?: string;
+  idempotencyKey?: string;
   /** Setter (con store, 2026-07-10): equivalentes de `stage`/color para SetterAdvanceInput. */
   setterStage?: SetterStageKey;
   situacionTone?: SetterTagTone;
@@ -508,6 +518,14 @@ const MANUAL_SEGUIMIENTO: { key: string; meta: string; icon?: typeof CalendarClo
   { key: "Personalizada", meta: "Elegir fecha", icon: CalendarClock },
 ];
 
+/** Etiqueta del chip → preset que entiende el backend. El servidor resuelve la fecha. */
+const PRESET_POR_CHIP: Record<string, string> = {
+  "Mañana": "manana",
+  "En 3 días": "en_3_dias",
+  "1 semana": "una_semana",
+  Personalizada: "personalizada",
+};
+
 /**
  * Compartido Setter/Closer (§ rediseño 2026-07-09): mismo componente, mismo comportamiento — solo
  * cambian las opciones del grupo automático. `situacionPill` (§ rediseño 2-pantallas del closer,
@@ -524,6 +542,7 @@ function SeguimientoScreen({
   setterStage,
   situacionTone,
   situacionPill,
+  situacionSlug,
 }: {
   onClose: () => void;
   onBack: () => void;
@@ -533,11 +552,21 @@ function SeguimientoScreen({
   setterStage?: SetterStageKey;
   situacionTone?: SetterTagTone;
   situacionPill?: string;
+  /** Solo closer: el slug que el backend persiste. El setter no lo provee y no persiste. */
+  situacionSlug?: SituacionSeguimiento;
 }) {
   const [autoPick, setAutoPick] = useState<string | null>(null);
   const [manualPick, setManualPick] = useState<string | null>(null);
   const [customFecha, setCustomFecha] = useState("");
   const [nota, setNota] = useState("");
+
+  /**
+   * Una clave por apertura del modal, no por clic. Es lo que hace inocuo el doble submit:
+   * el servidor reconoce el reintento en vez de crear dos seguimientos.
+   */
+  const idempotencyKey = useRef(
+    globalThis.crypto?.randomUUID?.() ?? `av-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  ).current;
 
   const pickAuto = (key: string) => {
     setAutoPick(key);
@@ -565,7 +594,10 @@ function SeguimientoScreen({
         stage,
         setterStage,
         situacionTone,
-        cadenciaActiva: true,
+        seguimientoAutomaticoActivo: true,
+        situacionSlug,
+        modo: "automatico",
+        idempotencyKey,
       });
       return;
     }
@@ -578,7 +610,14 @@ function SeguimientoScreen({
       stage,
       setterStage,
       situacionTone,
-      cadenciaActiva: false,
+      seguimientoAutomaticoActivo: false,
+      situacionSlug,
+      modo: "manual",
+      // El preset, no la fecha: el servidor la resuelve contra America/Lima. `effectiveFecha`
+      // se sigue calculando acá solo para los textos que ve el usuario.
+      preset: PRESET_POR_CHIP[manualPick ?? ""] ?? "personalizada",
+      fechaPersonalizada: manualPick === "Personalizada" ? customFecha : undefined,
+      idempotencyKey,
     });
   };
 
@@ -615,12 +654,18 @@ function SeguimientoScreen({
 
 /* ---------- Closer: Seguimiento en 2 pantallas — Situación → Modo (DISEÑO APROBADO, 2026-07-11) ---------- */
 
-const CLOSER_SITUACIONES: { label: string; desc: string; icon: typeof Flame; tone: string }[] = [
-  { label: "Próximo a pagar", desc: "Dijo que sí, es cuestión de días", icon: Flame, tone: "emerald" },
-  { label: "Muy interesado", desc: "Quiere, sin fecha de pago aún", icon: Star, tone: "amber" },
-  { label: "Dudando", desc: "Tiene una objeción sin resolver", icon: HelpCircle, tone: "violet" },
-  { label: "Enfriándose", desc: "Perdiendo interés, riesgo de fuga", icon: Snowflake, tone: "blue" },
-  { label: "Otro", desc: "Situación no listada", icon: CircleDashed, tone: "slate" },
+/**
+ * Las cinco tarjetas de la pantalla 1 (§39.1, DISEÑO APROBADO). El `slug` es lo que se
+ * persiste; el `label` es a la vez el texto de la tarjeta Y el valor exacto del dropdown
+ * `nivel_de_inters_seguimiento` en GHL — están verificados uno a uno contra la subcuenta,
+ * y la fuente de verdad de esa correspondencia es `SITUACIONES` en `ghl/contrato.ts`.
+ */
+const CLOSER_SITUACIONES: { slug: SituacionSeguimiento; label: string; desc: string; icon: typeof Flame; tone: string }[] = [
+  { slug: "proximo_a_pagar", label: "Próximo a pagar", desc: "Dijo que sí, es cuestión de días", icon: Flame, tone: "emerald" },
+  { slug: "muy_interesado", label: "Muy interesado", desc: "Quiere, sin fecha de pago aún", icon: Star, tone: "amber" },
+  { slug: "dudando", label: "Dudando", desc: "Tiene una objeción sin resolver", icon: HelpCircle, tone: "violet" },
+  { slug: "enfriandose", label: "Enfriándose", desc: "Perdiendo interés, riesgo de fuga", icon: Snowflake, tone: "blue" },
+  { slug: "otro", label: "Otro", desc: "Situación no listada", icon: CircleDashed, tone: "slate" },
 ];
 
 /** Pantalla 1 (Situación) → pantalla 2 (Modo, = SeguimientoScreen de siempre). La situación decide la subcategoría de la píldora; el modo solo decide automático/manual y la fecha de la 2ª línea. */
@@ -656,6 +701,7 @@ function CloserSeguimientoFlow({
       autoOptions={CLOSER_AUTO_SEGUIMIENTO}
       stage="seguimiento"
       situacionPill={situacion.label.toUpperCase()}
+      situacionSlug={situacion.slug}
     />
   );
 }
@@ -1082,7 +1128,7 @@ export default function ContactDrawer({
   const salesCallsCount = countSalesCalls(llamadas);
   // 📞 — cuenta llamadas de IA contestadas desde `llamadas` (§ auditoría íconos, 2026-07-10) — nunca un campo aparte.
   const callsCount = countCallsContestadas(llamadas);
-  const cadenciaActiva = contact ? contact.cadenciaActiva : setterContact ? setterContact.cadenciaActiva : undefined;
+  const seguimientoAutomaticoActivo = contact ? contact.seguimientoAutomaticoActivo : setterContact ? setterContact.seguimientoAutomaticoActivo : undefined;
   // IG no tiene bot (§11) — para closer se deriva de `fuente`; para setter, del `canal` del contacto.
   const hasBot = contact ? contact.fuente !== "📷 IG PROFILE" : setterContact ? setterContact.canal !== "instagram" : true;
   // § toast/pin (2026-07-11) — hay una tarea de conversación activa que la barra de progreso completa/pinea: Respondieron (closer/setter) u Oportunidad LT (setter).
@@ -1122,7 +1168,7 @@ export default function ContactDrawer({
         texto: result.texto,
         monto: result.monto,
         nota: result.nota,
-        cadenciaActiva: result.cadenciaActiva,
+        seguimientoAutomaticoActivo: result.seguimientoAutomaticoActivo,
         agendaFecha: result.agendaFecha,
       });
     } else {
@@ -1248,8 +1294,8 @@ export default function ContactDrawer({
                 );
               })()}
               <div
-                className={cn("flex items-center gap-1", cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")}
-                title={cadenciaActiva ? "Seguimiento automático activo" : "Sin seguimiento activo"}
+                className={cn("flex items-center gap-1", seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")}
+                title={seguimientoAutomaticoActivo ? "Seguimiento automático activo" : "Sin seguimiento activo"}
               >
                 <AlarmClock className="w-4 h-4" />
               </div>

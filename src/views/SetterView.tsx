@@ -336,7 +336,7 @@ function ContactIcons({ contact }: { contact: SetterContact }) {
         <Bot className="w-3.5 h-3.5" />
         {v.label}
       </div>
-      <div className={cn("flex items-center gap-1", contact.cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")} title={contact.cadenciaActiva ? "Seguimiento automático activo" : "Sin seguimiento activo"}>
+      <div className={cn("flex items-center gap-1", contact.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")} title={contact.seguimientoAutomaticoActivo ? "Seguimiento automático activo" : "Sin seguimiento activo"}>
         <AlarmClock className="w-3.5 h-3.5" />
       </div>
       <div className={cn("flex items-center gap-1", contact.monto ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} title={contact.monto ? `Venta $${contact.monto}` : "Sin venta LT"}>

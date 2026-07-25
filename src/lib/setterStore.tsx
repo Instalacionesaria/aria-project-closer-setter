@@ -62,7 +62,7 @@ export interface SetterContact {
   botPrefix?: boolean;
   /** Sin definir = "activo" por defecto si el canal tiene bot (regla A del toggle). */
   botEstado?: BotEstado;
-  cadenciaActiva?: boolean;
+  seguimientoAutomaticoActivo?: boolean;
   monto?: number;
   agendaFecha?: string;
   /** Presencia = la sala del Meet ya existe (§ auditoría íconos, 2026-07-10) — enciende 📹. `agendaFecha` sin esto = cita (📅) sin sala todavía. */
@@ -102,7 +102,7 @@ export interface SetterAdvanceInput {
   texto: string;
   monto?: number;
   nota?: string;
-  cadenciaActiva?: boolean;
+  seguimientoAutomaticoActivo?: boolean;
   agendaFecha?: string;
 }
 
@@ -419,8 +419,8 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
           monto: input.monto ?? c.monto,
           agendaFecha: input.agendaFecha ?? c.agendaFecha,
           // Cancelación universal, igual que el closer: cualquier Avanzar apaga la serie.
-          // `?? c.cadenciaActiva` dejaba el ⏱ encendido tras un resultado que no fuera Seguimiento.
-          cadenciaActiva: input.cadenciaActiva ?? false,
+          // `?? c.seguimientoAutomaticoActivo` dejaba el ⏱ encendido tras un resultado que no fuera Seguimiento.
+          seguimientoAutomaticoActivo: input.seguimientoAutomaticoActivo ?? false,
           historial,
           notas,
           urgente: undefined,

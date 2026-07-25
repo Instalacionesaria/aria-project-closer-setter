@@ -791,6 +791,111 @@ Se re-etiquetaron los campos ya sembrados (ninguno se inventó de cero): "Factur
 
 **Verificado con Playwright**: `JUAN PEREZ` muestra Form VSL + Form Meta ambos poblados, y en Interacciones "2 contestadas de 2 intentos · Último resultado: Contestó · confirmó" (además del Video pre-call ya existente); `CARLA MENDOZA` muestra Form Meta poblado y Form VSL con "Sin datos de este formulario."; `SOFIA NUÑEZ` muestra el caso inverso (solo VSL) y "1 contestadas de 2 intentos · Último resultado: Contestó · calificó parcial" en Interacciones. Sin errores de consola. `npm run build` limpio.
 
+## 50. Backend de Seguimientos (Closer → Mi Día) — primera integración real (2026-07-25)
+
+Primer backend del repo. Hasta acá todo era semilla en memoria: cero `fetch`, cero
+persistencia salvo el `localStorage` de Ajustes. Con esto llegan las primeras llamadas de
+red, la primera base de datos y la primera integración con GHL.
+
+### 50.1 Arquitectura y una desviación consciente del contrato
+
+`api/` (funciones de Vercel, en este repo) ↔ **GHL** (verdad del negocio) + **Supabase
+SOFIA** (estado operativo del tool). La capa de integración vive acá y no en el motor de
+Kevin, que es otro desarrollador y otro tiempo.
+
+`CONTRATO-GHL.md` §0 dice que *"el tool NO es una base de datos"*. Se respeta casi entero —
+la situación es un custom field, el modo es un tag, el stage lo mueve un workflow. **La
+excepción es la fecha objetivo del seguimiento manual**: GHL solo necesita saber que el
+contacto está en manual para no perseguirlo, y el día en que reaparece en la cola es lógica
+de cola de trabajo, sin campo ni workflow en el contrato. Decisión tomada con Francisco.
+
+Lo que el contrato SÍ impone y acá se respeta: **el tool arma la píldora** (§0) a partir de
+stage + custom field crudos, y decide en qué sección aparece cada contacto. Eso **invierte**
+§2 ("el frontend no calcula"). El contrato es más nuevo y más específico: gana.
+
+### 50.2 Las tres reglas de producto nuevas
+
+1. **"Seguimientos de hoy" = solo manuales.** Una serie automática en curso NO genera fila:
+   §16.1 define el automático como "el sistema persigue por ti" y su resultado confirmado es
+   píldora + ⏱ + evento, sin tarea; solo el manual dice "tarea que reaparece ese día". Es
+   también lo único coherente con §40.E. Aflora una sola vez, cuando la serie se agota
+   (§16.1.D). Si el contacto responde antes, vuelve por Buzón general o Urgentes.
+2. **Cancelación universal.** CUALQUIER resultado de Avanzar cierra el seguimiento abierto,
+   autor `Sistema`. No estaba en ningún documento. Es lo que evita que un trato ganado siga
+   siendo perseguido.
+3. **Uno solo abierto por contacto.** Repactar reemplaza; contactos distintos no se tocan.
+   Es un índice parcial único en la base, no lógica de aplicación: convierte el doble submit
+   y las dos pestañas en una violación reintentable en vez de dos filas y dos tags en GHL.
+
+### 50.3 Sin cron: la cola es una consulta
+
+No hay proceso que "active" seguimientos. La condición es `fecha_objetivo <= hoy_org()`: el
+día 4 una fila con fecha 5 no cumple, el día 5 la misma fila cumple sin que nadie la toque.
+Estado derivado, no mutado — un cron puede no correr, correr dos veces o fallar en silencio,
+y ahí sí se pierden seguimientos.
+
+### 50.4 Correcciones al contrato y a este documento
+
+- **§8 queda corregido**: declara que el ⏱ corresponde al tag `seguimiento_activo`, pero
+  ese tag fue ELIMINADO (§9 del contrato). El del closer es **`seguimiento_recupero`**.
+  Ojo: el viejo *sigue existiendo* en la cuenta — la nota del contrato describe una
+  intención, no el estado real. Igual pasa con `seguimiento_postcall`.
+- **§16.1.A queda enmendado**: decía que el ⏱ se enciende y apaga "ÚNICAMENTE vía Avanzar".
+  El sistema también lo apaga por serie agotada, respuesta del contacto o cancelación.
+  Nueva redacción: *se enciende solo vía Avanzar; se apaga vía Avanzar **o por el sistema**,
+  siempre con autor `Sistema` en Historial*.
+- **§34 vs. los toques automáticos**: no hay contradicción. Los 3 toques los envía un
+  *workflow* de GHL disparado por tag, no el agente conversacional, que sigue muerto. La
+  serie es estrictamente saliente: cualquier respuesta la cancela (WF 02.6 del contrato).
+- **Tag nuevo `seguimiento_manual`** y valor **`Otro`** en `nivel_de_inters_seguimiento`:
+  ambos creados y verificados en la subcuenta.
+
+### 50.5 Trampas encontradas contra los sistemas reales
+
+Ninguna de estas se ve compilando. Todas costaron una verificación contra producción.
+
+- **El custom field se escribe por `id`, no por `key`.** Mandarlo por `key` —como lo
+  documenta el contrato §4— devuelve **200 y no escribe nada**. Comprobado con las tres
+  variantes. Sin leer de vuelta para verificar, el sistema habría reportado "situación
+  guardada" durante meses. `api/_lib/ghl/real.ts` cachea el catálogo key↔id.
+- **El historial no podía borrarse.** El trigger append-only rechazaba UPDATE *y* DELETE, y
+  como los eventos referencian el seguimiento, nada del módulo era borrable — ni el dato de
+  prueba, ni el de alguien que pidiera supresión. Ahora solo bloquea UPDATE: la historia no
+  se reescribe, pero borrar es una acción administrativa legítima.
+- **Registrar es atómico o no es.** Son cuatro escrituras, y desde Node eran cuatro round
+  trips sin transacción: si la creación fallaba tras cerrar el anterior, el contacto quedaba
+  **sin** seguimiento en silencio. Vive en `closer_registrar_seguimiento()`.
+
+### 50.6 Tres bugs preexistentes, corregidos de paso
+
+- **El ⏱ nunca se apagaba**: `?? c.cadenciaActiva` conservaba el valor previo y solo
+  Seguimiento escribía el campo, así que una Venta dejaba el reloj encendido sobre un trato
+  ganado. Ahora se deriva de la serie pendiente.
+- **"Mañana" devolvía pasado mañana** después de las 19:00 en Lima: `isoInDays` hacía
+  aritmética local y luego `toISOString()`, que pasa a UTC antes de truncar. Eliminado; el
+  cliente manda el preset y el servidor resuelve. Ver `src/lib/fechas.ts`.
+- **Resurrección con la píldora equivocada**: `advance()` no limpiaba `respondido` ni
+  `seguimientoPendiente`, así que tras una Venta se podía pulsar FIJAR y el contacto volvía
+  a la cola luciendo `VENTA · $5.000`.
+
+`cadenciaActiva` → `seguimientoAutomaticoActivo` en los dos stores (deuda de §15.3).
+
+### 50.7 Estado y límites conocidos
+
+- Implementada **solo la salida Seguimiento**. Las otras cinco devuelven 501 en vez de
+  fingir: cada una tiene su tag y su campo, y aplicarlos mal dispara el workflow equivocado.
+- Los contactos reales conviven con la semilla en el mismo `Record`, keyeados por
+  `ghlContactId` en vez de por nombre. **No se migró la identidad de toda la app**: la clave
+  es un string y a las vistas les da igual. Ese refactor sigue pendiente.
+- **Sin `VITE_SEGUIMIENTOS_API` no se hace ni una petición** — la demo corre intacta. Es el
+  default, así que un clone limpio nunca se rompe por falta de configuración.
+- **Divergencia sin resolver**: el stage `descalificado` se pinta de tres formas distintas
+  según dónde se mire — `NO LE INTERESA · X` (Avanzar), `DESCALIFICADO · X` (contrato §4 y
+  §39.5) y `NO INTERESADO · PRECIO` (semilla). Hay que elegir una.
+- **Un solo closer.** `zona_closer` es territorio, no asignación: dice que el contacto está
+  en el mundo del closer, no de cuál. Con más de uno hará falta el owner de la oportunidad.
+- Esta rama queda **exenta del despliegue automático de §49** hasta que Francisco la apruebe.
+
 ## 49. Cómo trabajar en este repo
 
 - Los cambios llegan como **specs** de Francisco (reglas + prompts + mockups). Implementar lo especificado; NO inventar features, textos ni estados. Si un dato no existe, el elemento no se renderiza (regla 10 de §4).

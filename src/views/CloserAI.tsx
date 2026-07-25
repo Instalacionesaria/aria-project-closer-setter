@@ -31,6 +31,7 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { backendActivo } from "../lib/seguimientos/cliente";
 import ContactDrawer from "./ContactDrawer";
 import {
   useClosurer,
@@ -68,15 +69,19 @@ const gradeAvatar: Record<Grade, string> = {
   D: "bg-rose-500/10 text-rose-600",
 };
 
-function Avatar({ grade }: { grade: Grade }) {
+/**
+ * Score sin datos → "—" en gris, nunca una letra inventada (§4.7 / §4.10). Pasa con los
+ * contactos que llegan de GHL sin calificación: el motor todavía no los evaluó.
+ */
+function Avatar({ grade }: { grade?: Grade }) {
   return (
     <div
       className={cn(
         "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-        gradeAvatar[grade],
+        grade ? gradeAvatar[grade] : "bg-muted text-muted-foreground",
       )}
     >
-      {grade}
+      {grade ?? "—"}
     </div>
   );
 }
@@ -239,7 +244,7 @@ function MiDiaRow({
           </IconSlot>
           <IconSlot>
             <AlarmClock
-              className={cn("w-3.5 h-3.5", c.cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")}
+              className={cn("w-3.5 h-3.5", c.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")}
             />
           </IconSlot>
           <IconSlot>
@@ -786,7 +791,7 @@ function MiDiaTab() {
                         <BotIcon estado={item.botEstado} />
                       </IconSlot>
                       <IconSlot>
-                        <AlarmClock className={cn("w-3.5 h-3.5", item.cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
+                        <AlarmClock className={cn("w-3.5 h-3.5", item.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
                       </IconSlot>
                       <IconSlot>
                         <DollarSign className={cn("w-3.5 h-3.5", item.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} />
@@ -884,6 +889,16 @@ function MiDiaTab() {
           <span className="bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
             {seguimientosHoy.length}
           </span>
+          {/* Sin esto no hay forma de distinguir a simple vista un contacto real de GHL de
+              uno de la semilla — y en producción esa confusión cuesta caro. */}
+          {backendActivo() && (
+            <span
+              className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full"
+              title="Los contactos con datos reales vienen de GHL; el resto son de la demo."
+            >
+              GHL conectado
+            </span>
+          )}
         </div>
         <div className="divide-y divide-border">
           {seguimientosHoy.map((c, i) => (
@@ -1193,7 +1208,7 @@ function PipelineTab() {
                                   <BotIcon estado={r.botEstado} />
                                 </IconSlot>
                                 <IconSlot>
-                                  <AlarmClock className={cn("w-3.5 h-3.5", r.cadenciaActiva ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
+                                  <AlarmClock className={cn("w-3.5 h-3.5", r.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
                                 </IconSlot>
                                 <IconSlot>
                                   <DollarSign className={cn("w-3.5 h-3.5", r.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} />
@@ -1620,7 +1635,13 @@ function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) =>
         onClose={closeContact}
         role="closer"
         contact={openContact}
-        onAdvance={(result) => openContactName && result.stage && advance(openContactName, { ...result, stage: result.stage })}
+        onAdvance={(result) =>
+          openContactName &&
+          result.stage &&
+          // `situacionSlug` se renombra a `situacion` porque en el store ese nombre ya está
+          // tomado por la píldora (un string libre); acá viaja el enum que persiste el backend.
+          advance(openContactName, { ...result, stage: result.stage, situacion: result.situacionSlug })
+        }
         onAddNota={(texto) => openContactName && addNota(openContactName, texto)}
         onResolveIntervention={() => {
           if (!openContactName) return;

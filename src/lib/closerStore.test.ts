@@ -26,20 +26,20 @@ const seguimientoAutomatico: AdvanceInput = {
   stage: "seguimiento",
   pildora: "SEGUIMIENTO · MUY INTERESADO",
   texto: "Seguimiento automático · Recupero",
-  cadenciaActiva: true,
+  seguimientoAutomaticoActivo: true,
 };
 
 const seguimientoManual: AdvanceInput = {
   stage: "seguimiento",
   pildora: "SEGUIMIENTO · DUDANDO",
   texto: "Seguimiento manual · para el 28 jul",
-  cadenciaActiva: false,
+  seguimientoAutomaticoActivo: false,
 };
 
 describe("applyAdvance — cancelación universal del seguimiento (⏱)", () => {
   it("registrar una Venta apaga el seguimiento automático", () => {
-    const antes = contacto({ cadenciaActiva: true });
-    expect(applyAdvance(antes, venta).cadenciaActiva).toBe(false);
+    const antes = contacto({ seguimientoAutomaticoActivo: true });
+    expect(applyAdvance(antes, venta).seguimientoAutomaticoActivo).toBe(false);
   });
 
   it.each([
@@ -48,17 +48,17 @@ describe("applyAdvance — cancelación universal del seguimiento (⏱)", () => 
     ["No-show", { stage: "no_show", pildora: "NO-SHOW · PLANTÓN", texto: "No-show" }],
     ["Nurture", { stage: "nurture", pildora: "NURTURE · SE ENFRIÓ", texto: "Nurture" }],
   ] as const)("%s también lo apaga", (_label, input) => {
-    const resultado = applyAdvance(contacto({ cadenciaActiva: true }), input as AdvanceInput);
-    expect(resultado.cadenciaActiva).toBe(false);
+    const resultado = applyAdvance(contacto({ seguimientoAutomaticoActivo: true }), input as AdvanceInput);
+    expect(resultado.seguimientoAutomaticoActivo).toBe(false);
   });
 
   it("la salida Seguimiento en modo automático sí lo enciende", () => {
-    expect(applyAdvance(contacto(), seguimientoAutomatico).cadenciaActiva).toBe(true);
+    expect(applyAdvance(contacto(), seguimientoAutomatico).seguimientoAutomaticoActivo).toBe(true);
   });
 
   it("la salida Seguimiento en modo manual lo deja apagado — el manual no corre serie (§16.1.C)", () => {
-    const antes = contacto({ cadenciaActiva: true });
-    expect(applyAdvance(antes, seguimientoManual).cadenciaActiva).toBe(false);
+    const antes = contacto({ seguimientoAutomaticoActivo: true });
+    expect(applyAdvance(antes, seguimientoManual).seguimientoAutomaticoActivo).toBe(false);
   });
 });
 

@@ -1,5 +1,8 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useSettings } from "./settingsStore";
+import { backendActivo, filaAContacto, registrarSeguimientoRemoto, traerMiDia } from "./seguimientos/cliente";
+import type { ModoSeguimiento } from "./seguimientos/dominio";
+import type { SituacionSeguimiento } from "./ghl/contrato";
 
 /**
  * Single source of truth for the Closer module (§4.4 de CLAUDE.md): Avanzar es el
@@ -192,7 +195,15 @@ export interface PerfilField {
 
 export interface ClosurerContact {
   name: string;
-  grade: Grade;
+  /**
+   * Id del contacto en GHL. Presente = viene de la cuenta real; ausente = es de la semilla
+   * del demo. Decide si un Avanzar se persiste contra el servidor o se queda en memoria, y
+   * permite que los dos tipos convivan en el mismo `Record` sin migrar la identidad de toda
+   * la app: la clave es un string y a las vistas les da igual si es un nombre o un id.
+   */
+  ghlContactId?: string;
+  /** Sin calificación todavía → "—" en la UI, nunca una letra inventada (§4.7 / §4.10). */
+  grade?: Grade;
   stage: StageKey;
   situacion: string;
   when: string;
@@ -203,7 +214,7 @@ export interface ClosurerContact {
   fuente?: string;
   /** Sin definir = "activo" por defecto (regla A: el bot arranca ON). Ausente por completo cuando `fuente` es IG (sin bot). */
   botEstado?: BotEstado;
-  cadenciaActiva?: boolean;
+  seguimientoAutomaticoActivo?: boolean;
   videoPreCall?: VideoPreCallInfo;
   urgente?: UrgenteInfo;
   agenda?: AgendaInfo;
@@ -239,8 +250,18 @@ export interface AdvanceInput {
   texto: string;
   monto?: number;
   nota?: string;
-  /** Seguimiento automático (§16.1 de CLAUDE.md): enciende/apaga el ícono ⏱. Sin definir, se conserva el estado previo. */
-  cadenciaActiva?: boolean;
+  /** Seguimiento automático (§16.1 de CLAUDE.md): enciende/apaga el ícono ⏱. */
+  seguimientoAutomaticoActivo?: boolean;
+
+  /* ── Solo para contactos reales: lo que el backend necesita para persistir ──
+     La situación va como slug y la fecha como INTENCIÓN (el preset), nunca como una fecha
+     calculada en el browser — el servidor la resuelve contra America/Lima. */
+  situacion?: SituacionSeguimiento;
+  modo?: ModoSeguimiento;
+  preset?: string;
+  fechaPersonalizada?: string;
+  /** Generado una vez por apertura del modal, no por clic: hace inocuo el doble submit. */
+  idempotencyKey?: string;
 }
 
 export const STAGE_META: Record<
@@ -559,7 +580,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   // Seguimientos de hoy — Mi Día (distinto del stage "Seguimiento" del Pipeline: son los que vencen/tocan hoy)
   {
     name: "RODRIGO SILVA", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hoy",
-    activity: "vencido hace 1 día", fuente: "META ADS", botEstado: "muerto_postcall", cadenciaActiva: true,
+    activity: "vencido hace 1 día", fuente: "META ADS", botEstado: "muerto_postcall", seguimientoAutomaticoActivo: true,
     seguimientoPendiente: { microtext: "vencido hace 1 día", vencido: true },
     videoPreCall: { visto: false, diasSinAbrir: 2 },
     llamadas: [
@@ -571,7 +592,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   {
     // IG no tiene bot (§11) — sin botEstado.
     name: "VALERIA CASTRO", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
-    activity: "seguimiento programado para hoy", fuente: "📷 IG PROFILE", cadenciaActiva: true,
+    activity: "seguimiento programado para hoy", fuente: "📷 IG PROFILE", seguimientoAutomaticoActivo: true,
     seguimientoPendiente: { microtext: "seguimiento programado para hoy" },
   },
 ];
@@ -643,13 +664,13 @@ export function applyAdvance(c: ClosurerContact, input: AdvanceInput): ClosurerC
     pinned: undefined,
     /**
      * Regla de cancelación universal: CUALQUIER resultado de Avanzar cierra el seguimiento
-     * pendiente. Antes esto era `?? c.cadenciaActiva`, y como solo la salida Seguimiento
+     * pendiente. Antes esto era `?? c.seguimientoAutomaticoActivo`, y como solo la salida Seguimiento
      * escribe el campo, los otros cinco resultados conservaban el valor previo: registrar
      * una Venta sobre un contacto con serie activa dejaba el ⏱ encendido sobre un trato
      * ganado. Hoy es un ícono que miente; con el tag `seguimiento_recupero` escribiéndose
      * en GHL sería un workflow persiguiendo a alguien que ya pagó.
      */
-    cadenciaActiva: input.cadenciaActiva ?? false,
+    seguimientoAutomaticoActivo: input.seguimientoAutomaticoActivo ?? false,
     botEstado: nextBotEstado,
   };
 }
@@ -714,10 +735,66 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   const { comisiones } = useSettings();
   const comisionPct = (comisiones[CURRENT_CLOSER_NAME] ?? 10) / 100;
 
+  /**
+   * Hidratación desde el backend.
+   *
+   * Los contactos reales se suman a la semilla en vez de reemplazarla: la cuenta de GHL
+   * tiene hoy tres contactos y ninguna cita, así que un reemplazo dejaría la app
+   * prácticamente vacía y parecería rota. Conviven — los reales se distinguen porque
+   * traen `ghlContactId`.
+   *
+   * Sin `VITE_SEGUIMIENTOS_API` no se hace ni una petición: `traerMiDia()` devuelve `null`
+   * y esto es un no-op. Cualquier fallo también devuelve `null`, así que un backend caído
+   * deja la demo intacta en vez de romper la pantalla — esta app no tiene error boundary
+   * en ninguna vista, y una pantalla en blanco sería peor que el demo de siempre.
+   *
+   * Deps vacías: el efecto ESCRIBE `contacts`; incluirlo sería un bucle infinito.
+   */
+  useEffect(() => {
+    if (!backendActivo()) return;
+    let vigente = true;
+
+    traerMiDia().then((r) => {
+      // StrictMode invoca el efecto dos veces en desarrollo. El GET es idempotente, así que
+      // no hace daño, pero el guard evita pisar el estado con una respuesta obsoleta.
+      if (!vigente || !r?.seguimientosHoy?.length) return;
+      setContacts((prev) => {
+        const siguiente = { ...prev };
+        for (const fila of r.seguimientosHoy) siguiente[fila.ghlContactId] = filaAContacto(fila);
+        return siguiente;
+      });
+    });
+
+    return () => {
+      vigente = false;
+    };
+  }, []);
+
   const advance = useCallback((name: string, input: AdvanceInput) => {
     setContacts((prev) => {
       const c = prev[name];
       if (!c) return prev;
+
+      /**
+       * Contacto real + resultado Seguimiento → se persiste. El POST va sin `await`: la UI
+       * ya se actualizó y no hay nada que esperar. Es optimista a propósito — si falla, la
+       * consola lo dice y la próxima carga muestra la verdad. Bloquear la interfaz por una
+       * escritura que casi siempre funciona sería peor experiencia que la de hoy.
+       */
+      if (c.ghlContactId && input.stage === "seguimiento" && input.situacion && input.modo) {
+        registrarSeguimientoRemoto({
+          ghlContactId: c.ghlContactId,
+          situacion: input.situacion,
+          modo: input.modo,
+          preset: input.preset,
+          fechaPersonalizada: input.fechaPersonalizada,
+          nota: input.nota,
+          idempotencyKey: input.idempotencyKey ?? `${c.ghlContactId}-${Date.now()}`,
+        }).then((r) => {
+          if (!r?.ok) console.warn("[seguimientos] no se pudo persistir el Avanzar de", c.ghlContactId);
+        });
+      }
+
       return { ...prev, [name]: applyAdvance(c, input) };
     });
     if (input.stage === "ganado" && input.monto) {
