@@ -711,21 +711,31 @@ function MiDiaTab() {
       </div>
 
       {/*
-        Agenda de hoy — se oculta cuando está vacía, que es la regla §4.1 ("secciones vacías
-        en Mi Día se ocultan, excepto Completadas Hoy") y hasta ahora no se cumplía acá:
-        mostraba el encabezado con un "0" al lado. Relevante desde que se quitaron los
-        contactos de ejemplo con cita: sin esto quedaría una sección vacía permanente.
+        Agenda de hoy — SIEMPRE visible, aunque esté vacía (decisión de Francisco,
+        2026-07-25). Es la misma excepción que ya tenía "Completadas Hoy" frente a la regla
+        §4.1: el closer necesita ver la sección para saber que no tiene citas, no que
+        desaparezca y lo deje dudando de si se rompió algo.
+
+        El contador sí se oculta en cero, que es la otra mitad de §4.1 ("contadores en cero
+        jamás se renderizan"). Y el estado vacío copia el patrón de Completadas Hoy: un
+        texto discreto en vez de un contenedor mudo.
       */}
-      {agendaHoy.length > 0 && (
       <div className="bg-card/50 backdrop-blur-sm border border-border/40 rounded-[2rem] overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6">
         <div className="flex items-center gap-3 mb-4">
           <h3 className="text-[13px] font-semibold text-foreground uppercase tracking-wide">
             Agenda de Hoy
           </h3>
-          <span className="bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-            {agendaHoy.length}
-          </span>
+          {agendaHoy.length > 0 && (
+            <span className="bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
+              {agendaHoy.length}
+            </span>
+          )}
         </div>
+        {agendaHoy.length === 0 ? (
+          <p className="px-2 py-4 text-center text-xs text-muted-foreground">
+            No tienes citas agendadas para hoy.
+          </p>
+        ) : (
         <div className="pl-3 border-l-[1.5px] border-blue-500/30 space-y-3 relative ml-1.5 py-0.5">
           {agendaHoy.map((item, idx) => {
             const isOpen = expandedAgenda.has(item.name);
@@ -833,8 +843,8 @@ function MiDiaTab() {
             );
           })}
         </div>
+        )}
       </div>
-      )}
 
       {/* Intervenciones urgentes */}
       <div id="midia-urgentes" className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm scroll-mt-6">

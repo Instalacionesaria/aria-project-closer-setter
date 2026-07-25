@@ -935,11 +935,17 @@ abrir la ficha desde una evidencia deja de encontrar al contacto.
 **Los nombres de los agentes NO llevan prefijo** (`Lead Flow AI`, `Appointment Flow Voz`):
 son entidades reales del producto, no datos de demostración.
 
-**"Agenda de Hoy" quedó vacía a propósito.** Se quitó el campo `agenda` de los 6 contactos
-semilla que lo tenían, para que la prueba en producción se concentre en Seguimientos. De
-paso se le agregó el conditional que le faltaba: ahora la sección **se oculta cuando está
-vacía**, que es la regla §4.1 y hasta entonces no se cumplía ahí — mostraba el encabezado con
-un "0" al lado.
+**"Agenda de Hoy" quedó vacía pero SIGUE VISIBLE.** Se quitó el campo `agenda` de los 6
+contactos semilla que lo tenían, para que la prueba en producción se concentre en
+Seguimientos — pero la sección no se oculta.
+
+Es una excepción deliberada a §4.1 ("secciones vacías en Mi Día se ocultan"), la misma que
+ya tenía "Completadas Hoy": el closer necesita **ver** que no tiene citas, no que la sección
+desaparezca y lo deje dudando de si se rompió algo. Muestra el estado vacío "No tienes citas
+agendadas para hoy.", copiando el patrón de Completadas Hoy.
+
+El contador en cero sí se oculta — esa mitad de §4.1 ("contadores en cero jamás se
+renderizan") sigue vigente y antes tampoco se cumplía acá.
 
 ### 50.9 Los imports de `api/` llevan extensión `.js` — obligatorio
 

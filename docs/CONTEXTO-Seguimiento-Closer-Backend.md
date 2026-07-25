@@ -158,10 +158,13 @@ una evidencia deja de encontrar al contacto.
 **Los nombres de los agentes (`Lead Flow AI`, `Appointment Flow Voz`) NO llevan prefijo**: son
 entidades reales del producto, no datos de demostración.
 
-**La sección "Agenda de Hoy" se vació**: se quitó el campo `agenda` de los 6 contactos
-semilla que lo tenían, para que la prueba se concentre en Seguimientos. Y se le agregó el
-conditional que faltaba — ahora se oculta cuando está vacía, que es la regla §4.1 y hasta
-ahora no se cumplía ahí (mostraba el encabezado con un "0").
+**La sección "Agenda de Hoy" se vació pero sigue visible**: se quitó el campo `agenda` de los
+6 contactos semilla que lo tenían, para que la prueba se concentre en Seguimientos. La
+sección **no** se oculta — es una excepción deliberada a §4.1, la misma que ya tenía
+"Completadas Hoy": el closer necesita ver que no tiene citas, no que la sección desaparezca
+y lo deje dudando de si se rompió algo. Muestra "No tienes citas agendadas para hoy.".
+
+El contador en cero sí se oculta, que es la otra mitad de §4.1 y tampoco se cumplía antes.
 
 ---
 
