@@ -10,8 +10,8 @@
  * usuario que se aplicó un tag que en realidad no se aplicó.
  */
 
-import { registrarEnOutbox } from "../repo";
-import type { CampoInput, ContactoGhl, GhlPort, ResultadoGhl, TagsInput } from "./port";
+import { registrarEnOutbox } from "../repo.js";
+import type { CampoInput, ContactoGhl, GhlPort, ResultadoGhl, TagsInput } from "./port.js";
 
 async function anotar(
   operacion: "aplicar_tag" | "remover_tag" | "escribir_campo",

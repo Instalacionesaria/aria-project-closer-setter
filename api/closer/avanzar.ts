@@ -13,15 +13,15 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { SITUACIONES, type SituacionSeguimiento } from "../../src/lib/ghl/contrato";
+import { SITUACIONES, type SituacionSeguimiento } from "../../src/lib/ghl/contrato.js";
 import {
   SeguimientoInvalidoError,
   permiteSeguimientoAutomatico,
   type ModoSeguimiento,
   type PresetManual,
-} from "../../src/lib/seguimientos/dominio";
-import { ghl } from "../_lib/ghl";
-import { registrarSeguimiento } from "../_lib/seguimientos";
+} from "../../src/lib/seguimientos/dominio.js";
+import { ghl } from "../_lib/ghl/index.js";
+import { registrarSeguimiento } from "../_lib/seguimientos.js";
 
 const PRESETS_VALIDOS: readonly string[] = ["manana", "en_3_dias", "una_semana", "personalizada"];
 const SLUGS = SITUACIONES.map((s) => s.slug);

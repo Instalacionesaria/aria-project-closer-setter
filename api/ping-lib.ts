@@ -6,7 +6,7 @@
  * cruzar a `src/`, y el arreglo es mover el código compartido acá adentro.
  */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { env } from "./_lib/env";
+import { env } from "./_lib/env.js";
 
 export default function handler(_req: VercelRequest, res: VercelResponse) {
   res.status(200).json({

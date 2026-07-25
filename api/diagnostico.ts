@@ -13,10 +13,10 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { env } from "./_lib/env";
-import { ghl } from "./_lib/ghl";
-import { hoyOrg, verificarEsquema } from "./_lib/repo";
-import { CAMPOS, SITUACIONES, TAGS, literalesPendientes } from "../src/lib/ghl/contrato";
+import { env } from "./_lib/env.js";
+import { ghl } from "./_lib/ghl/index.js";
+import { hoyOrg, verificarEsquema } from "./_lib/repo.js";
+import { CAMPOS, SITUACIONES, TAGS, literalesPendientes } from "../src/lib/ghl/contrato.js";
 
 /** Los literales que este módulo necesita que existan en la cuenta. */
 const TAGS_REQUERIDOS = [

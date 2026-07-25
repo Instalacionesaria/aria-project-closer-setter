@@ -1,7 +1,7 @@
-import { env } from "../env";
-import type { GhlPort } from "./port";
-import { ghlReal } from "./real";
-import { ghlStub } from "./stub";
+import { env } from "../env.js";
+import type { GhlPort } from "./port.js";
+import { ghlReal } from "./real.js";
+import { ghlStub } from "./stub.js";
 
 /**
  * Elige el adapter. El default es el stub: si alguien despliega sin configurar nada, el
@@ -15,4 +15,4 @@ export function ghl(): GhlPort {
   return env.ghlModo() === "real" && env.tieneCredencialesGhl() ? ghlReal : ghlStub;
 }
 
-export type { GhlPort, ResultadoGhl, ContactoGhl } from "./port";
+export type { GhlPort, ResultadoGhl, ContactoGhl } from "./port.js";

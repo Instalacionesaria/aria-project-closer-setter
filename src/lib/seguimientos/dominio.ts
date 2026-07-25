@@ -24,8 +24,8 @@
  * urgente, que son otras colas.
  */
 
-import { hoyISO, sumarDias, diasVencido, type FechaISO } from "../fechas";
-import type { SituacionSeguimiento } from "../ghl/contrato";
+import { hoyISO, sumarDias, diasVencido, type FechaISO } from "../fechas.js";
+import type { SituacionSeguimiento } from "../ghl/contrato.js";
 
 /* ================================================================== */
 /* Tipos                                                               */

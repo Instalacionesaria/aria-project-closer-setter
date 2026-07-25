@@ -6,8 +6,8 @@
  * ejecución si el bundler no lo resolvió antes.
  */
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { TAGS } from "../src/lib/ghl/contrato";
-import { hoyISO } from "../src/lib/fechas";
+import { TAGS } from "../src/lib/ghl/contrato.js";
+import { hoyISO } from "../src/lib/fechas.js";
 
 export default function handler(_req: VercelRequest, res: VercelResponse) {
   res.status(200).json({

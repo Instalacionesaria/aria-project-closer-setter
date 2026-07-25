@@ -13,9 +13,9 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { derivarFila, type Seguimiento } from "../../src/lib/seguimientos/dominio";
-import { ghl } from "../_lib/ghl";
-import { db, hoyOrg } from "../_lib/repo";
+import { derivarFila, type Seguimiento } from "../../src/lib/seguimientos/dominio.js";
+import { ghl } from "../_lib/ghl/index.js";
+import { db, hoyOrg } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {

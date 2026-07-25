@@ -25,17 +25,17 @@ import {
   assertEnviable,
   situacionPorSlug,
   type SituacionSeguimiento,
-} from "../../src/lib/ghl/contrato";
+} from "../../src/lib/ghl/contrato.js";
 import {
   DIAS_GRACIA_SERIE,
   SERIE_RECUPERO,
   resolverFechaObjetivo,
   type ModoSeguimiento,
   type PresetManual,
-} from "../../src/lib/seguimientos/dominio";
-import { env } from "./env";
-import { ghl } from "./ghl";
-import { ORG_ID, db } from "./repo";
+} from "../../src/lib/seguimientos/dominio.js";
+import { env } from "./env.js";
+import { ghl } from "./ghl/index.js";
+import { ORG_ID, db } from "./repo.js";
 
 const CLOSER_POR_DEFECTO = "00000000-0000-0000-0000-0000000000c1";
 

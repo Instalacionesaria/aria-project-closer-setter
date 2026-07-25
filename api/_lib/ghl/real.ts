@@ -10,8 +10,8 @@
  * confirmado.
  */
 
-import { env } from "../env";
-import type { CampoInput, ContactoGhl, GhlPort, ResultadoGhl, TagsInput } from "./port";
+import { env } from "../env.js";
+import type { CampoInput, ContactoGhl, GhlPort, ResultadoGhl, TagsInput } from "./port.js";
 
 const BASE = "https://services.leadconnectorhq.com";
 /** Versión del contrato de la API v2. GHL la exige en cada request. */
