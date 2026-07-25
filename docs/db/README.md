@@ -17,12 +17,18 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-| Archivo | Estado | Qué hace |
-|---|---|---|
-| `001_seguimientos.sql` | **Aplicada** el 2026-07-25 | 7 tablas, 5 enums, 2 funciones, 1 vista |
+Todas **aplicadas en SOFIA el 2026-07-25**, en este orden.
 
-Son idempotentes (`create ... if not exists`, `do $$ ... exception when duplicate_object`),
-así que se pueden volver a correr sin romper nada.
+| Archivo | Qué hace | Por qué existe |
+|---|---|---|
+| `001_seguimientos.sql` | 7 tablas, 5 enums, 2 funciones, 1 vista | El esquema base |
+| `002_bootstrap.sql` | La org y un closer | Sin esto `closer_id` no tiene a qué apuntar y el primer Avanzar falla con un error de FK poco descriptivo |
+| `003_registrar_seguimiento.sql` | Función atómica de registro | Son cuatro escrituras; desde Node eran cuatro round trips sin transacción, y si la creación fallaba tras cerrar el anterior el contacto quedaba **sin** seguimiento en silencio |
+| `004_historial_borrable.sql` | El trigger deja de bloquear `DELETE` | Bloquear el UPDATE es el punto (la historia no se reescribe); bloquear el DELETE hacía que ningún dato fuera borrable, ni el de prueba ni el de alguien que pidiera supresión |
+| `005_permisos_funciones.sql` | Revoca `closer_hoy_org()` y la vista a `anon` | Eran alcanzables con la llave pública, la que viaja en el bundle del browser |
+
+Son idempotentes (`create ... if not exists`, `do $$ ... exception when duplicate_object`,
+`on conflict do nothing`), así que se pueden volver a correr sin romper nada.
 
 ### Cómo aplicar
 
