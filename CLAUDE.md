@@ -921,6 +921,34 @@ git config user.email instalacionesariaia@gmail.com
 
 La autoría real de quien escribe se conserva con un `Co-Authored-By` en el mensaje.
 
+### 50.9 Los imports de `api/` llevan extensión `.js` — obligatorio
+
+`package.json` declara `"type": "module"` y el runtime de Vercel es Node 24. **ESM nativo no
+resuelve un import relativo sin extensión.** En el front no se nota porque Vite los resuelve
+al empaquetar; en las funciones no hay nadie que los resuelva.
+
+```ts
+import { env } from "./_lib/env.js";              // ✅
+import { hoyISO } from "../src/lib/fechas.js";    // ✅
+import { env } from "./_lib/env";                 // ❌ FUNCTION_INVOCATION_FAILED
+import { ghl } from "./_lib/ghl.js";              // ❌ es una CARPETA — va ghl/index.js
+```
+
+Dos detalles que cuestan tiempo:
+
+- **Tampoco existen los imports a carpetas.** `./_lib/ghl` tiene que ser `./_lib/ghl/index.js`.
+- **Alcanza a `src/`.** Cualquier módulo de `src/lib/` que una función importe —y lo que ese
+  módulo importe a su vez— necesita la extensión igual. Hoy es
+  `src/lib/seguimientos/dominio.ts`.
+
+`tsc -b` **no lo detecta**: con `moduleResolution: "bundler"` los imports sin extensión son
+válidos. Falla solo en runtime, y el error de Vercel (`FUNCTION_INVOCATION_FAILED`) no dice
+cuál módulo ni por qué. Se aisló desplegando cuatro sondas que se descartaban entre sí; si
+vuelve a pasar, ese es el camino más corto: una función sin imports, otra con un import
+relativo, y comparar.
+
+Comprobado: con la extensión, `/api/diagnostico` devuelve `ok: true` contra SOFIA y GHL.
+
 ## 49. Cómo trabajar en este repo
 
 - Los cambios llegan como **specs** de Francisco (reglas + prompts + mockups). Implementar lo especificado; NO inventar features, textos ni estados. Si un dato no existe, el elemento no se renderiza (regla 10 de §4).
