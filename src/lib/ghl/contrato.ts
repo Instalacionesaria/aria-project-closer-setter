@@ -115,8 +115,50 @@ export const TAGS = {
     uso: "No asistió. Dispara recuperación (06.4) y NO apaga el bot.",
   },
 
+  /* ---- Territorio (solo lectura) ---- */
+
+  /**
+   * EL PORTÓN DE ENTRADA al módulo del closer. Verificado contra el contrato el 2026-07-25.
+   *
+   * Lo aplica el WF 04.1 al agendar, como swap de `zona_setter`→`zona_closer` (§3 y §9).
+   * Es lo mismo que `CLAUDE.md` §11 describe como "al agendar, el contacto ENTRA a su
+   * territorio".
+   *
+   * Es este y no `cita_agendada`, aunque los aplique el mismo workflow en el mismo
+   * instante: `cita_agendada` se quita al cerrar o cancelar la cita (§9), así que filtrar
+   * por ahí borraría al contacto de las vistas del closer justo al terminar la llamada —
+   * que es cuando queda todo el trabajo por hacer (seguimiento, cierre, venta).
+   *
+   * Dos límites que hay que tener presentes:
+   *  - Es TERRITORIO, no asignación: dice "está en el mundo del closer", no de qué closer
+   *    es. Con más de uno hará falta otra señal (owner de la oportunidad).
+   *  - No se quita nunca — el swap es de una sola vía. Así que incluye también a los
+   *    descalificados y a los que están en nurture. Sirve como portón de entrada, no como
+   *    filtro de trabajo activo: eso lo deciden el stage y las señales de cada sección.
+   */
+  zonaCloser: {
+    valor: "zona_closer",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §3 y §9 · Territorio",
+    uso: "Portón de entrada al módulo Closer. Se aplica al agendar (WF 04.1) y persiste.",
+  },
+
+  zonaSetter: {
+    valor: "zona_setter",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §9 · Territorio",
+    uso: "Territorio pre-agenda. El swap al agendar lo reemplaza por zona_closer.",
+  },
+
   /* ---- Solo lectura ---- */
 
+  /**
+   * ⚠️ El contrato se contradice sobre este tag: §9 dice "se quita al cerrar/cancelar",
+   * §8 dice "NO se quita el tag `cita_agendada` (otros workflows lo usan)". No afecta al
+   * portón de entrada (ese es `zona_closer`), pero sí a la lógica de `Resultado de call`,
+   * que usa este tag para decidir si un Avanzar vino de una llamada o de un chat.
+   * Pendiente de aclarar con Francisco.
+   */
   citaAgendada: {
     valor: "cita_agendada",
     confianza: "confirmado",
@@ -143,6 +185,21 @@ export const TAGS_SEGUIMIENTO_EXCLUYENTES: readonly TagKey[] = [
   "seguimientoParaAgendar",
   "seguimientoDecisionLt",
 ];
+
+/**
+ * ¿Este contacto pertenece al módulo del closer?
+ *
+ * Único punto donde se decide, para que activar o cambiar el criterio sea tocar una
+ * función y no recorrer la lógica. Se evalúa sobre los tags crudos que trae GHL.
+ *
+ * `exigirZonaCloser: false` es el estado de hoy: la semilla del demo no tiene tags, así
+ * que el filtro dejaría la app vacía. Se pone en `true` cuando los contactos lleguen de
+ * GHL de verdad.
+ */
+export function perteneceAlCloser(tags: readonly string[], exigirZonaCloser = false): boolean {
+  if (!exigirZonaCloser) return true;
+  return tags.includes(TAGS.zonaCloser.valor);
+}
 
 /* ================================================================== */
 /* CUSTOM FIELDS — CONTRATO-GHL.md §4                                 */

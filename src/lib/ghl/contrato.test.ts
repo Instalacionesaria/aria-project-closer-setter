@@ -8,6 +8,7 @@ import {
   STAGE_GHL_A_FRONT,
   situacionDesdeGhl,
   situacionPorSlug,
+  perteneceAlCloser,
   assertEnviable,
   literalesPendientes,
   LiteralNoConfirmadoError,
@@ -60,6 +61,34 @@ describe("literales del contrato", () => {
     expect(TAGS_SEGUIMIENTO_EXCLUYENTES).toHaveLength(4);
     expect(TAGS_SEGUIMIENTO_EXCLUYENTES).toContain("seguimientoRecupero");
     expect(TAGS_SEGUIMIENTO_EXCLUYENTES).toContain("seguimientoManual");
+  });
+});
+
+describe("zona_closer — el portón de entrada al módulo del closer", () => {
+  it("es el tag que GHL aplica al agendar (WF 04.1), no uno llamado `closer`", () => {
+    // El prompt original pedía filtrar por un tag `closer`. Ese tag no existe en la
+    // subcuenta; el real es `zona_closer`. Verificado contra CONTRATO-GHL.md §3 y §9.
+    expect(TAGS.zonaCloser.valor).toBe("zona_closer");
+    expect(Object.values(TAGS).map((t) => t.valor)).not.toContain("closer");
+  });
+
+  it("deja entrar a quien lo tiene y bloquea a quien no", () => {
+    expect(perteneceAlCloser(["zona_closer", "cita_agendada"], true)).toBe(true);
+    expect(perteneceAlCloser(["zona_setter"], true)).toBe(false);
+    expect(perteneceAlCloser([], true)).toBe(false);
+  });
+
+  /**
+   * `cita_agendada` se quita al cerrar o cancelar la cita (§9). Filtrar por ahí sacaría al
+   * contacto de las vistas del closer justo al terminar la llamada — que es cuando queda
+   * todo el trabajo por hacer.
+   */
+  it("un contacto post-call, ya sin cita viva, sigue perteneciendo al closer", () => {
+    expect(perteneceAlCloser(["zona_closer"], true)).toBe(true);
+  });
+
+  it("apagado por defecto: la semilla del demo no tiene tags y el filtro la vaciaría", () => {
+    expect(perteneceAlCloser([])).toBe(true);
   });
 });
 
