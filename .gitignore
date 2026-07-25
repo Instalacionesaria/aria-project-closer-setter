@@ -11,6 +11,18 @@ dist-ssr
 # La plantilla SÍ se versiona — la regla `.env*` de arriba se la tragaría.
 !.env.example
 
+# Contrato interno de GHL: nombres de tags, custom fields, stages y estructura de los
+# workflows de la subcuenta. No se versiona por decisión de Francisco (2026-07-25).
+# Se pide a Francisco, igual que los otros docs hermanos que CLAUDE.md §2 lista como
+# externos (`MOTOR-Interpretacion-Conversaciones.md`, `CHECKLIST-GHL-Backend.md`).
+#
+# El patrón cubre CUALQUIER ubicación y las dos variantes de nombre que existen en el
+# disco: `CONTRATO-GHL-Kevin.md` en la raíz y `docs/CONTRATO-GHL.md`. Sin el comodín, mover
+# o renombrar el archivo lo volvería a colar en un commit sin que nadie lo note — que es
+# justo lo que estuvo a punto de pasar: git detectó los dos como un renombre y lo estaba
+# subiendo con el otro nombre.
+**/CONTRATO-GHL*.md
+
 # build artifacts
 *.tsbuildinfo
 vite.config.js

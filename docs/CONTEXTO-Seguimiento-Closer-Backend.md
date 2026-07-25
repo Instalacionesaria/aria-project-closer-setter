@@ -4,8 +4,14 @@
 **Última actualización**: 2026-07-25. Rama `main`, desplegado en producción.
 
 > Este documento cuenta **qué cambió y por qué**. Las reglas de producto viven en
-> `CLAUDE.md` (§50 es la sección de este trabajo); los nombres literales de GHL, en
-> `docs/CONTRATO-GHL.md`; el esquema de la base, en `docs/db/README.md`.
+> `CLAUDE.md` (§50 es la sección de este trabajo); el esquema de la base, en
+> `docs/db/README.md`.
+>
+> ⚠️ **`CONTRATO-GHL.md` no está en el repo** — está en `.gitignore` desde el 2026-07-25 por
+> decisión de Francisco. Este documento y el código lo citan todo el tiempo (23 referencias
+> solo en `src/lib/ghl/contrato.ts`), así que pedíselo a Francisco antes de tocar nada de la
+> integración. Los literales que el código realmente usa sí están versionados, en
+> `src/lib/ghl/contrato.ts`, cada uno con su fuente y su nivel de confianza.
 
 ---
 

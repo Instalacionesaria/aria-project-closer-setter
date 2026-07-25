@@ -20,7 +20,7 @@
 - **Motor (Kevin, Supabase)** = analiza cada conversación UNA vez → 4 salidas: auditoría de agentes, sentimiento, briefing, extracción de perfil. Escribe eventos en Supabase; aplica tags vía API. El dashboard LEE de Supabase — nunca calcula al renderizar, nunca consulta servicios externos en vivo.
 - **Este frontend** = muestra estado y registra decisiones humanas. Registrar en "Avanzar" escribe el evento + mueve el stage en GHL vía API. Los eventos automáticos (cita por link, pago por webhook) se registran solos con autor `Sistema` y JAMÁS pasan por Avanzar.
 - **Layout/scroll:** el contenedor principal de las vistas usa `overflow-y-scroll` permanente (pista de scrollbar siempre activa) para evitar layout shift (saltos horizontales) al alternar entre vistas con scroll (Pipeline) y sin scroll.
-- **Docs hermanos** (pedir a Francisco si faltan): `CONTRATO-GHL-Kevin.md` (nombres exactos de tags/campos/stages), `MOTOR-Interpretacion-Conversaciones.md`, `CHECKLIST-GHL-Backend.md`.
+- **Docs hermanos** (pedir a Francisco — **ninguno se versiona**): `CONTRATO-GHL.md` (nombres exactos de tags/campos/stages; en `.gitignore` desde el 2026-07-25 por decisión de Francisco, aunque el código y esta guía lo citen constantemente), `MOTOR-Interpretacion-Conversaciones.md`, `CHECKLIST-GHL-Backend.md`.
 
 ## 3. Glosario oficial (nunca usar otros términos)
 

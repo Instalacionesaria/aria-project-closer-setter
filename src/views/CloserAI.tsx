@@ -593,6 +593,8 @@ function MiDiaTab() {
   const agendaHoy = all
     .filter((c) => c.agenda && !c.completedToday)
     .sort((a, b) => (a.agenda!.time > b.agenda!.time ? 1 : -1));
+  /** La primera de la lista ya ordenada por hora. Alimenta la tarjeta "Calls Hoy". */
+  const proximaCall = agendaHoy[0]?.agenda?.time;
   const completadas = all.filter((c) => c.completedToday);
   const [expandedAgenda, setExpandedAgenda] = useState<Set<string>>(
     () => new Set(all.filter((c) => c.agenda?.expanded).map((c) => c.name)),
@@ -615,10 +617,17 @@ function MiDiaTab() {
               Calls Hoy
             </span>
           </div>
+          {/*
+            Derivado de `agendaHoy`, la MISMA lista que pinta la sección de abajo. Antes el
+            número y la hora estaban escritos a mano ("6", "próxima a las 10:00"): al vaciar
+            la agenda, la tarjeta seguía anunciando seis llamadas que no existían.
+            Regla §4.4 — una sola fuente de verdad; si la sección y el contador pueden
+            discrepar, alguno de los dos miente.
+          */}
           <div className="flex items-baseline gap-4">
-            <span className="text-5xl font-light tracking-tight">6</span>
+            <span className="text-5xl font-light tracking-tight">{agendaHoy.length}</span>
             <span className="text-sm font-medium text-muted-foreground uppercase tracking-wider">
-              próxima a las 10:00
+              {proximaCall ? `próxima a las ${proximaCall}` : "sin citas para hoy"}
             </span>
           </div>
         </div>
