@@ -691,6 +691,8 @@ export interface Cockpit {
 
 interface ClosurerStoreValue {
   contacts: Record<string, ClosurerContact>;
+  /** El backend contestó al menos una vez en esta sesión. Alimenta el badge "GHL conectado". */
+  backendConectado: boolean;
   cockpit: Cockpit;
   cierreEnCursoMonto: number;
   openContactName: string | null;
@@ -732,6 +734,8 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Record<string, ClosurerContact>>(() => buildSeedContacts());
   const [deltas, setDeltas] = useState<SessionDeltas>(ZERO_DELTAS);
   const [openContactName, setOpenContactName] = useState<string | null>(null);
+  /** Hecho comprobado, no configuración: se enciende cuando el backend contesta de verdad. */
+  const [backendConectado, setBackendConectado] = useState(false);
   const { comisiones } = useSettings();
   const comisionPct = (comisiones[CURRENT_CLOSER_NAME] ?? 10) / 100;
 
@@ -751,13 +755,18 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * Deps vacías: el efecto ESCRIBE `contacts`; incluirlo sería un bucle infinito.
    */
   useEffect(() => {
-    if (!backendActivo()) return;
     let vigente = true;
 
     traerMiDia().then((r) => {
       // StrictMode invoca el efecto dos veces en desarrollo. El GET es idempotente, así que
       // no hace daño, pero el guard evita pisar el estado con una respuesta obsoleta.
-      if (!vigente || !r?.seguimientosHoy?.length) return;
+      if (!vigente || !r) return;
+
+      // Se marca aunque la cola venga vacía: el backend contestó, que es lo que el badge
+      // reporta. Una cola vacía es una respuesta válida, no una desconexión.
+      setBackendConectado(true);
+      if (!r.seguimientosHoy?.length) return;
+
       setContacts((prev) => {
         const siguiente = { ...prev };
         for (const fila of r.seguimientosHoy) siguiente[fila.ghlContactId] = filaAContacto(fila);
@@ -903,6 +912,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
 
   const value: ClosurerStoreValue = {
     contacts,
+    backendConectado,
     cockpit,
     cierreEnCursoMonto,
     openContactName,

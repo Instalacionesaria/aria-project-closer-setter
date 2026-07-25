@@ -1,14 +1,16 @@
 /**
  * Cliente HTTP de la sección Seguimientos.
  *
- * El flag es la presencia de `VITE_SEGUIMIENTOS_API`. Sin definir —el default, y lo que
- * pasa en un clone limpio— no se hace ni una petición y la app corre con la semilla de
- * siempre. Así la demo no se puede romper por falta de configuración.
+ * No hay variable de entorno ni flag: la ruta es siempre `/api`, que es donde Vercel sirve
+ * las funciones de este mismo repo. Una variable para configurar una constante era una
+ * forma más de equivocarse (escribir mal el nombre, olvidarla en un entorno) a cambio de
+ * nada.
  *
- * Todo error se traga y devuelve `null`. Es deliberado: esta app no tiene error boundary ni
- * estados de error en ninguna vista, y hacer que un backend caído deje la pantalla en
- * blanco sería un downgrade frente al demo que funciona hoy. Se avisa por consola y se
- * sigue con la semilla.
+ * El "modo demo" sale gratis del manejo de errores: en `npm run dev` no hay funciones, la
+ * petición falla, y la app sigue con la semilla. Lo mismo si el backend se cae en
+ * producción. Todo error devuelve `null` a propósito — esta app no tiene error boundary ni
+ * estados de error en ninguna vista, así que dejar la pantalla en blanco sería peor que el
+ * demo que funciona. Se avisa por consola y se sigue.
  */
 
 import type { ClosurerContact } from "../closerStore";
@@ -16,10 +18,16 @@ import { situacionPorSlug, type SituacionSeguimiento } from "../ghl/contrato";
 import { armarPildora } from "../pildora";
 import type { EstadoSeguimiento, ModoSeguimiento } from "./dominio";
 
-/** `/api` en producción; sin definir = modo semilla. */
-export const BASE_API: string | undefined = import.meta.env.VITE_SEGUIMIENTOS_API || undefined;
+/** Donde Vercel sirve las funciones de `api/`, en el mismo dominio. */
+const BASE_API = "/api";
 
-export const backendActivo = (): boolean => Boolean(BASE_API);
+/**
+ * Si el backend contestó al menos una vez. Empieza en `false` y lo enciende la primera
+ * respuesta buena — así el badge "GHL conectado" refleja un hecho comprobado y no una
+ * variable de entorno, que puede estar puesta y aun así no funcionar.
+ */
+let respondio = false;
+export const backendActivo = (): boolean => respondio;
 
 interface FilaApi {
   ghlContactId: string;
@@ -50,20 +58,23 @@ export interface RespuestaMiDia {
 }
 
 async function pedir<T>(ruta: string, init?: RequestInit): Promise<T | null> {
-  if (!BASE_API) return null;
   try {
     const r = await fetch(`${BASE_API}${ruta}`, {
       ...init,
       headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     });
+    // En `npm run dev` no hay funciones y Vite devuelve el index.html del SPA: el parseo
+    // falla y caemos al `catch`. Es el modo demo, sin configurar nada.
     const cuerpo = await r.json().catch(() => null);
-    if (!r.ok) {
+    if (!r.ok || !cuerpo) {
       console.warn(`[seguimientos] ${ruta} devolvió ${r.status}`, cuerpo);
       return null;
     }
+    respondio = true;
     return cuerpo as T;
-  } catch (e) {
-    console.warn(`[seguimientos] ${ruta} falló`, e);
+  } catch {
+    // Silencioso a propósito: sin backend esto pasa en cada carga, y llenar la consola de
+    // rojo en la demo confundiría más de lo que ayuda.
     return null;
   }
 }

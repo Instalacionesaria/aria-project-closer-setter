@@ -31,7 +31,6 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { backendActivo } from "../lib/seguimientos/cliente";
 import ContactDrawer from "./ContactDrawer";
 import {
   useClosurer,
@@ -578,7 +577,7 @@ const scrollToSection = (id: string) =>
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
 function MiDiaTab() {
-  const { contacts, openContact } = useClosurer();
+  const { contacts, openContact, backendConectado } = useClosurer();
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
   // Pineados ("mantener") primero — § ciclo de vida de tareas, 2026-07-11.
@@ -891,7 +890,7 @@ function MiDiaTab() {
           </span>
           {/* Sin esto no hay forma de distinguir a simple vista un contacto real de GHL de
               uno de la semilla — y en producción esa confusión cuesta caro. */}
-          {backendActivo() && (
+          {backendConectado && (
             <span
               className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full"
               title="Los contactos con datos reales vienen de GHL; el resto son de la demo."

@@ -17,8 +17,18 @@ function requerida(nombre: string): string {
   return v;
 }
 
+/**
+ * SOFIA es el proyecto permanente del ecosistema ARIA, y su URL no es un secreto — viaja en
+ * el bundle de cualquier app que use Supabase desde el browser. Va como constante para no
+ * pedir una variable de entorno más: cuantas menos haya, menos hay que configurar bien.
+ *
+ * La `service_role`, en cambio, NO puede vivir acá: da permiso total sobre la base, este
+ * repo está en GitHub, y git no olvida — borrarla después no la saca del historial.
+ */
+const SUPABASE_URL_SOFIA = "https://pajhjpzydkkpmjdofqqp.supabase.co";
+
 export const env = {
-  supabaseUrl: () => requerida("SUPABASE_URL"),
+  supabaseUrl: () => process.env.SUPABASE_URL ?? SUPABASE_URL_SOFIA,
   supabaseServiceKey: () => requerida("SUPABASE_SERVICE_ROLE_KEY"),
 
   /**
@@ -35,16 +45,20 @@ export const env = {
   ghlCalendarioPorDefecto: () => process.env.GHL_DEFAULT_CALENDAR_ID,
 
   /**
-   * `real` activa las llamadas a GHL. Cualquier otro valor (o ausencia) deja el stub, que
-   * registra la intención en el outbox sin llamar a nadie.
+   * El modo se DEDUCE de las credenciales en vez de configurarse: con token y location es
+   * `real`, sin ellos es `stub`. Una variable aparte solo agregaba una forma más de
+   * equivocarse — poner `GHL_MODO=real` sin token, o tener las credenciales y olvidarse de
+   * encender el modo, que es peor porque todo "funciona" pero nada llega a GHL.
    *
-   * El default es stub a propósito: si alguien despliega sin configurar nada, el sistema
-   * anota lo que habría hecho en vez de fallar o, peor, de escribir en la cuenta real por
-   * accidente.
+   * `GHL_MODO=stub` sigue funcionando como freno manual: útil para desplegar y mirar el
+   * diagnóstico antes de dejar que escriba en la cuenta real.
    */
-  ghlModo: (): "real" | "stub" => (process.env.GHL_MODO === "real" ? "real" : "stub"),
+  ghlModo: (): "real" | "stub" => {
+    if (process.env.GHL_MODO === "stub") return "stub";
+    return env.tieneCredencialesGhl() ? "real" : "stub";
+  },
 
   /** Presencia de credenciales, sin exponerlas — para el endpoint de diagnóstico. */
   tieneCredencialesGhl: () => Boolean((process.env.GHL_PIT ?? process.env.GHL_API_KEY) && process.env.GHL_LOCATION_ID),
-  tieneCredencialesSupabase: () => Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+  tieneCredencialesSupabase: () => Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
 };
