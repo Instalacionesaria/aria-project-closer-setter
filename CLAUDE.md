@@ -887,14 +887,39 @@ Ninguna de estas se ve compilando. Todas costaron una verificación contra produ
 - Los contactos reales conviven con la semilla en el mismo `Record`, keyeados por
   `ghlContactId` en vez de por nombre. **No se migró la identidad de toda la app**: la clave
   es un string y a las vistas les da igual. Ese refactor sigue pendiente.
-- **Sin `VITE_SEGUIMIENTOS_API` no se hace ni una petición** — la demo corre intacta. Es el
-  default, así que un clone limpio nunca se rompe por falta de configuración.
+- **El frontend no lee ninguna variable de entorno.** La ruta del API es `/api` por
+  constante, y el "modo demo" sale del manejo de errores: si el backend no responde, la app
+  sigue con la semilla. Un clone limpio nunca se rompe por falta de configuración.
 - **Divergencia sin resolver**: el stage `descalificado` se pinta de tres formas distintas
   según dónde se mire — `NO LE INTERESA · X` (Avanzar), `DESCALIFICADO · X` (contrato §4 y
   §39.5) y `NO INTERESADO · PRECIO` (semilla). Hay que elegir una.
 - **Un solo closer.** `zona_closer` es territorio, no asignación: dice que el contacto está
   en el mundo del closer, no de cuál. Con más de uno hará falta el owner de la oportunidad.
-- Esta rama queda **exenta del despliegue automático de §49** hasta que Francisco la apruebe.
+### 50.8 Despliegue — el commit lo tiene que firmar el dueño de la cuenta
+
+El proyecto quedó conectado a GitHub el 2026-07-25: un push a `main` despliega solo. Pero
+hay una condición que no está en ninguna documentación de Vercel visible desde el repo, y
+que cuesta una hora descubrir.
+
+**El plan es Hobby, que no admite miembros de equipo.** Un commit firmado con un correo que
+no sea el del dueño de la cuenta se bloquea con *"X is not a member of this team"*.
+
+Y falla de la peor forma posible: Vercel **igual marca el deployment como `success` en
+GitHub** y deja la URL sirviendo el build anterior. El check aparece verde, la página carga,
+y lo que estás viendo es código viejo. Pasó exactamente eso con los commits `c49925e` y
+`5f6e597`: los dos "exitosos", los dos sirviendo el mismo `dpl_Cfv4j68dvEfY` de un deploy
+por CLI de tres horas antes.
+
+**Cómo detectarlo:** comparar el atributo `data-dpl-id` del HTML entre dos deploys. Si no
+cambió, no se construyó nada — sin importar lo que diga el check.
+
+**Cómo evitarlo**, por repo y no global, para no pisar la identidad en otros proyectos:
+
+```bash
+git config user.email instalacionesariaia@gmail.com
+```
+
+La autoría real de quien escribe se conserva con un `Co-Authored-By` en el mensaje.
 
 ## 49. Cómo trabajar en este repo
 
