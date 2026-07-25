@@ -1,0 +1,57 @@
+/**
+ * El puerto de GoHighLevel. Dos implementaciones: `stub` (registra la intención) y
+ * `real` (llama a la API v2).
+ *
+ * La clave del diseño es `aplicado: boolean` en el resultado. El stub devuelve
+ * `{ ok: true, aplicado: false }` — la operación no falló, pero tampoco ocurrió. Así
+ * ningún caller puede reportarle a la UI que aplicó un tag que en realidad no aplicó.
+ * Es el mismo criterio de honestidad que el repo ya usa para los affordances de demo
+ * (§30.B, §40.D de CLAUDE.md): cuando la capacidad real no existe, se dice, no se finge.
+ */
+
+export type ResultadoGhl =
+  | { ok: true; aplicado: boolean; detalle?: unknown }
+  | { ok: false; error: string; reintentable: boolean; status?: number };
+
+export interface OperacionBase {
+  ghlContactId: string;
+  /** Para que un reintento no duplique el efecto ni la fila del outbox. */
+  idempotencyKey: string;
+  seguimientoId?: string;
+}
+
+export interface TagsInput extends OperacionBase {
+  tags: string[];
+}
+
+export interface CampoInput extends OperacionBase {
+  /** Unique key del custom field, ej. `contact.nivel_de_inters_seguimiento`. */
+  campo: string;
+  valor: string;
+}
+
+export interface ContactoGhl {
+  id: string;
+  nombre: string;
+  telefono?: string;
+  email?: string;
+  tags: string[];
+  customFields: Record<string, string>;
+}
+
+export interface GhlPort {
+  /** Modo activo — lo reporta el endpoint de diagnóstico. */
+  readonly modo: "real" | "stub";
+
+  aplicarTags(i: TagsInput): Promise<ResultadoGhl>;
+  removerTags(i: TagsInput): Promise<ResultadoGhl>;
+  escribirCampo(i: CampoInput): Promise<ResultadoGhl>;
+
+  obtenerContacto(ghlContactId: string): Promise<ContactoGhl | null>;
+
+  /** Diagnóstico: ¿responde la cuenta? Devuelve los tags y campos que existen. */
+  verificarConexion(): Promise<
+    | { ok: true; locationId: string; tags: string[]; customFields: string[] }
+    | { ok: false; error: string; status?: number }
+  >;
+}
