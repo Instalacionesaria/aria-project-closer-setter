@@ -418,12 +418,18 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
           subtitle: input.texto,
           monto: input.monto ?? c.monto,
           agendaFecha: input.agendaFecha ?? c.agendaFecha,
-          cadenciaActiva: input.cadenciaActiva ?? c.cadenciaActiva,
+          // Cancelación universal, igual que el closer: cualquier Avanzar apaga la serie.
+          // `?? c.cadenciaActiva` dejaba el ⏱ encendido tras un resultado que no fuera Seguimiento.
+          cadenciaActiva: input.cadenciaActiva ?? false,
           historial,
           notas,
           urgente: undefined,
           estancada: undefined,
           oportunidadLt: undefined,
+          // Mismo cierre total de tareas que en el closer: sin esto, FIJAR tras un Avanzar
+          // resucita al contacto en su cola vieja con la píldora del resultado nuevo.
+          respondido: undefined,
+          seguimientoPendiente: undefined,
           completedToday: true,
           pinned: undefined,
           // Registrar un Avanzar ES la intervención manual — el latch de atribución se enciende y ya no se apaga.

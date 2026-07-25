@@ -597,6 +597,63 @@ const COCKPIT_BASE: CockpitBase = {
 /** Closer activo del demo (sin auth real) — su % vive en Ajustes > Administración > Comisiones. */
 const CURRENT_CLOSER_NAME = "Diego M.";
 
+/**
+ * El efecto de un Avanzar sobre UN contacto, como función pura.
+ *
+ * Vive fuera del provider para poder testearse sin montar React y sin los cuatro
+ * contextos que envuelven la app. Es también la pieza que el backend va a reutilizar:
+ * la transición de estado es la misma, cambia dónde se persiste.
+ */
+export function applyAdvance(c: ClosurerContact, input: AdvanceInput): ClosurerContact {
+  const historial = [{ fecha: "Hoy", texto: input.texto, autor: "Usuario Activo" }, ...c.historial];
+  const notas = input.nota
+    ? [{ id: Date.now(), contexto: input.pildora, texto: input.nota, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas]
+    : c.notas;
+  /**
+   * Regla de negocio (2026-07-11): una vez que el closer registra un resultado de Avanzar,
+   * el contacto YA conversó con él — el agente IA muere para siempre (`muerto_postcall`, toggle
+   * ni se renderiza). La ÚNICA excepción es "No-show": ese resultado reactiva la IA (`activo`)
+   * porque dispara el workflow de recuperación automática, que necesita al agente trabajando.
+   * IG nunca tuvo bot (§11) — no se le asigna estado nuevo, sigue exento.
+   */
+  const isIG = c.fuente === "📷 IG PROFILE";
+  const nextBotEstado: BotEstado | undefined = isIG ? c.botEstado : input.stage === "no_show" ? "activo" : "muerto_postcall";
+  return {
+    ...c,
+    stage: input.stage,
+    situacion: input.pildora,
+    when: "Hoy",
+    activity: input.texto,
+    monto: input.monto ?? c.monto,
+    historial,
+    notas,
+    urgente: undefined,
+    agenda: undefined,
+    /**
+     * Un Avanzar cierra TODAS las tareas abiertas del contacto, no solo la urgencia.
+     * Antes se limpiaban `urgente`/`agenda` pero no `respondido`/`seguimientoPendiente`
+     * (el hueco que §40 dejó anotado como "no ocurre en el seed actual"). Consecuencia
+     * real y alcanzable: tras registrar una Venta, `hasConversationTask` seguía siendo
+     * true, así que enviar un mensaje y pulsar FIJAR devolvía el contacto a la cola de
+     * Seguimientos luciendo la píldora `VENTA · $5.000`.
+     */
+    respondido: undefined,
+    seguimientoPendiente: undefined,
+    completedToday: true,
+    pinned: undefined,
+    /**
+     * Regla de cancelación universal: CUALQUIER resultado de Avanzar cierra el seguimiento
+     * pendiente. Antes esto era `?? c.cadenciaActiva`, y como solo la salida Seguimiento
+     * escribe el campo, los otros cinco resultados conservaban el valor previo: registrar
+     * una Venta sobre un contacto con serie activa dejaba el ⏱ encendido sobre un trato
+     * ganado. Hoy es un ícono que miente; con el tag `seguimiento_recupero` escribiéndose
+     * en GHL sería un workflow persiguiendo a alguien que ya pagó.
+     */
+    cadenciaActiva: input.cadenciaActiva ?? false,
+    botEstado: nextBotEstado,
+  };
+}
+
 interface SessionDeltas {
   ventasCount: number;
   ventasMonto: number;
@@ -661,38 +718,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     setContacts((prev) => {
       const c = prev[name];
       if (!c) return prev;
-      const historial = [{ fecha: "Hoy", texto: input.texto, autor: "Usuario Activo" }, ...c.historial];
-      const notas = input.nota
-        ? [{ id: Date.now(), contexto: input.pildora, texto: input.nota, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas]
-        : c.notas;
-      /**
-       * Regla de negocio (2026-07-11): una vez que el closer registra un resultado de Avanzar,
-       * el contacto YA conversó con él — el agente IA muere para siempre (`muerto_postcall`, toggle
-       * ni se renderiza). La ÚNICA excepción es "No-show": ese resultado reactiva la IA (`activo`)
-       * porque dispara el workflow de recuperación automática, que necesita al agente trabajando.
-       * IG nunca tuvo bot (§11) — no se le asigna estado nuevo, sigue exento.
-       */
-      const isIG = c.fuente === "📷 IG PROFILE";
-      const nextBotEstado: BotEstado | undefined = isIG ? c.botEstado : input.stage === "no_show" ? "activo" : "muerto_postcall";
-      return {
-        ...prev,
-        [name]: {
-          ...c,
-          stage: input.stage,
-          situacion: input.pildora,
-          when: "Hoy",
-          activity: input.texto,
-          monto: input.monto ?? c.monto,
-          historial,
-          notas,
-          urgente: undefined,
-          agenda: undefined,
-          completedToday: true,
-          pinned: undefined,
-          cadenciaActiva: input.cadenciaActiva ?? c.cadenciaActiva,
-          botEstado: nextBotEstado,
-        },
-      };
+      return { ...prev, [name]: applyAdvance(c, input) };
     });
     if (input.stage === "ganado" && input.monto) {
       setDeltas((d) => ({ ventasCount: d.ventasCount + 1, ventasMonto: d.ventasMonto + input.monto! }));
