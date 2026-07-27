@@ -56,6 +56,11 @@ export const ghlStub: GhlPort = {
     return null;
   },
 
+  /** Sin GHL no hay a quién buscar. Lista vacía, no una inventada. */
+  async buscarPorTag(): Promise<string[]> {
+    return [];
+  },
+
   async verificarConexion() {
     return { ok: false, error: "Adapter en modo stub: no hay conexión con GHL (falta GHL_API_KEY o GHL_MODO=real)." };
   },

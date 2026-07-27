@@ -49,6 +49,9 @@ export interface GhlPort {
 
   obtenerContacto(ghlContactId: string): Promise<ContactoGhl | null>;
 
+  /** Ids de los contactos que tienen un tag. Es cómo se descubre el territorio del closer. */
+  buscarPorTag(tag: string, limite?: number): Promise<string[]>;
+
   /** Diagnóstico: ¿responde la cuenta? Devuelve los tags y campos que existen. */
   verificarConexion(): Promise<
     | { ok: true; locationId: string; tags: string[]; customFields: string[] }

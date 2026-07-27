@@ -170,6 +170,21 @@ export const ghlReal: GhlPort = {
     };
   },
 
+  /**
+   * `POST /contacts/search` con filtro por tag — es el único endpoint de v2 que permite
+   * filtrar; el `GET /contacts/` no acepta tags y obligaría a traer la lista entera y
+   * filtrar acá.
+   */
+  async buscarPorTag(tag: string, limite = 100): Promise<string[]> {
+    const r = await llamar("POST", "/contacts/search", {
+      locationId: env.ghlLocationId(),
+      pageLimit: Math.min(limite, 100),
+      filters: [{ field: "tags", operator: "contains", value: tag }],
+    });
+    if (!r.ok) return [];
+    return (r.datos?.contacts ?? []).map((c: any) => c.id).filter(Boolean);
+  },
+
   async verificarConexion() {
     const locationId = env.ghlLocationId();
 
