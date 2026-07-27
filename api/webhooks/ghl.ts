@@ -146,11 +146,22 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
      */
     case "contacto.zona_closer":
     case "contacto.actualizado": {
-      await sincronizarContacto(contactId);
-      if (evento === "contacto.zona_closer") {
+      // Se reporta lo que REALMENTE pasó, no lo que se intentó: `sincronizarContacto`
+      // devuelve false cuando GHL no encuentra el contacto (id equivocado, contacto
+      // borrado, credencial sin permiso). Antes esto devolvía `true` siempre — un webhook
+      // apuntado a un id inexistente respondía "sincronizado" sin haber sincronizado nada.
+      const ok = await sincronizarContacto(contactId);
+
+      // Y el evento solo se registra si el contacto existe. Si no, quedaría una línea de
+      // historial de alguien que no está en el sistema: imposible de ver en ninguna ficha
+      // y contaminando la tabla.
+      if (ok && evento === "contacto.zona_closer") {
         await registrarEvento(contactId, "entro_zona_closer", "Entró a territorio del closer");
       }
-      return { sincronizado: true };
+
+      return ok
+        ? { sincronizado: true }
+        : { sincronizado: false, motivo: "GHL no devolvió ese contacto — ¿id equivocado o contacto borrado?" };
     }
 
     /**
