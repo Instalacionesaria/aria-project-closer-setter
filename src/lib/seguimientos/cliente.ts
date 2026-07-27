@@ -21,14 +21,6 @@ import type { EstadoSeguimiento, ModoSeguimiento } from "./dominio";
 /** Donde Vercel sirve las funciones de `api/`, en el mismo dominio. */
 const BASE_API = "/api";
 
-/**
- * Si el backend contestó al menos una vez. Empieza en `false` y lo enciende la primera
- * respuesta buena — así el badge "GHL conectado" refleja un hecho comprobado y no una
- * variable de entorno, que puede estar puesta y aun así no funcionar.
- */
-let respondio = false;
-export const backendActivo = (): boolean => respondio;
-
 interface FilaApi {
   ghlContactId: string;
   nombre: string | null;
@@ -70,7 +62,6 @@ async function pedir<T>(ruta: string, init?: RequestInit): Promise<T | null> {
       console.warn(`[seguimientos] ${ruta} devolvió ${r.status}`, cuerpo);
       return null;
     }
-    respondio = true;
     return cuerpo as T;
   } catch {
     // Silencioso a propósito: sin backend esto pasa en cada carga, y llenar la consola de

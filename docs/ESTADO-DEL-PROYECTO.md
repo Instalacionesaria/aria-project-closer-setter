@@ -89,6 +89,18 @@ que ya tenían el tag desde antes.
 
 ---
 
+## Planeado, todavía sin construir
+
+**Pestaña de configuración de conexiones** — a la derecha del encabezado de las secciones de
+Mi Día. Ahí van a vivir la API de la IA, la API de GHL y las variables por cuenta. Es la
+razón por la que se quitó el badge "GHL conectado" que ocupaba ese lugar (2026-07-25): ese
+espacio queda reservado. Mientras tanto, el estado real de las conexiones se consulta en
+`/api/diagnostico`, que además dice **cuál** eslabón falla — más útil que un punto verde.
+
+Esto conecta con el objetivo de fondo que mencionó Francisco: que a futuro **cada usuario de
+la plataforma configure su propio GHL**. Hoy `GHL_LOCATION_ID` es una variable de entorno
+global justamente por eso — es el dato que va a pasar a ser por cuenta.
+
 ## Lo que no tiene nada de backend
 
 - **Módulo Setter completo** — ni una línea. Sus dos series están mapeadas pero nada las

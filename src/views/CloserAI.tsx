@@ -577,7 +577,7 @@ const scrollToSection = (id: string) =>
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
 function MiDiaTab() {
-  const { contacts, openContact, backendConectado } = useClosurer();
+  const { contacts, openContact } = useClosurer();
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
   // Pineados ("mantener") primero — § ciclo de vida de tareas, 2026-07-11.
@@ -914,16 +914,13 @@ function MiDiaTab() {
           <span className="bg-amber-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
             {seguimientosHoy.length}
           </span>
-          {/* Sin esto no hay forma de distinguir a simple vista un contacto real de GHL de
-              uno de la semilla — y en producción esa confusión cuesta caro. */}
-          {backendConectado && (
-            <span
-              className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full"
-              title="Los contactos con datos reales vienen de GHL; el resto son de la demo."
-            >
-              GHL conectado
-            </span>
-          )}
+          {/*
+            Acá vivía un badge "GHL conectado". Quitado el 2026-07-25: ese lugar queda
+            reservado para la pestaña de configuración de conexiones (API de la IA, API de
+            GHL, y las variables por cuenta). El estado real de la conexión se consulta en
+            /api/diagnostico, que además dice cuál eslabón falla — más útil que un punto
+            verde.
+          */}
         </div>
         <div className="divide-y divide-border">
           {seguimientosHoy.map((c, i) => (
