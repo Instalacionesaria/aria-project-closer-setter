@@ -11,7 +11,7 @@
  */
 
 import { registrarEnOutbox } from "../repo.js";
-import type { CampoInput, ContactoGhl, GhlPort, ResultadoGhl, TagsInput } from "./port.js";
+import type { CampoInput, ContactoGhl, GhlPort, NotaInput, ResultadoGhl, TagsInput } from "./port.js";
 
 async function anotar(
   operacion: "aplicar_tag" | "remover_tag" | "escribir_campo",
@@ -47,6 +47,14 @@ export const ghlStub: GhlPort = {
 
   escribirCampo: ({ ghlContactId, campo, valor, idempotencyKey, seguimientoId }: CampoInput) =>
     anotar("escribir_campo", ghlContactId, { campo, valor }, idempotencyKey, seguimientoId),
+
+  /**
+   * Única operación que no pasa por el outbox: `operacion` es un enum cerrado y una nota no
+   * dispara workflows, así que no hay efecto que reproducir. Ver el comentario en el puerto.
+   */
+  async escribirNota(_i: NotaInput): Promise<ResultadoGhl> {
+    return { ok: true, aplicado: false, detalle: { omitido: "nota no registrada en modo stub" } };
+  },
 
   /**
    * Sin GHL no hay de dónde sacar el contacto. Devolver `null` es lo honesto: cualquier

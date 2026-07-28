@@ -11,7 +11,7 @@
  */
 
 import { env } from "../env.js";
-import type { CampoInput, ContactoGhl, GhlPort, ResultadoGhl, TagsInput } from "./port.js";
+import type { CampoInput, ContactoGhl, GhlPort, NotaInput, ResultadoGhl, TagsInput } from "./port.js";
 
 const BASE = "https://services.leadconnectorhq.com";
 /** Versión del contrato de la API v2. GHL la exige en cada request. */
@@ -116,6 +116,12 @@ export const ghlReal: GhlPort = {
     if (tags.length === 0) return { ok: true, aplicado: false };
     // GHL acepta el cuerpo en el DELETE de tags. No es lo más ortodoxo, pero es su contrato.
     return aResultado(await llamar("DELETE", `/contacts/${ghlContactId}/tags`, { tags }));
+  },
+
+  /** Nota en el contacto. El analizador deja acá el motivo del fallo, con prefijo `[IA]`. */
+  async escribirNota({ ghlContactId, cuerpo }: NotaInput) {
+    if (!cuerpo.trim()) return { ok: true, aplicado: false };
+    return aResultado(await llamar("POST", `/contacts/${ghlContactId}/notes`, { body: cuerpo }));
   },
 
   /**

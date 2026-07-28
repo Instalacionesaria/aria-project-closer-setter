@@ -30,6 +30,11 @@ export interface CampoInput extends OperacionBase {
   valor: string;
 }
 
+export interface NotaInput extends OperacionBase {
+  /** Cuerpo de la nota. El analizador la prefija con `[IA]` para poder releerla después. */
+  cuerpo: string;
+}
+
 export interface ContactoGhl {
   id: string;
   nombre: string;
@@ -46,6 +51,17 @@ export interface GhlPort {
   aplicarTags(i: TagsInput): Promise<ResultadoGhl>;
   removerTags(i: TagsInput): Promise<ResultadoGhl>;
   escribirCampo(i: CampoInput): Promise<ResultadoGhl>;
+
+  /**
+   * Escribe una nota en el contacto. La usa el analizador para dejar el motivo del fallo,
+   * que después lee `/api/closer/urgentes` para pintar la cola roja.
+   *
+   * A diferencia del resto, el stub NO la registra en el outbox: `operacion` es un enum
+   * cerrado (`aplicar_tag | remover_tag | escribir_campo`) y ampliarlo pedía una migración.
+   * Se puede omitir sin consecuencias porque una nota es descriptiva — no dispara ningún
+   * workflow, así que no hay efecto que reproducir después. Igual devuelve `aplicado: false`.
+   */
+  escribirNota(i: NotaInput): Promise<ResultadoGhl>;
 
   obtenerContacto(ghlContactId: string): Promise<ContactoGhl | null>;
 

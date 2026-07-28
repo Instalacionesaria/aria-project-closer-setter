@@ -31,6 +31,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ORG_ID, db } from "../_lib/repo.js";
+import { analizarYMarcar } from "../_lib/analizador.js";
 import { sincronizarContacto } from "../_lib/contactos.js";
 
 /** Eventos que este endpoint entiende. Cualquier otro se guarda sin interpretar. */
@@ -195,12 +196,28 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
         .update({ completada_dia: null, actualizado_el: ahora })
         .eq("ghl_contact_id", contactId);
 
-      return { respondio: true };
+      // El contacto escribió: se audita cómo viene atendiendo el agente. Ver nota abajo.
+      const analisis = await analizarYMarcar(contactId);
+
+      return { respondio: true, analisis };
     }
 
+    /**
+     * El agente de GHL respondió. Es el momento con más información para auditarlo — ya se
+     * puede juzgar SU respuesta, no solo lo que dijo el contacto.
+     *
+     * Se analiza en los dos eventos de mensaje porque los criterios de la rúbrica se
+     * reparten entre ambos: la frustración y el "no es lo que busco" se ven en el entrante,
+     * la promesa incorrecta y el "insiste y no entiende" recién en el saliente. El
+     * analizador se corta solo antes de llamar al modelo si el contacto no es `zona_closer`
+     * o si ya está marcado, así que la mayoría de los eventos no cuestan una inferencia.
+     */
     case "mensaje.saliente": {
       await db().from("closer_contactos").update({ ultimo_saliente_el: ahora }).eq("ghl_contact_id", contactId);
-      return { registrado: true };
+
+      const analisis = await analizarYMarcar(contactId);
+
+      return { registrado: true, analisis };
     }
 
     /** Puebla la Agenda de Hoy. */
