@@ -147,6 +147,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const presentadas = (l: typeof citas) => l.filter((c) => c.appointmentStatus === "showed").length;
     const vigentes = (l: typeof citas) => l.filter((c) => c.appointmentStatus !== "cancelled").length;
 
+    /**
+     * ¿Alguien está registrando la asistencia?
+     *
+     * Verificado el 2026-07-28 contra la subcuenta: en 180 días y 633 citas hay 386
+     * `confirmed`, 245 `cancelled`, 1 `noshow` y CERO `showed`. Es decir, la asistencia no
+     * se marca — ni la buena ni la mala.
+     *
+     * Sin ese dato, cualquier show-up que calcule es un invento: contar solo `showed` da 0%
+     * y tratar `confirmed` como asistió da ~100%, y las dos cifras dirían algo que nadie
+     * midió. Así que no se calcula y la tarjeta conserva el número de Francisco.
+     *
+     * Se destraba solo el día que empiecen a marcarse las citas — o cuando el "Avanzar" del
+     * closer escriba el desenlace, que es la definición del propio producto ("Se presentó"
+     * es un hecho derivado que alimenta el Show rate, CLAUDE.md §3).
+     */
+    const hayAsistenciaRegistrada = citas.some(
+      (c) => c.appointmentStatus === "showed" || c.appointmentStatus === "noshow",
+    );
+
     const agentes: AgenteTextoMetricas[] = [];
 
     for (const id of ["lead-flow-ai", "appointment-flow-ai"] as const) {
@@ -174,14 +193,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       } else {
         /** Su trabajo es que se presenten: show-up sobre las citas del período. */
         const totalCitas = vigentes(citas);
-        agendadas = presentadas(citas);
-        if (totalCitas > 0) {
+        if (hayAsistenciaRegistrada && totalCitas > 0) {
+          agendadas = presentadas(citas);
           const tasa = pct(agendadas, totalCitas);
           metric = `${tasa}%`;
           subtext = `${agendadas} de ${totalCitas} se presentaron`;
           const prevTotal = vigentes(citasPrevias);
           delta = armarDelta(tasa, prevTotal > 0 ? pct(presentadas(citasPrevias), prevTotal) : null);
         }
+        // Sin asistencia registrada, "Agendadas" sí se sabe: son las citas vigentes.
+        agendadas = agendadas ?? (totalCitas > 0 ? totalCitas : null);
       }
 
       agentes.push({
@@ -201,7 +222,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    return res.status(200).json({ ok: true, ghlModo: ghl().modo, ventanaDias: DIAS_VENTANA, agentes });
+    return res.status(200).json({
+      ok: true,
+      ghlModo: ghl().modo,
+      ventanaDias: DIAS_VENTANA,
+      /**
+       * Se dice explícitamente para que "sin métrica de show-up" no se lea como un bug del
+       * endpoint: es que nadie está marcando la asistencia en GHL.
+       */
+      asistenciaRegistradaEnGhl: hayAsistenciaRegistrada,
+      agentes,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error).message });
   }
