@@ -690,7 +690,9 @@ interface ClosurerStoreValue {
   cockpit: Cockpit;
   cierreEnCursoMonto: number;
   openContactName: string | null;
-  openContact: (name: string) => void;
+  /** contactId de GHL de la ficha abierta (cuando se abrió desde una cita real) — para traer su conversación real. */
+  openGhlContactId: string | null;
+  openContact: (name: string, ghlContactId?: string) => void;
   closeContact: () => void;
   advance: (name: string, input: AdvanceInput) => void;
   addNota: (name: string, texto: string) => void;
@@ -728,6 +730,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Record<string, ClosurerContact>>(() => buildSeedContacts());
   const [deltas, setDeltas] = useState<SessionDeltas>(ZERO_DELTAS);
   const [openContactName, setOpenContactName] = useState<string | null>(null);
+  const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const { comisiones } = useSettings();
   const comisionPct = (comisiones[CURRENT_CLOSER_NAME] ?? 10) / 100;
 
@@ -901,8 +904,15 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     cockpit,
     cierreEnCursoMonto,
     openContactName,
-    openContact: setOpenContactName,
-    closeContact: () => setOpenContactName(null),
+    openGhlContactId,
+    openContact: (name: string, ghlContactId?: string) => {
+      setOpenContactName(name);
+      setOpenGhlContactId(ghlContactId ?? null);
+    },
+    closeContact: () => {
+      setOpenContactName(null);
+      setOpenGhlContactId(null);
+    },
     advance,
     addNota,
     resolveIntervention,

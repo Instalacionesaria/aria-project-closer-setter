@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -29,9 +29,15 @@ import {
   Tag,
   TrendingUp,
   Zap,
+  Loader2,
+  TriangleAlert,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { fetchAgendaHoy, fetchAgendaRange, fetchUrgentes, fetchRespondieron, type AgendaAppointment } from "../lib/api";
 import ContactDrawer from "./ContactDrawer";
+
+/** Cada cuánto se re-consulta la agenda a GHL mientras la vista está abierta (polling, hasta tener tiempo real). */
+const AGENDA_POLL_MS = 10_000;
 import {
   useClosurer,
   STAGE_META,
@@ -50,6 +56,17 @@ import { useSettings } from "../lib/settingsStore";
 import { useAgentAudit } from "../lib/agentAuditStore";
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
+
+/** Desenlace de "Avanzar" (tag GHL) → píldora del Buzón: color (vía stage) + texto + estado del bot.
+ * El monto/subcategoría fina vendrá de los custom fields más adelante; v1 muestra la categoría. */
+const OUTCOME_TO_PILL: Record<string, { stage: StageKey; situacion: string; bot: BotEstado }> = {
+  venta_ganada: { stage: "ganado", situacion: "VENTA", bot: "muerto_postcall" },
+  adelanto_ganado: { stage: "cierre", situacion: "ACORDÓ COMPRAR", bot: "muerto_postcall" },
+  seguimiento: { stage: "seguimiento", situacion: "SEGUIMIENTO", bot: "muerto_postcall" },
+  noshow: { stage: "no_show", situacion: "NO-SHOW", bot: "activo" }, // no-show reactiva la IA (workflow de recuperación)
+  nurture_appflow: { stage: "nurture", situacion: "NURTURE", bot: "muerto_postcall" },
+  descalificado: { stage: "descalificado", situacion: "DESCALIFICADO", bot: "muerto_postcall" },
+};
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -159,7 +176,7 @@ function MiDiaRow({
   completed = false,
 }: {
   c: ClosurerContact;
-  onOpen: (name: string) => void;
+  onOpen: (name: string, ghlContactId?: string) => void;
   microtext: string;
   microClass?: string;
   /** Ej. "Falla detectada por IA:" en Urgentes. */
@@ -173,7 +190,7 @@ function MiDiaRow({
   const pinned = !completed && c.pinned;
   return (
     <div
-      onClick={() => onOpen(c.name)}
+      onClick={() => onOpen(c.name, c.ghlContactId)}
       className={cn(
         "flex items-center justify-between gap-4 px-6 py-4 cursor-pointer transition-colors group",
         highlighted
@@ -576,10 +593,100 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
 const scrollToSection = (id: string) =>
   document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
+/** Item del widget "Agenda de Hoy" de Mi Día, alimentado con datos reales de GHL (no del store demo). */
+type AgendaWidgetItem = {
+  name: string;
+  contactId?: string;
+  grade?: Grade;
+  agenda: { time: string; meetUrl?: string; badge?: string; briefing?: string; videoPre?: string };
+  llamadas?: CallRecord[];
+  botEstado?: BotEstado;
+  seguimientoAutomaticoActivo?: boolean;
+  stage?: StageKey;
+};
+
 function MiDiaTab() {
   const { contacts, openContact } = useClosurer();
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
+
+  // Urgentes REALES: contactos con tag bot_pausado_fallo en GHL (detectados por la IA). Se muestran
+  // junto a los EJEMPLO, en el mismo formato. Polling cada AGENDA_POLL_MS.
+  const [realUrgentes, setRealUrgentes] = useState<ClosurerContact[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetchUrgentes()
+        .then((res) => {
+          if (!alive) return;
+          setRealUrgentes(
+            res.urgentes.map((u) => ({
+              name: u.name.toUpperCase(),
+              grade: undefined,
+              stage: "descalificado" as StageKey, // solo define el color rojo de la píldora; el texto lo fijamos abajo
+              situacion: "IA pausada · fallo",
+              when: "hoy",
+              activity: "",
+              fuente: u.source,
+              botEstado: "pausado_fallo" as BotEstado,
+              ghlContactId: u.contactId,
+              urgente: { pill: "bg-rose-500/10 text-rose-700 dark:text-rose-300", detail: u.fallo, highlighted: true },
+              historial: [],
+              notas: [],
+            })),
+          );
+        })
+        .catch(() => {
+          /* si el backend no responde, se quedan solo los EJEMPLO */
+        });
+    };
+    load();
+    const iv = setInterval(load, AGENDA_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
+  // Respondieron REALES: contactos con zona_closer + desenlace de Avanzar que volvieron a escribir
+  // (último mensaje entrante sin responder). Se muestran junto a los EJEMPLO. Polling cada AGENDA_POLL_MS.
+  const [realRespondieron, setRealRespondieron] = useState<ClosurerContact[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetchRespondieron()
+        .then((res) => {
+          if (!alive) return;
+          setRealRespondieron(
+            res.contactos.map((r) => {
+              const m = OUTCOME_TO_PILL[r.outcome] ?? { stage: "seguimiento" as StageKey, situacion: r.outcome.toUpperCase(), bot: "muerto_postcall" as BotEstado };
+              return {
+                name: r.name.toUpperCase(),
+                grade: undefined,
+                stage: m.stage,
+                situacion: m.situacion,
+                when: r.when,
+                activity: r.snippet,
+                fuente: r.source,
+                botEstado: m.bot,
+                ghlContactId: r.contactId,
+                respondido: { microtext: `${r.when} · sin responder` },
+                historial: [],
+                notas: [],
+              } as ClosurerContact;
+            }),
+          );
+        })
+        .catch(() => {
+          /* si el backend no responde, se quedan solo los EJEMPLO */
+        });
+    };
+    load();
+    const iv = setInterval(load, AGENDA_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
   // Pineados ("mantener") primero — § ciclo de vida de tareas, 2026-07-11.
   const respondieron = all
     .filter((c) => c.respondido && !c.completedToday)
@@ -590,15 +697,63 @@ function MiDiaTab() {
     .filter((c) => c.seguimientoPendiente && !c.completedToday)
     .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
   const seguimientosPinnedCount = seguimientosHoy.filter((c) => c.pinned).length;
-  const agendaHoy = all
-    .filter((c) => c.agenda && !c.completedToday)
-    .sort((a, b) => (a.agenda!.time > b.agenda!.time ? 1 : -1));
-  /** La primera de la lista ya ordenada por hora. Alimenta la tarjeta "Calls Hoy". */
-  const proximaCall = agendaHoy[0]?.agenda?.time;
   const completadas = all.filter((c) => c.completedToday);
-  const [expandedAgenda, setExpandedAgenda] = useState<Set<string>>(
-    () => new Set(all.filter((c) => c.agenda?.expanded).map((c) => c.name)),
-  );
+
+  // Agenda de Hoy: datos REALES de GHL vía el backend (antes salía del store demo).
+  const [agendaHoy, setAgendaHoy] = useState<AgendaWidgetItem[]>([]);
+  const [agendaLoading, setAgendaLoading] = useState(true);
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [expandedAgenda, setExpandedAgenda] = useState<Set<string>>(new Set());
+  const lastAgendaSigRef = useRef("");
+  /**
+   * La primera cita del día ya ordenada por hora. Alimenta la tarjeta "Calls Hoy".
+   * Sale de la agenda REAL de GHL, no del store demo — el backend ya la devuelve ordenada.
+   */
+  const proximaCall = agendaHoy[0]?.agenda?.time;
+
+  // Polling cada AGENDA_POLL_MS mientras Mi Día está abierto.
+  useEffect(() => {
+    let alive = true;
+    const load = (first: boolean) => {
+      if (first) {
+        setAgendaLoading(true);
+        setAgendaError(null);
+      }
+      fetchAgendaHoy()
+        .then((res) => {
+          if (!alive) return;
+          const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.time}`).join("|");
+          if (sig !== lastAgendaSigRef.current) {
+            lastAgendaSigRef.current = sig;
+            setAgendaHoy(
+              res.appointments.map((a) => ({
+                name: a.name,
+                contactId: a.contactId ?? undefined,
+                // Sin score: el motor todavía no calificó esta cita. Avatar lo pinta como "—" (§4.7).
+                grade: undefined,
+                agenda: { time: a.time, meetUrl: a.meetUrl ?? undefined },
+                llamadas: [],
+                botEstado: undefined,
+                seguimientoAutomaticoActivo: false,
+              })),
+            );
+          }
+          if (first) setAgendaError(null);
+        })
+        .catch((e) => {
+          if (alive && first) setAgendaError(e?.message ?? "No se pudo conectar con el backend");
+        })
+        .finally(() => {
+          if (alive && first) setAgendaLoading(false);
+        });
+    };
+    load(true);
+    const iv = setInterval(() => load(false), AGENDA_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
   const toggleAgendaExpanded = (name: string) =>
     setExpandedAgenda((prev) => {
       const next = new Set(prev);
@@ -740,11 +895,23 @@ function MiDiaTab() {
             </span>
           )}
         </div>
-        {agendaHoy.length === 0 ? (
+        {agendaLoading && (
+          <div className="flex items-center gap-2 px-2 py-4 text-xs text-muted-foreground">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cargando agenda…
+          </div>
+        )}
+        {!agendaLoading && agendaError && (
+          <div className="flex items-center gap-2 px-2 py-4 text-xs text-amber-600 dark:text-amber-400">
+            <TriangleAlert className="w-3.5 h-3.5" /> No se pudo cargar la agenda de hoy.
+          </div>
+        )}
+        {/* Vacía pero VISIBLE — la sección nunca se oculta (copy y estilo de la base de main). */}
+        {!agendaLoading && !agendaError && agendaHoy.length === 0 && (
           <p className="px-2 py-4 text-center text-xs text-muted-foreground">
             No tienes citas agendadas para hoy.
           </p>
-        ) : (
+        )}
+        {!agendaLoading && !agendaError && agendaHoy.length > 0 && (
         <div className="pl-3 border-l-[1.5px] border-blue-500/30 space-y-3 relative ml-1.5 py-0.5">
           {agendaHoy.map((item, idx) => {
             const isOpen = expandedAgenda.has(item.name);
@@ -766,7 +933,7 @@ function MiDiaTab() {
                     </span>
                     <Avatar grade={item.grade} />
                     <span
-                      onClick={(e) => { e.stopPropagation(); openContact(item.name); }}
+                      onClick={(e) => { e.stopPropagation(); openContact(item.name, item.contactId); }}
                       className="font-semibold text-sm truncate uppercase flex items-center gap-2 cursor-pointer hover:text-primary transition-colors"
                     >
                       {item.name}
@@ -829,25 +996,28 @@ function MiDiaTab() {
                     </button>
                   </div>
                 </div>
-                {item.agenda!.briefing && (
-                  <div className={cn("grid transition-[grid-template-rows] duration-300 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
-                    <div className="overflow-hidden">
-                      <div className="mt-2 ml-[52px] mr-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
-                        <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
-                          <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
-                            Briefing IA:
-                          </span>
-                          {item.agenda!.briefing}
+                {/* Bloque de Francisco — siempre visible. Sin dato (aún no hay fuente): placeholders. */}
+                <div className={cn("grid transition-[grid-template-rows] duration-300 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
+                  <div className="overflow-hidden">
+                    <div className="mt-2 ml-[52px] mr-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
+                      <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+                        <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
+                          Briefing IA:
+                        </span>
+                        {item.agenda!.briefing || "-"}
+                      </p>
+                      {item.agenda!.videoPre ? (
+                        <p className="text-[11px] font-medium mt-2 text-emerald-600 dark:text-emerald-400">
+                          {item.agenda!.videoPre}
                         </p>
-                        {item.agenda!.videoPre && (
-                          <p className="text-[11px] font-medium mt-2 text-emerald-600 dark:text-emerald-400">
-                            {item.agenda!.videoPre}
-                          </p>
-                        )}
-                      </div>
+                      ) : (
+                        <p className="text-[11px] font-medium mt-2 text-muted-foreground">
+                          Aún no sabemos si vio el video pre-call
+                        </p>
+                      )}
                     </div>
                   </div>
-                )}
+                </div>
               </div>
             );
           })}
@@ -862,7 +1032,7 @@ function MiDiaTab() {
             Intervenciones urgentes
           </h3>
           <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-            {urgentes.length}
+            {urgentes.length + realUrgentes.length}
           </span>
         </div>
         <div className="divide-y divide-border">
@@ -878,6 +1048,17 @@ function MiDiaTab() {
               highlighted={iv.urgente!.highlighted}
             />
           ))}
+          {/* Urgentes REALES (tag bot_pausado_fallo desde GHL) — mismo formato que los EJEMPLO */}
+          {realUrgentes.map((iv) => (
+            <MiDiaRow
+              key={iv.ghlContactId}
+              c={iv}
+              onOpen={openContact}
+              microtext={iv.urgente!.detail}
+              prefix="Falla detectada por IA:"
+              highlighted={iv.urgente!.highlighted}
+            />
+          ))}
         </div>
       </div>
 
@@ -888,7 +1069,7 @@ function MiDiaTab() {
             Respondieron · Buzón general
           </h3>
           <span className="bg-purple-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-            {respondieron.length}
+            {respondieron.length + realRespondieron.length}
           </span>
         </div>
         <div className="divide-y divide-border">
@@ -901,6 +1082,10 @@ function MiDiaTab() {
               )}
               <MiDiaRow c={c} onOpen={openContact} microtext={c.respondido!.microtext} />
             </div>
+          ))}
+          {/* Reales de GHL: zona_closer + desenlace + volvieron a escribir sin respuesta */}
+          {realRespondieron.map((c) => (
+            <MiDiaRow key={c.ghlContactId ?? c.name} c={c} onOpen={openContact} microtext={c.respondido!.microtext} />
           ))}
         </div>
       </div>
@@ -972,8 +1157,125 @@ function MiDiaTab() {
 /* ================================================================== */
 
 
+/** Un agendado REAL (de la agenda de GHL) para la columna "Agendado" del Pipeline. */
+type PipelineAgendaContact = { name: string; contactId?: string; whenLabel: string; time: string };
+
+/** Fila del Pipeline para un agendado real — misma estructura visual que las filas del store, pero con datos de GHL (score "—", 📅 encendido). */
+function PipelineAgendaRow({ a, onOpen }: { a: PipelineAgendaContact; onOpen: (name: string, contactId?: string) => void }) {
+  return (
+    <tr className="transition-all duration-200 border-b border-border/30 group cursor-pointer bg-transparent hover:bg-muted/10">
+      <td className="p-4 align-middle font-medium whitespace-nowrap px-8 py-4">
+        <div className="flex items-center gap-4">
+          <Avatar />
+          <span
+            onClick={() => onOpen(a.name, a.contactId)}
+            className="w-40 truncate uppercase tracking-wide text-xs cursor-pointer hover:text-primary transition-colors flex items-center gap-1.5"
+          >
+            {a.name}
+          </span>
+          <div className="flex items-center gap-2.5 shrink-0 ml-4">
+            <IconSlot wide><VideoCallBadge /></IconSlot>
+            <IconSlot><Calendar className="w-3.5 h-3.5 text-[#6b6980]" /></IconSlot>
+            <IconSlot wide><CallsBadge /></IconSlot>
+            <IconSlot wide><BotIcon estado={undefined} /></IconSlot>
+            <IconSlot><AlarmClock className="w-3.5 h-3.5 text-[#6b6980]/25" /></IconSlot>
+            <IconSlot><DollarSign className="w-3.5 h-3.5 text-[#6b6980]/25" /></IconSlot>
+          </div>
+        </div>
+      </td>
+      <td className="p-4 align-middle px-8 py-4">
+        <div className={cn("inline-flex items-center rounded-full py-0.5 h-6 text-[10px] uppercase tracking-wider font-semibold border-0 shadow-none px-2", STAGE_META.agendado.pill)}>
+          AGENDADO
+        </div>
+      </td>
+      <td className="p-4 align-middle px-8 py-4">
+        <div className="flex flex-col">
+          <span className="text-xs text-foreground font-medium capitalize">{a.whenLabel}</span>
+          <span className="text-[10px] text-muted-foreground">{a.time}</span>
+        </div>
+      </td>
+      <td className="p-4 align-middle px-8 py-4 text-right">
+        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 function PipelineTab() {
   const { contacts, openContact, cierreEnCursoMonto } = useClosurer();
+  // Agenda REAL de GHL para la columna "Agendado" (hoy + próximos días), deduplicada por contacto.
+  const [agendaRange, setAgendaRange] = useState<AgendaAppointment[]>([]);
+  const [agendaTodayStr, setAgendaTodayStr] = useState<string>("");
+  const [agendaLoading, setAgendaLoading] = useState(true);
+  const [agendaError, setAgendaError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const lastPipeAgendaSigRef = useRef("");
+
+  // "Sincronizar CRM" — refresco manual inmediato (además del polling automático de 10s).
+  const refreshFromCrm = () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    fetchAgendaRange(15)
+      .then((res) => {
+        const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.date}:${a.time}`).join("|");
+        lastPipeAgendaSigRef.current = sig;
+        setAgendaRange(res.appointments);
+        setAgendaTodayStr(res.date);
+        setAgendaError(null);
+      })
+      .catch((e) => setAgendaError(e?.message ?? "No se pudo conectar con el backend"))
+      .finally(() => setTimeout(() => setRefreshing(false), 600)); // spinner visible ~600ms
+  };
+
+  useEffect(() => {
+    let alive = true;
+    const load = (first: boolean) => {
+      if (first) {
+        setAgendaLoading(true);
+        setAgendaError(null);
+      }
+      fetchAgendaRange(15)
+        .then((res) => {
+          if (!alive) return;
+          const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.date}:${a.time}`).join("|");
+          if (sig !== lastPipeAgendaSigRef.current) {
+            lastPipeAgendaSigRef.current = sig;
+            setAgendaRange(res.appointments);
+          }
+          setAgendaTodayStr(res.date);
+        })
+        .catch((e) => {
+          if (alive && first) setAgendaError(e?.message ?? "No se pudo conectar con el backend");
+        })
+        .finally(() => {
+          if (alive && first) setAgendaLoading(false);
+        });
+    };
+    load(true);
+    const iv = setInterval(() => load(false), AGENDA_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
+
+  // Dedup por contacto: la próxima cita de cada agendado (el rango ya viene ordenado asc por hora).
+  const agendaByContact = new Map<string, AgendaAppointment>();
+  for (const a of agendaRange) {
+    const key = a.contactId || a.name;
+    if (!agendaByContact.has(key)) agendaByContact.set(key, a);
+  }
+  const agendaContacts: PipelineAgendaContact[] = [...agendaByContact.values()].map((a) => {
+    const { time, ampm } = to12h(a.time);
+    return {
+      name: a.name,
+      contactId: a.contactId ?? undefined,
+      whenLabel: relDayLabel(a.date, agendaTodayStr) || fmtFecha(a.date),
+      time: `${time} ${ampm}`.trim(),
+    };
+  });
   const [grade, setGrade] = useState<Grade | null>(null);
   const [destacados, setDestacados] = useState(false);
   const [etapaFilter, setEtapaFilter] = useState<StageKey | null>(null);
@@ -1088,9 +1390,13 @@ function PipelineTab() {
               placeholder="Buscar lead..."
             />
           </div>
-          <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 h-10 px-4 py-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-md transition-all">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Sincronizar CRM
+          <button
+            onClick={refreshFromCrm}
+            disabled={refreshing}
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 h-10 px-4 py-2 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 shadow-md transition-all disabled:opacity-70"
+          >
+            <RefreshCw className={cn("w-4 h-4 mr-2", refreshing && "animate-spin")} />
+            {refreshing ? "Sincronizando…" : "Sincronizar CRM"}
           </button>
         </div>
       </div>
@@ -1147,6 +1453,7 @@ function PipelineTab() {
       <div className="space-y-6 mt-8">
         {stagesToRender.map((stageKey) => {
           const meta = STAGE_META[stageKey];
+          const isAgendado = stageKey === "agendado";
           const members = Object.values(contacts).filter((c) => c.stage === stageKey);
           const rows = members.filter(filterRow);
           const label =
@@ -1174,10 +1481,38 @@ function PipelineTab() {
                   {label}
                 </span>
                 <div className="inline-flex items-center border py-0.5 font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 ml-2 text-[10px] h-5 px-1.5 shadow-none rounded-full">
-                  {meta.hiddenOffset + members.length}
+                  {isAgendado ? agendaContacts.length : meta.hiddenOffset + members.length}
                 </div>
               </div>
-              {rows.length === 0 ? (
+              {isAgendado ? (
+                agendaLoading && agendaContacts.length === 0 ? (
+                  <div className="p-10 text-center text-sm text-muted-foreground">Cargando agenda…</div>
+                ) : agendaError && agendaContacts.length === 0 ? (
+                  <div className="p-10 text-center text-sm text-amber-600 dark:text-amber-400">No se pudo cargar la agenda.</div>
+                ) : agendaContacts.length === 0 ? (
+                  <div className="p-10 text-center text-sm text-muted-foreground">Sin citas agendadas.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <div className="relative w-full overflow-auto">
+                      <table className="w-full caption-bottom text-sm">
+                        <thead className="[&_tr]:border-b bg-transparent">
+                          <tr className="transition-colors border-b border-border/40 hover:bg-transparent">
+                            <th className="h-12 text-left align-middle w-[40%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">Nombre</th>
+                            <th className="h-12 text-left align-middle w-[30%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">Situación</th>
+                            <th className="h-12 text-left align-middle w-[25%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">Última Actividad</th>
+                            <th className="h-12 text-left align-middle font-medium text-muted-foreground w-[5%] px-8 py-4" />
+                          </tr>
+                        </thead>
+                        <tbody className="[&_tr:last-child]:border-0">
+                          {agendaContacts.map((a) => (
+                            <PipelineAgendaRow key={a.contactId ?? a.name} a={a} onOpen={openContact} />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              ) : rows.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">
                   {members.length === 0
                     ? "Sin contactos en esta etapa."
@@ -1312,10 +1647,13 @@ const PROXIMOS: Array<{ label: string; calls: string; active?: boolean }> = [
 ];
 
 interface ScheduleSlot {
+  id?: string;
+  contactId?: string;
   time: string;
   ampm: string;
   name: string;
-  grade: Grade;
+  /** Sin calificación del motor → Avatar lo pinta como "—" (§4.7). */
+  grade?: Grade;
   duration: string;
   tag?: string;
   hint: string;
@@ -1378,10 +1716,141 @@ const SCHEDULE: ScheduleSlot[] = [
   },
 ];
 
+/* --- Helpers: mapean una cita real de GHL al formato del timeline --- */
+function to12h(time24: string): { time: string; ampm: string } {
+  const [hStr, m = "00"] = (time24 || "").split(":");
+  let h = parseInt(hStr, 10);
+  if (!Number.isFinite(h)) return { time: time24 || "", ampm: "" };
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12;
+  if (h === 0) h = 12;
+  return { time: `${h}:${m}`, ampm };
+}
+
+function estadoFromStatus(status: string): ScheduleSlot["estadoCita"] {
+  if (status === "confirmed" || status === "showed") return "confirmada";
+  if (status === "noshow" || status === "cancelled") return "reprogramada";
+  return "pendiente";
+}
+
+function durationBetween(startISO: string, endISO: string | null): string {
+  if (!endISO) return "";
+  const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
+  return Number.isFinite(ms) && ms > 0 ? `${Math.round(ms / 60000)} min` : "";
+}
+
+function appointmentToSlot(a: AgendaAppointment): ScheduleSlot {
+  const { time, ampm } = to12h(a.time);
+  return {
+    id: a.id,
+    contactId: a.contactId ?? undefined,
+    time,
+    ampm,
+    name: a.name,
+    grade: undefined, // el motor aún no calificó esta cita — sin inventar (regla §4.7)
+    duration: durationBetween(a.startTime, a.endTime),
+    hint: "",
+    estadoCita: estadoFromStatus(a.status),
+    meetUrl: a.meetUrl ?? "",
+    // briefing / videoPre: NO vienen de GHL — los pondrá el motor (quedan undefined).
+  };
+}
+
+const MESES_ES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+const DIAS_ES = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+function fmtFecha(iso: string): string {
+  if (!iso) return "";
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} de ${MESES_ES[(m || 1) - 1] ?? ""}`;
+}
+function addDaysStr(dateStr: string, n: number): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return dt.toISOString().slice(0, 10);
+}
+function weekdayName(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return DIAS_ES[new Date(Date.UTC(y, (m || 1) - 1, d || 1)).getUTCDay()] ?? "";
+}
+/** "Hoy" / "Mañana" / nombre del día (ej. "viernes"). */
+function relDayLabel(dateStr: string, today: string): string {
+  if (!dateStr || !today) return "";
+  if (dateStr === today) return "Hoy";
+  if (dateStr === addDaysStr(today, 1)) return "Mañana";
+  return weekdayName(dateStr);
+}
+
 function AgendaTab() {
-  const { contacts, openContact } = useClosurer();
-  const schedule = SCHEDULE.filter((s) => !contacts[s.name]?.completedToday);
+  const { openContact } = useClosurer();
+  const [range, setRange] = useState<AgendaAppointment[]>([]);
+  const [todayStr, setTodayStr] = useState<string>("");
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const lastRangeSigRef = useRef("");
+
+  // Trae hoy + 15 días (para "Próximos Días", el mini-calendario y ver cualquier día). Polling cada AGENDA_POLL_MS.
+  useEffect(() => {
+    let alive = true;
+    const load = (first: boolean) => {
+      if (first) {
+        setLoading(true);
+        setError(null);
+      }
+      fetchAgendaRange(15)
+        .then((res) => {
+          if (!alive) return;
+          const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.date}:${a.time}`).join("|");
+          if (sig !== lastRangeSigRef.current) {
+            lastRangeSigRef.current = sig;
+            setRange(res.appointments);
+          }
+          setTodayStr(res.date);
+          setSelectedDate((cur) => cur || res.date); // por defecto, hoy
+          if (first) setError(null);
+        })
+        .catch((e) => {
+          if (alive && first) setError(e?.message ?? "No se pudo conectar con el backend");
+        })
+        .finally(() => {
+          if (alive && first) setLoading(false);
+        });
+    };
+    load(true);
+    const iv = setInterval(() => load(false), AGENDA_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
+
+  // Agrupar por día + agenda del día seleccionado
+  const byDate = new Map<string, AgendaAppointment[]>();
+  for (const a of range) {
+    const arr = byDate.get(a.date) ?? [];
+    arr.push(a);
+    byDate.set(a.date, arr);
+  }
+  const schedule = (byDate.get(selectedDate) ?? []).map(appointmentToSlot);
+
+  // "Próximos Días" — hoy + los siguientes 3, con conteo real
+  const proximos = todayStr
+    ? [0, 1, 2, 3].map((n) => {
+        const ds = addDaysStr(todayStr, n);
+        return { dateStr: ds, label: relDayLabel(ds, todayStr), count: byDate.get(ds)?.length ?? 0 };
+      })
+    : [];
+
+  // Mini-calendario del mes de hoy
+  const calYear = todayStr ? Number(todayStr.slice(0, 4)) : 0;
+  const calMonthIdx = todayStr ? Number(todayStr.slice(5, 7)) - 1 : 0;
+  const calMonthName = MESES_ES[calMonthIdx] ?? "";
+  const daysInMonth = todayStr ? new Date(Date.UTC(calYear, calMonthIdx + 1, 0)).getUTCDate() : 0;
+  const leadingBlanks = todayStr ? new Date(Date.UTC(calYear, calMonthIdx, 1)).getUTCDay() : 0;
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+
   const toggleExpanded = (name: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -1409,7 +1878,7 @@ function AgendaTab() {
           {/* Calendar */}
           <div className="bg-card/50 backdrop-blur-sm border border-border/40 rounded-[2rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-sm capitalize">julio de 2026</h3>
+              <h3 className="font-semibold text-sm capitalize">{calMonthName} de {calYear || ""}</h3>
               <div className="flex gap-1">
                 <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground h-7 w-7 rounded-full">
                   <ChevronLeft className="w-4 h-4" />
@@ -1427,34 +1896,33 @@ function AgendaTab() {
               ))}
             </div>
             <div className="grid grid-cols-7 gap-1 text-center">
-              {Array.from({ length: LEADING_BLANKS }).map((_, i) => (
+              {Array.from({ length: leadingBlanks }).map((_, i) => (
                 <div key={`b${i}`} className="h-8 w-8 mx-auto" />
               ))}
-              {Array.from({ length: 31 }).map((_, idx) => {
+              {Array.from({ length: daysInMonth }).map((_, idx) => {
                 const day = idx + 1;
-                const today = day === TODAY;
-                const dot = today
-                  ? null
-                  : SKY_DOTS.has(day)
-                    ? "bg-sky-500"
-                    : AMBER_DOTS.has(day)
-                      ? "bg-amber-500"
-                      : null;
+                const ds = `${calYear}-${pad2(calMonthIdx + 1)}-${pad2(day)}`;
+                const isSelected = ds === selectedDate;
+                const isToday = ds === todayStr;
+                const hasAppt = (byDate.get(ds)?.length ?? 0) > 0;
                 return (
-                  <div
+                  <button
                     key={day}
+                    onClick={() => setSelectedDate(ds)}
                     className={cn(
                       "h-8 w-8 mx-auto flex items-center justify-center rounded-full text-xs transition-all cursor-pointer relative",
-                      today
+                      isSelected
                         ? "bg-primary text-primary-foreground font-semibold shadow-md"
-                        : "hover:bg-muted/50 text-foreground",
+                        : isToday
+                          ? "ring-1 ring-primary/40 text-foreground hover:bg-muted/50"
+                          : "hover:bg-muted/50 text-foreground",
                     )}
                   >
                     {day}
-                    {dot && (
-                      <div className={cn("absolute bottom-1 w-1 h-1 rounded-full", dot)} />
+                    {hasAppt && !isSelected && (
+                      <div className="absolute bottom-1 w-1 h-1 rounded-full bg-sky-500" />
                     )}
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -1466,36 +1934,38 @@ function AgendaTab() {
               Próximos Días
             </h3>
             <div className="space-y-4">
-              {PROXIMOS.map((p) => (
-                <div
-                  key={p.label}
-                  className={cn(
-                    "flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors",
-                    p.active
-                      ? "bg-primary/5 border border-primary/10"
-                      : "hover:bg-muted/30 border border-transparent",
-                  )}
-                >
-                  <span
+              {proximos.map((p) => {
+                const active = p.dateStr === selectedDate;
+                return (
+                  <button
+                    key={p.dateStr}
+                    onClick={() => setSelectedDate(p.dateStr)}
                     className={cn(
-                      "text-sm font-medium capitalize",
-                      p.active ? "text-primary" : "text-foreground",
+                      "w-full flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors text-left",
+                      active
+                        ? "bg-primary/5 border border-primary/10"
+                        : "hover:bg-muted/30 border border-transparent",
                     )}
                   >
-                    {p.label}
-                  </span>
-                  <div
-                    className={cn(
-                      "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-none h-6",
-                      p.active
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {p.calls}
-                  </div>
-                </div>
-              ))}
+                    <span
+                      className={cn(
+                        "text-sm font-medium capitalize",
+                        active ? "text-primary" : "text-foreground",
+                      )}
+                    >
+                      {p.label}
+                    </span>
+                    <div
+                      className={cn(
+                        "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors border-none h-6",
+                        active && p.count > 0 ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {p.count === 0 ? "Sin citas" : `${p.count} cita${p.count === 1 ? "" : "s"}`}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1506,16 +1976,39 @@ function AgendaTab() {
             <div>
               <div className="flex items-center justify-between mb-6 sticky top-0 bg-card/95 backdrop-blur-md py-2 z-10">
                 <div className="flex items-end gap-4">
-                  <h3 className="text-2xl font-semibold tracking-tight capitalize">Hoy</h3>
-                  <span className="text-muted-foreground font-medium mb-1">8 de julio</span>
+                  <h3 className="text-2xl font-semibold tracking-tight capitalize">{relDayLabel(selectedDate, todayStr) || "Hoy"}</h3>
+                  <span className="text-muted-foreground font-medium mb-1 capitalize">{fmtFecha(selectedDate)}</span>
                 </div>
               </div>
+
+              {loading && (
+                <div className="flex items-center justify-center gap-3 text-muted-foreground py-10">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Cargando agenda de hoy…</span>
+                </div>
+              )}
+              {!loading && error && (
+                <div className="flex flex-col items-center gap-2 text-center py-10">
+                  <TriangleAlert className="w-6 h-6 text-amber-500" />
+                  <p className="text-sm font-medium text-foreground">No se pudo cargar la agenda</p>
+                  <p className="text-xs text-muted-foreground max-w-sm">{error}</p>
+                </div>
+              )}
+              {!loading && !error && schedule.length === 0 && (
+                <div className="flex flex-col items-center gap-2 text-center py-10">
+                  <Calendar className="w-6 h-6 text-muted-foreground/50" />
+                  <p className="text-sm font-medium text-foreground">Sin citas este día</p>
+                  <p className="text-xs text-muted-foreground">No hay agendamientos confirmados para el día seleccionado.</p>
+                </div>
+              )}
+
+              {!loading && !error && schedule.length > 0 && (
               <div className="space-y-4 relative before:absolute before:inset-0 before:ml-[5.5rem] before:-translate-x-px before:h-full before:w-0.5 before:bg-border/40">
                 {schedule.map((s) => {
                   const isOpen = expanded.has(s.name);
                   const estado = ESTADO_CITA_PILL[s.estadoCita];
                   return (
-                    <div key={s.time} className="relative flex items-start gap-6 group">
+                    <div key={s.id ?? s.time} className="relative flex items-start gap-6 group">
                       <div className="w-16 shrink-0 text-right pt-4">
                         <div className="text-sm font-bold text-foreground">{s.time}</div>
                         <div className="text-[10px] font-medium text-muted-foreground uppercase">
@@ -1531,7 +2024,7 @@ function AgendaTab() {
                             <Avatar grade={s.grade} />
                             <div className="min-w-0">
                               <h4
-                                onClick={() => openContact(s.name)}
+                                onClick={() => openContact(s.name, s.contactId)}
                                 className="text-base font-semibold text-foreground cursor-pointer hover:text-primary transition-colors truncate"
                               >
                                 {s.name}
@@ -1567,34 +2060,37 @@ function AgendaTab() {
                             </button>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground opacity-70 mb-1">{s.hint}</p>
+                        {s.hint && <p className="text-xs text-muted-foreground opacity-70 mb-1">{s.hint}</p>}
 
                         <div className={cn("grid transition-[grid-template-rows] duration-300 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
                           <div className="overflow-hidden">
-                            {s.briefing && (
-                              <div className="mt-3 mb-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
-                                <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
-                                  <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
-                                    Briefing IA:
-                                  </span>
-                                  {s.briefing}
+                            {/* Bloque de Francisco — siempre visible. Sin dato (aún no hay fuente): placeholders. */}
+                            <div className="mt-3 mb-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
+                              <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+                                <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">
+                                  Briefing IA:
+                                </span>
+                                {s.briefing || "-"}
+                              </p>
+                              {s.videoPre ? (
+                                <p
+                                  className={cn(
+                                    "text-[11px] font-medium mt-2",
+                                    s.videoPre.visto
+                                      ? "text-emerald-600 dark:text-emerald-400"
+                                      : "text-amber-600 dark:text-amber-400",
+                                  )}
+                                >
+                                  {s.videoPre.visto
+                                    ? `✓ Vio el video pre-call (${s.videoPre.pct}%)`
+                                    : "⚠ No vio el video pre-call"}
                                 </p>
-                                {s.videoPre && (
-                                  <p
-                                    className={cn(
-                                      "text-[11px] font-medium mt-2",
-                                      s.videoPre.visto
-                                        ? "text-emerald-600 dark:text-emerald-400"
-                                        : "text-amber-600 dark:text-amber-400",
-                                    )}
-                                  >
-                                    {s.videoPre.visto
-                                      ? `✓ Vio el video pre-call (${s.videoPre.pct}%)`
-                                      : "⚠ No vio el video pre-call"}
-                                  </p>
-                                )}
-                              </div>
-                            )}
+                              ) : (
+                                <p className="text-[11px] font-medium mt-2 text-muted-foreground">
+                                  Aún no sabemos si vio el video pre-call
+                                </p>
+                              )}
+                            </div>
                             <div className="flex items-center gap-3 mt-4 pt-4 border-t border-border/40">
                               <button
                                 onClick={() => window.open(s.meetUrl, "_blank", "noopener,noreferrer")}
@@ -1604,7 +2100,7 @@ function AgendaTab() {
                                 Link del Meet
                               </button>
                               <button
-                                onClick={() => openContact(s.name)}
+                                onClick={() => openContact(s.name, s.contactId)}
                                 className="inline-flex items-center justify-center gap-2 whitespace-nowrap ring-offset-background transition-colors [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 border bg-background dark:bg-secondary hover:text-accent-foreground py-2 rounded-xl h-9 px-4 text-xs font-medium border-border/60 hover:bg-muted/50"
                               >
                                 Abrir Ficha
@@ -1617,6 +2113,7 @@ function AgendaTab() {
                   );
                 })}
               </div>
+              )}
             </div>
           </div>
         </div>
@@ -1631,7 +2128,7 @@ function AgendaTab() {
 
 function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
   const [tab, setTab] = useState<TabKey>("inicio");
-  const { contacts, openContactName, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useClosurer();
+  const { contacts, openContactName, openGhlContactId, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useClosurer();
   const { resolveAlertsForContact } = useAgentAudit();
   const openContact = contacts[openContactName ?? ""] ?? null;
 
@@ -1657,6 +2154,7 @@ function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) =>
         onClose={closeContact}
         role="closer"
         contact={openContact}
+        ghlContactId={openGhlContactId}
         onAdvance={(result) =>
           openContactName &&
           result.stage &&

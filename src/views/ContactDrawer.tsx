@@ -49,7 +49,9 @@ import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, call
 import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTagTone, type SetterAdvanceInput } from "../lib/setterStore";
 import { useSettings } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
+import { fetchConversation } from "../lib/api";
 
+/** Mapa salida de Avanzar (closer) → tag real de GHL (contrato Frank §9). Aplicarlo dispara el workflow de GHL. */
 type DrawerTab = "chat" | "llamada" | "perfil" | "historial" | "notas";
 type Role = "closer" | "setter";
 
@@ -1046,6 +1048,7 @@ export default function ContactDrawer({
   role = "closer",
   contact = null,
   setterContact = null,
+  ghlContactId = null,
   onAdvance,
   onSetterAdvance,
   onAddNota,
@@ -1058,6 +1061,8 @@ export default function ContactDrawer({
   name: string | null;
   onClose: () => void;
   role?: Role;
+  /** contactId de GHL — si viene, el Chat trae la conversación REAL de ese contacto. */
+  ghlContactId?: string | null;
   /** Cuando se provee (closer con store compartida), la ficha refleja este registro en vivo. */
   contact?: ClosurerContact | null;
   /** Setter con store propia (setterStore.tsx, 2026-07-10) — misma idea que `contact` para closer. */
@@ -1158,6 +1163,16 @@ export default function ContactDrawer({
   };
 
   const handleConfirmAvanzar = (result: AvanzarResult) => {
+    /**
+     * La escritura en GHL NO se dispara desde acá. La hace `closerStore.advance()` con
+     * `registrarSeguimientoRemoto()` → `POST /api/closer/avanzar`, que aplica el tag y el
+     * custom field juntos, con idempotencyKey y resolviendo la fecha en America/Lima.
+     *
+     * Antes esta función aplicaba además un tag suelto por su cuenta. Duplicaba la escritura
+     * del Seguimiento (workflow disparado dos veces) y, en las otras cinco salidas, mandaba
+     * un tag que el servidor rechaza a propósito con 501 mientras no estén implementadas:
+     * aplicarlo igual movía el stage sin escribir su subcategoría.
+     */
     if (onAdvance && result.stage) {
       onAdvance(result);
     } else if (onSetterAdvance && result.setterStage && result.situacionTone) {
@@ -1345,6 +1360,7 @@ export default function ContactDrawer({
             <ChatTab
               key={name}
               contact={contact}
+              ghlContactId={ghlContactId}
               role={role}
               onResolveIntervention={onResolveIntervention}
               hasBot={hasBot}
@@ -1418,6 +1434,9 @@ interface ChatMessage {
   time: string;
   outgoing: boolean;
 }
+
+/** Cada cuánto se re-consulta a GHL mientras la vista está abierta (polling — mientras no haya tiempo real por webhooks). */
+const POLL_MS = 10_000;
 
 const SEED_MESSAGES: ChatMessage[] = [
   { id: 1, text: "Hola, quiero más info", time: "10:00 AM", outgoing: false },
@@ -1503,6 +1522,7 @@ function TaskCompleteBar({ onDone }: { onDone: (fijado: boolean) => void }) {
 
 function ChatTab({
   contact,
+  ghlContactId,
   role,
   onResolveIntervention,
   hasBot,
@@ -1517,6 +1537,8 @@ function ChatTab({
   onRevive,
 }: {
   contact?: ClosurerContact | null;
+  /** contactId de GHL — si viene, se trae la conversación REAL (en vez del demo de Frank). */
+  ghlContactId?: string | null;
   role: Role;
   onResolveIntervention?: () => void;
   /** IG no tiene bot (§11) — el toggle no se renderiza en absoluto. */
@@ -1533,7 +1555,9 @@ function ChatTab({
   onRevive?: () => void;
 }) {
   const [message, setMessage] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>(SEED_MESSAGES);
+  // Con contactId de GHL arrancamos vacío y traemos la conversación REAL; sin él, el demo de Frank.
+  const [messages, setMessages] = useState<ChatMessage[]>(ghlContactId ? [] : SEED_MESSAGES);
+  const [convLoading, setConvLoading] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const { catalog, categorias, miCuenta } = useSettings();
   const [confirmDialog, setConfirmDialog] = useState<"apagar" | "normal" | "reforzada" | null>(null);
@@ -1543,6 +1567,7 @@ function ChatTab({
   const [showCompleteBar, setShowCompleteBar] = useState(false);
   const prevBotEstado = useRef(botEstado);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastConvSigRef = useRef(""); // firma de la última conversación traída, para no re-renderizar si no cambió
 
   // § correcciones toast/pin v2 (bug 2): autofocus del compositor al abrir el tab Chat — solo desktop (§7 de CLAUDE.md), para no disparar el teclado virtual en mobile.
   useEffect(() => {
@@ -1550,6 +1575,38 @@ function ChatTab({
       textareaRef.current?.focus();
     }
   }, []);
+
+  // Conversación REAL desde GHL cuando la ficha se abrió con un contactId (ej. una cita real).
+  // Sin contactId, se conserva el demo de Frank (SEED_MESSAGES).
+  // Polling cada POLL_MS mientras la ficha está abierta (hasta tener tiempo real por webhooks).
+  useEffect(() => {
+    if (!ghlContactId) return;
+    let alive = true;
+    const load = (first: boolean) => {
+      if (first) setConvLoading(true);
+      fetchConversation(ghlContactId)
+        .then((res) => {
+          if (!alive) return;
+          const sig = res.messages.map((m) => `${m.id}:${m.text}`).join("|");
+          if (sig !== lastConvSigRef.current) {
+            lastConvSigRef.current = sig;
+            setMessages(res.messages.map((m, i) => ({ id: i + 1, text: m.text, time: m.time, outgoing: m.outgoing })));
+          }
+        })
+        .catch(() => {
+          /* si falla, dejamos lo que había (no inventamos mensajes) */
+        })
+        .finally(() => {
+          if (alive && first) setConvLoading(false);
+        });
+    };
+    load(true);
+    const iv = setInterval(() => load(false), POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, [ghlContactId]);
 
   const isUrgente = botEstado === "pausado_fallo";
   const isDerivadoLt = botEstado === "derivado_lt";
@@ -1651,6 +1708,12 @@ function ChatTab({
               HOY
             </span>
           </div>
+          {convLoading && (
+            <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">Cargando conversación…</div>
+          )}
+          {!convLoading && ghlContactId && messages.length === 0 && (
+            <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">Sin mensajes en esta conversación.</div>
+          )}
           {messages.map((m) => (
             <div key={m.id} className={cn("flex flex-col max-w-[85%]", m.outgoing ? "self-end" : "self-start")}>
               <div
@@ -1661,7 +1724,7 @@ function ChatTab({
                     : "bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef] rounded-tl-none",
                 )}
               >
-                <span>{m.text}</span>
+                <span className="whitespace-pre-wrap">{m.text}</span>
                 <span className="float-right text-[10px] text-black/40 dark:text-white/40 ml-3 mt-2">{m.time}</span>
               </div>
             </div>
