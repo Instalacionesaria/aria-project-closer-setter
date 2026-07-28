@@ -268,7 +268,7 @@ const SEED_ALERTS: AgentAlert[] = [
   {
     id: "no-detecta-solicitud-pago-ariel", agentId: "appointment-flow-ai", errorCode: "no_detecta_solicitud_pago",
     title: "No detecta solicitud de pago", category: "comportamiento", severity: "amarillo",
-    contactName: "ARIEL MENDEZ", timestamp: "Hace 1 hora", openedAt: "07 Jul", openedDaysAgo: 0, status: "active",
+    contactName: "EJEMPLO ARIEL MENDEZ", timestamp: "Hace 1 hora", openedAt: "07 Jul", openedDaysAgo: 0, status: "active",
     diagnostico: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió — requiere intervención inmediata para no perder la venta.",
     correctionBlock: "Cuando el mensaje del contacto contenga palabras como \"link\", \"pago\" o \"cómo pago\", envía el enlace de pago de inmediato en vez de continuar el guión estándar.",
     evidence: { kind: "chat", userMsg: "¿Me pasás el link para pagar?", aiMsg: "¡Claro que sí! ¿Te gustaría agendar una llamada?" },
@@ -290,7 +290,7 @@ const SEED_ALERTS: AgentAlert[] = [
   {
     id: "corta-antes-tiempo-rodrigo", agentId: "lead-flow-voz", errorCode: "corta_antes_tiempo",
     title: "Corta antes de que el cliente termine", category: "comportamiento", severity: "rojo",
-    contactName: "RODRIGO SILVA", timestamp: "Hace 8 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
+    contactName: "EJEMPLO RODRIGO SILVA", timestamp: "Hace 8 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
     diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
     correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
     evidence: { kind: "call", duracion: "02:05", resultado: "Contestó · cortada", resumenIA: "Estaba explicando por qué necesitaba pensar el precio con su socio cuando el agente lo interrumpió y cortó la llamada antes de que terminara la frase.", audioUrl: "https://example.com/audio/lead-flow-voz-rs-1.mp3" },
@@ -300,7 +300,7 @@ const SEED_ALERTS: AgentAlert[] = [
     category: "comportamiento", severity: "rojo", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
     diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
     correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
-  }, ["SANTIAGO TORRES", "RODRIGO SILVA"]),
+  }, ["EJEMPLO SANTIAGO TORRES", "EJEMPLO RODRIGO SILVA"]),
 ];
 
 // Filler alerts no llevan evidencia individual (`makeFillerAlerts` no la asigna) — solo inflan `casesCount`.

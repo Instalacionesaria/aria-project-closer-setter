@@ -224,6 +224,8 @@ export interface ClosurerContact {
    * límite de demo documentado, igual que otros campos que no se recalculan solos en este frontend).
    */
   atribucionSetter?: boolean;
+  /** contactId de GHL cuando el contacto es REAL (ej. urgente detectado por la IA) — para abrir su chat real. */
+  ghlContactId?: string;
   historial: HistorialItem[];
   notas: NotaItem[];
   /** Tab Llamadas — cronológico, más recientes primero. Ausente/vacío → estado vacío ("Sin registro de llamadas"). */
@@ -448,7 +450,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
   // El workflow de recuperación de no-show (arriba) puede fallar — ahí sí queda pausado_fallo + urgente, no "activo".
   {
-    name: "PEDRO GOMEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hoy", activity: "venía muy seguro · plantó",
+    name: "EJEMPLO PEDRO GOMEZ", grade: "C", stage: "no_show", situacion: "No-show · Plantón", when: "hoy", activity: "venía muy seguro · plantó",
     fuente: "VSL OPT-IN", botEstado: "pausado_fallo",
     urgente: { pill: URGENTE_NARANJA, detail: "venía muy seguro · plantó", detailClass: "text-muted-foreground" },
   },
@@ -500,7 +502,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
     llamadas: [{ id: "pm-1", origin: "sales_call", fecha: "02 Jul", duracion: "25:30", contestada: true, resultado: "Resultado: No interesado" }],
   },
   {
-    name: "ARIEL MENDEZ", grade: "B", stage: "descalificado", situacion: "No interesado · Precio", when: "hoy",
+    name: "EJEMPLO ARIEL MENDEZ", grade: "B", stage: "descalificado", situacion: "No interesado · Precio", when: "hoy",
     activity: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió. Requiere intervención inmediata para no perder la venta.",
     fuente: "META ADS", botEstado: "pausado_fallo",
     urgente: {
@@ -541,7 +543,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
 
   // Respondieron (buzón general) — Mi Día
   {
-    name: "SANTIAGO TORRES", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
+    name: "EJEMPLO SANTIAGO TORRES", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
     activity: "respondió hace 2h", fuente: "META ADS", botEstado: "muerto_postcall",
     respondido: { microtext: "respondió hace 2h" },
     llamadas: [
@@ -551,14 +553,14 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
   {
     // IG no tiene bot (§11) — sin botEstado, el toggle del compositor no se renderiza para este contacto.
-    name: "CAMILA VEGA", grade: "A", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hoy",
+    name: "EJEMPLO CAMILA VEGA", grade: "A", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hoy",
     activity: "respondió hace 45 min", fuente: "📷 IG PROFILE", monto: 500,
     respondido: { microtext: "respondió hace 45 min" },
   },
 
   // Seguimientos de hoy — Mi Día (distinto del stage "Seguimiento" del Pipeline: son los que vencen/tocan hoy)
   {
-    name: "RODRIGO SILVA", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hoy",
+    name: "EJEMPLO RODRIGO SILVA", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hoy",
     activity: "vencido hace 1 día", fuente: "META ADS", botEstado: "muerto_postcall", cadenciaActiva: true,
     seguimientoPendiente: { microtext: "vencido hace 1 día", vencido: true },
     videoPreCall: { visto: false, diasSinAbrir: 2 },
@@ -570,7 +572,7 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
   {
     // IG no tiene bot (§11) — sin botEstado.
-    name: "VALERIA CASTRO", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
+    name: "EJEMPLO VALERIA CASTRO", grade: "B", stage: "seguimiento", situacion: "Seguimiento · Muy interesado", when: "hoy",
     activity: "seguimiento programado para hoy", fuente: "📷 IG PROFILE", cadenciaActiva: true,
     seguimientoPendiente: { microtext: "seguimiento programado para hoy" },
   },
@@ -616,7 +618,9 @@ interface ClosurerStoreValue {
   cockpit: Cockpit;
   cierreEnCursoMonto: number;
   openContactName: string | null;
-  openContact: (name: string) => void;
+  /** contactId de GHL de la ficha abierta (cuando se abrió desde una cita real) — para traer su conversación real. */
+  openGhlContactId: string | null;
+  openContact: (name: string, ghlContactId?: string) => void;
   closeContact: () => void;
   advance: (name: string, input: AdvanceInput) => void;
   addNota: (name: string, texto: string) => void;
@@ -654,6 +658,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Record<string, ClosurerContact>>(() => buildSeedContacts());
   const [deltas, setDeltas] = useState<SessionDeltas>(ZERO_DELTAS);
   const [openContactName, setOpenContactName] = useState<string | null>(null);
+  const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const { comisiones } = useSettings();
   const comisionPct = (comisiones[CURRENT_CLOSER_NAME] ?? 10) / 100;
 
@@ -803,8 +808,15 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     cockpit,
     cierreEnCursoMonto,
     openContactName,
-    openContact: setOpenContactName,
-    closeContact: () => setOpenContactName(null),
+    openGhlContactId,
+    openContact: (name: string, ghlContactId?: string) => {
+      setOpenContactName(name);
+      setOpenGhlContactId(ghlContactId ?? null);
+    },
+    closeContact: () => {
+      setOpenContactName(null);
+      setOpenGhlContactId(null);
+    },
     advance,
     addNota,
     resolveIntervention,

@@ -797,4 +797,4 @@ Se re-etiquetaron los campos ya sembrados (ninguno se inventó de cero): "Factur
 - Ante ambigüedad: preguntar, no asumir. Las reglas de este archivo ganan sobre cualquier patrón genérico de UI.
 - Datos demo: fechas en 2026, coherentes con el glosario (píldoras, subcategorías y autores reales: nombre del usuario o `Sistema`).
 - Nombres de tags/campos/stages: usar LITERALES los del `CONTRATO-GHL-Kevin.md` (ej. tags `derivado_lt`, `seguimiento_activo`, `nurture_leadflow`/`nurture_appflow`, `cita_agendada`; stages "Calificado sin agendar", "Cierre en curso", "GANADO").
-- **Después de cada cambio en el proyecto, desplegar a producción en Vercel** (`instalacionesariaia-1374s-projects/project-closer-setter`) sin esperar a que se pida explícitamente.
+- **Después de cada cambio en el FRONTEND, desplegar a producción en Vercel** (`instalacionesariaia-1374s-projects/project-closer-setter`) sin esperar a que se pida explícitamente. Monorepo: solo `Frontend-Closer-Setter/` va a Vercel; el `Backend-Closer-Setter/` corre en la VPS. Regla completa: @.claude/Rules/deploy-vercel.md
