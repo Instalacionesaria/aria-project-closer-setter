@@ -1,16 +1,23 @@
 /**
- * El analizador de conversaciones del Closer.
+ * El analizador de conversaciones. Uno solo, para los dos territorios.
  *
  * Lee la conversación entre el agente de GHL y el contacto, la evalúa contra la rúbrica de
  * "la IA no atendió bien", y si encontró un fallo aplica `bot_pausado_fallo` + una nota
  * `[IA] …` con el motivo. Ese tag dispara el workflow que apaga al agente, y el par
- * tag+nota es exactamente lo que `/api/closer/urgentes` lee para pintar la cola roja.
+ * tag+nota es lo que leen `/api/closer/urgentes` y `/api/setter/urgentes` para pintar la
+ * cola roja de cada rol.
  *
- * ## Qué mira y qué no
+ * ## Un analizador, dos territorios
  *
- * SOLO contactos con `zona_closer` (§11: las urgencias se rutean por etapa — pre-agenda al
- * setter, post-agenda al closer). El analizador anterior barría por fecha, sin mirar
- * territorio, y por eso marcó leads que no eran del closer.
+ * El territorio se DEDUCE de los tags del contacto, no se pasa por parámetro: `zona_closer`
+ * y `zona_setter` son mutuamente excluyentes (el contrato dice que al agendar, el swap
+ * reemplaza uno por el otro). Eso importa porque quien llama es el webhook, que solo recibe
+ * un `contactId` y no tiene forma de saber el rol — y porque un contacto que cruza de
+ * pre-agenda a post-agenda queda automáticamente auditado con el contexto nuevo, sin que
+ * nadie tenga que acordarse de cambiar nada.
+ *
+ * Un contacto sin ninguno de los dos tags no se analiza. Las urgencias se rutean por etapa
+ * (§11) y una que no pertenece a nadie no debería aparecer en ninguna cola.
  *
  * ## Por qué no re-analiza
  *
@@ -38,6 +45,32 @@ const PREFIJO_NOTA = "[IA]";
 
 /** Solo se manda al modelo la cola de la conversación — lo viejo no explica el fallo de hoy. */
 const MAX_MENSAJES = 40;
+
+export type Territorio = "closer" | "setter";
+
+/**
+ * Qué hace el agente en cada etapa. NO agrega criterios a la rúbrica — los cinco son los
+ * mismos para ambos roles. Solo le dice al auditor cuál era el trabajo del agente, que es
+ * lo que permite juzgar bien "prometió algo incorrecto" o "insiste y no entiende": prometer
+ * una fecha de cita significa algo distinto según si el agente estaba agendando o
+ * acompañando una cita ya agendada.
+ *
+ * Sale de CLAUDE.md §1 y §11 (el embudo y los dos copilotos), no de una decisión mía.
+ */
+const TERRITORIOS: Record<Territorio, { tag: string; contexto: string }> = {
+  closer: {
+    tag: TAGS.zonaCloser.valor,
+    contexto:
+      "El agente auditado es Appointment Flow: atiende la etapa POST-AGENDA. El contacto ya tiene " +
+      "una cita agendada, y el trabajo del agente es confirmarla y acompañarla hasta la llamada de venta.",
+  },
+  setter: {
+    tag: TAGS.zonaSetter.valor,
+    contexto:
+      "El agente auditado es Lead Flow: atiende la etapa PRE-AGENDA. El contacto es un lead que todavía " +
+      "no agendó, y el trabajo del agente es calificarlo y conseguir que agende la llamada.",
+  },
+};
 
 const RUBRICA = `Eres un auditor de calidad de un agente de IA que atiende conversaciones de ventas por WhatsApp/chat.
 Tu tarea: determinar si la IA NO atendió bien al usuario, según estos criterios:
@@ -108,7 +141,10 @@ export function armarTranscript(mensajes: MensajeGhl[]): string {
  * encendido (el default del modelo) en vez de apagarlo — apagarlo agrega modos de fallo que
  * no compensan lo poco que ahorra acá.
  */
-export async function evaluarConversacion(transcript: string): Promise<Veredicto | null> {
+export async function evaluarConversacion(
+  transcript: string,
+  territorio: Territorio = "closer",
+): Promise<Veredicto | null> {
   if (!transcript.trim()) return null;
   if (!process.env.ANTHROPIC_API_KEY) return null;
 
@@ -116,7 +152,7 @@ export async function evaluarConversacion(transcript: string): Promise<Veredicto
   const respuesta = await cliente.messages.create({
     model: process.env.CLAUDE_MODEL || "claude-opus-5",
     max_tokens: 2000,
-    system: RUBRICA,
+    system: `${TERRITORIOS[territorio].contexto}\n\n${RUBRICA}`,
     output_config: {
       effort: "low",
       format: { type: "json_schema", schema: ESQUEMA_VEREDICTO },
@@ -142,10 +178,26 @@ export interface ResultadoAnalisis {
   analizado: boolean;
   /** Por qué no se analizó, cuando `analizado` es false. */
   motivo?: string;
+  /** Territorio detectado por sus tags. Ausente si no pertenece a ninguno. */
+  territorio?: Territorio;
   fallo?: boolean;
   criterio?: string;
   /** Si el tag llegó de verdad a GHL (false en modo stub). */
   tagAplicado?: boolean;
+}
+
+/**
+ * De qué territorio es este contacto, según sus tags. `null` si de ninguno.
+ *
+ * El contrato garantiza que los dos tags no conviven (al agendar, el swap reemplaza
+ * `zona_setter` por `zona_closer`). Si aun así aparecieran los dos —un workflow a medio
+ * migrar, una edición a mano— gana closer: es la etapa más avanzada, y auditar con el
+ * contexto de post-agenda a alguien que ya agendó es lo correcto.
+ */
+export function territorioDe(tags: readonly string[]): Territorio | null {
+  if (tags.includes(TERRITORIOS.closer.tag)) return "closer";
+  if (tags.includes(TERRITORIOS.setter.tag)) return "setter";
+  return null;
 }
 
 /**
@@ -166,23 +218,24 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
     if (!contacto) return { analizado: false, motivo: "GHL no devolvió el contacto" };
 
     const tags = contacto.tags ?? [];
-    if (!tags.includes(TAGS.zonaCloser.valor)) {
-      return { analizado: false, motivo: "no es zona_closer" };
+    const territorio = territorioDe(tags);
+    if (!territorio) {
+      return { analizado: false, motivo: "sin territorio (ni zona_closer ni zona_setter)" };
     }
     if (tags.includes(TAG_FALLO)) {
       // Ya está en la cola y el bot ya está pausado: no hay nada que decidir de nuevo.
-      return { analizado: false, motivo: "ya marcado como fallo" };
+      return { analizado: false, motivo: "ya marcado como fallo", territorio };
     }
 
     const conversationId = await conversacionDeContacto(ghlContactId);
-    if (!conversationId) return { analizado: false, motivo: "sin conversación" };
+    if (!conversationId) return { analizado: false, motivo: "sin conversación", territorio };
 
     const transcript = armarTranscript(await mensajesDeConversacion(conversationId));
-    const veredicto = await evaluarConversacion(transcript);
-    if (!veredicto) return { analizado: false, motivo: "sin veredicto del modelo" };
+    const veredicto = await evaluarConversacion(transcript, territorio);
+    if (!veredicto) return { analizado: false, motivo: "sin veredicto del modelo", territorio };
 
     if (!veredicto.fallo) {
-      return { analizado: true, fallo: false, criterio: veredicto.criterio };
+      return { analizado: true, territorio, fallo: false, criterio: veredicto.criterio };
     }
 
     /**
@@ -205,6 +258,7 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
 
     return {
       analizado: true,
+      territorio,
       fallo: true,
       criterio: veredicto.criterio,
       // Se reporta lo que REALMENTE pasó, no lo que se intentó (§ puerto: `aplicado`).
@@ -216,16 +270,17 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
 }
 
 /**
- * Pasada manual sobre TODOS los contactos de `zona_closer`. La usa el endpoint de disparo
+ * Pasada manual sobre TODOS los contactos de un territorio. La usa el endpoint de disparo
  * manual; el camino normal es el webhook, que analiza de a un contacto por mensaje nuevo.
  */
-export async function analizarTerritorioCloser(): Promise<{
+export async function analizarTerritorio(territorio: Territorio): Promise<{
+  territorio: Territorio;
   revisados: number;
   resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis>;
 }> {
-  const contactos = await contactosConTag(TAGS.zonaCloser.valor);
+  const contactos = await contactosConTag(TERRITORIOS[territorio].tag);
   const resultados = await Promise.all(
     contactos.map(async (c) => ({ contactId: c.id, nombre: c.nombre, ...(await analizarYMarcar(c.id)) })),
   );
-  return { revisados: contactos.length, resultados };
+  return { territorio, revisados: contactos.length, resultados };
 }

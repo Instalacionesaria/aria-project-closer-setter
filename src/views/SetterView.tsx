@@ -29,15 +29,21 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
-import { botIconVisual, countCallsContestadas, countSalesCalls, type Grade } from "../lib/closerStore";
+import { botIconVisual, countCallsContestadas, countSalesCalls, type BotEstado, type Grade } from "../lib/closerStore";
+import { fetchUrgentesSetter } from "../lib/api";
 import {
   useSetter,
   TAG_CLS_BY_TONE,
   setterPendingTasksBreakdown,
   type SetterContact,
+  type SetterStageKey,
+  type SetterTagTone,
   type Canal,
 } from "../lib/setterStore";
 import { useAgentAudit } from "../lib/agentAuditStore";
+
+/** Mismo intervalo que Closer AI: las colas reales se re-consultan mientras la vista está abierta. */
+const AGENDA_POLL_MS = 10_000;
 
 type Tab = "inicio" | "midia" | "pipeline";
 const TAB_LABEL: Record<Tab, string> = { inicio: "Inicio", midia: "Mi Día", pipeline: "Pipeline" };
@@ -566,10 +572,58 @@ function CompletadasSection({ contacts, onOpen }: { contacts: SetterContact[]; o
   );
 }
 
-function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string) => void }) {
+function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactId?: string) => void }) {
   const { contacts } = useSetter();
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
+
+  /**
+   * Urgentes REALES: contactos con `bot_pausado_fallo` + `zona_setter` en GHL, detectados
+   * por el analizador de conversaciones. Se muestran junto a los EJEMPLO, en el mismo
+   * formato — igual que en Closer AI. Polling cada AGENDA_POLL_MS.
+   */
+  const [realUrgentes, setRealUrgentes] = useState<SetterContact[]>([]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetchUrgentesSetter()
+        .then((res) => {
+          if (!alive) return;
+          setRealUrgentes(
+            res.urgentes.map((u) => ({
+              name: u.name.toUpperCase(),
+              phone: "",
+              // Sin score: el motor todavía no calificó a este lead (§4.7).
+              grade: undefined,
+              fuente: u.source,
+              // El canal no viaja en la respuesta; WhatsApp es el único con bot (§11), y si
+              // el bot falló es porque lo había. Instagram nunca llegaría a esta cola.
+              canal: "whatsapp" as const,
+              stage: "en_calificacion" as SetterStageKey,
+              situacion: "IA PAUSADA · FALLO",
+              situacionTone: "rose" as SetterTagTone,
+              subtitle: "",
+              botEstado: "pausado_fallo" as BotEstado,
+              ghlContactId: u.contactId,
+              urgente: { detail: u.fallo },
+              historial: [],
+              notas: [],
+            })),
+          );
+        })
+        .catch(() => {
+          /* si el backend no responde, se quedan solo los EJEMPLO */
+        });
+    };
+    load();
+    const iv = setInterval(load, AGENDA_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(iv);
+    };
+  }, []);
+  /** EJEMPLO + reales en una sola cola, igual que en Closer AI. */
+  const urgentesTodos = [...urgentes, ...realUrgentes];
   // Pineados primero — § correcciones toast/pin v2 (2026-07-11): tarea de conversación cubre Buzón, Oportunidad LT, Seguimientos Y Estancadas.
   const pinnedFirst = (c: SetterContact[]) => [...c].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
   const estancadas = pinnedFirst(all.filter((c) => c.estancada && !c.completedToday));
@@ -665,9 +719,11 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string) => void }) 
         headerCls="bg-rose-500/10"
         titleCls="text-rose-900 dark:text-rose-300"
         badgeCls="bg-rose-500"
-        contacts={urgentes}
+        contacts={urgentesTodos}
         rowCls="bg-background/50 hover:bg-muted/50 even:bg-muted/30"
-        onOpen={onOpenContact}
+        // Los EJEMPLO no tienen id y abren como siempre; los reales llevan el suyo para
+        // que el tab Chat pueda traer la conversación de verdad.
+        onOpen={(name) => onOpenContact(name, urgentesTodos.find((c) => c.name === name)?.ghlContactId)}
       />
       <Section
         title="Conversaciones estancadas"
@@ -877,7 +933,7 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
 /* ------------------------------------------------------------------ */
 function SetterViewInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
   const [tab, setTab] = useState<Tab>("inicio");
-  const { contacts, openContactName, openContact, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useSetter();
+  const { contacts, openContactName, openGhlContactId, openContact, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useSetter();
   const { resolveAlertsForContact } = useAgentAudit();
   const setterContact = contacts[openContactName ?? ""] ?? null;
 
@@ -900,6 +956,7 @@ function SetterViewInner({ onScreenChange }: { onScreenChange?: (label: string) 
         onClose={closeContact}
         role="setter"
         setterContact={setterContact}
+        ghlContactId={openGhlContactId}
         onSetterAdvance={(result) => openContactName && advance(openContactName, result)}
         onAddNota={(texto) => openContactName && addNota(openContactName, texto)}
         onResolveIntervention={() => {

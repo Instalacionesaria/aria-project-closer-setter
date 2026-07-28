@@ -68,6 +68,11 @@ export interface SetterContact {
   /** Presencia = la sala del Meet ya existe (§ auditoría íconos, 2026-07-10) — enciende 📹. `agendaFecha` sin esto = cita (📅) sin sala todavía. */
   agendaMeetUrl?: string;
   /** "Pausado por fallo" (banner rojo + gating) — presencia = Intervenciones Urgentes en Mi Día. */
+  /**
+   * contactId de GHL cuando el contacto es REAL (ej. un urgente detectado por el analizador),
+   * no de la semilla demo. Habilita traer su conversación real en el tab Chat.
+   */
+  ghlContactId?: string;
   urgente?: { detail: string };
   /** Presencia = Conversaciones Estancadas en Mi Día (§13: sin avance >6h). */
   estancada?: { microtext: string };
@@ -291,7 +296,9 @@ interface SetterStoreValue {
   /** § correcciones dashboards (2026-07-11) — única fuente de los KPIs de Inicio (comisiones, agendas, show rate). */
   cockpit: SetterCockpit;
   openContactName: string | null;
-  openContact: (name: string) => void;
+  /** contactId de GHL de la ficha abierta (cuando se abrió desde un urgente real) — para su conversación real. */
+  openGhlContactId: string | null;
+  openContact: (name: string, ghlContactId?: string) => void;
   closeContact: () => void;
   advance: (name: string, input: SetterAdvanceInput) => void;
   addNota: (name: string, texto: string) => void;
@@ -397,6 +404,7 @@ const SetterCtx = createContext<SetterStoreValue | null>(null);
 export function SetterProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Record<string, SetterContact>>(() => buildSeedContacts());
   const [openContactName, setOpenContactName] = useState<string | null>(null);
+  const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const [deltas, setDeltas] = useState<SetterSessionDeltas>(ZERO_SETTER_DELTAS);
   const { comisionesSetterLT, comisionesSetterDiferida } = useSettings();
 
@@ -543,8 +551,15 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
     contacts,
     cockpit,
     openContactName,
-    openContact: setOpenContactName,
-    closeContact: () => setOpenContactName(null),
+    openGhlContactId,
+    openContact: (name: string, ghlContactId?: string) => {
+      setOpenContactName(name);
+      setOpenGhlContactId(ghlContactId ?? null);
+    },
+    closeContact: () => {
+      setOpenContactName(null);
+      setOpenGhlContactId(null);
+    },
     advance,
     addNota,
     resolveIntervention,

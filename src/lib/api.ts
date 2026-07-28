@@ -86,9 +86,19 @@ export interface UrgenteReal {
   fallo: string;
 }
 
-/** Contactos con `bot_pausado_fallo` → Intervenciones Urgentes. */
+/** Contactos con `bot_pausado_fallo` + `zona_closer` → Intervenciones Urgentes del closer. */
 export function fetchUrgentes(): Promise<{ count: number; urgentes: UrgenteReal[] }> {
   return pedir(`/api/closer/urgentes`);
+}
+
+/**
+ * Lo mismo para el SETTER: `bot_pausado_fallo` + `zona_setter`.
+ *
+ * Son dos endpoints y no uno con parámetro porque los tags de territorio son excluyentes:
+ * cada rol pide su cola y no hay forma de que un contacto aparezca en las dos (§11).
+ */
+export function fetchUrgentesSetter(): Promise<{ count: number; urgentes: UrgenteReal[] }> {
+  return pedir(`/api/setter/urgentes`);
 }
 
 export interface RespondidoReal {
