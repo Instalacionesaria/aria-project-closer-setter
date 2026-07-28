@@ -1,16 +1,22 @@
 /**
- * `GET /api/closer/urgentes` — las Intervenciones Urgentes REALES.
+ * `GET /api/closer/urgentes` — las Intervenciones Urgentes REALES del CLOSER.
  *
- * Un contacto entra si tiene el tag `bot_pausado_fallo`: el analizador detectó que la IA no
- * atendió bien y pausó al bot. El motivo específico sale de la última nota `[IA] ...` que
- * dejó ese mismo analizador — no se inventa un texto genérico si existe el real.
+ * Un contacto entra si cumple LAS DOS:
+ *   1. `bot_pausado_fallo` — el analizador detectó que la IA no atendió bien y pausó al bot;
+ *   2. `zona_closer` — está en territorio post-agenda.
  *
- * El prefijo "Falla detectada por IA:" lo pone la vista; acá viaja solo el motivo, para no
- * hornear copy de la UI en la respuesta del servidor (CONTRATO-GHL §0: la presentación es
- * del tool).
+ * La segunda no es un detalle: las urgencias se rutean por etapa (§11), pre-agenda al setter
+ * y post-agenda al closer. Sin ese filtro, un lead con el bot caído que todavía está en
+ * calificación aparecería en la cola del closer, que no es quien tiene que atenderlo.
+ *
+ * El motivo específico sale de la última nota `[IA] ...` que dejó ese mismo analizador — no
+ * se inventa un texto genérico si existe el real. El prefijo "Falla detectada por IA:" lo
+ * pone la vista; acá viaja solo el motivo, para no hornear copy de la UI en la respuesta del
+ * servidor (CONTRATO-GHL §0: la presentación es del tool).
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { perteneceAlCloser, TAGS } from "../../src/lib/ghl/contrato.js";
 import { ghl } from "../_lib/ghl/index.js";
 import { contactosConTag, ultimaNotaIa } from "../_lib/ghl/lectura.js";
 
@@ -27,7 +33,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const contactos = await contactosConTag(TAG_FALLO);
+    /**
+     * Se pide por el tag del fallo y se filtra por territorio en memoria: la búsqueda de GHL
+     * acepta un solo filtro por request, y los que tienen el bot caído son siempre pocos.
+     * `exigirZonaCloser: true` es explícito — el default de la función es `false` porque la
+     * semilla del demo no tiene tags, pero acá los contactos vienen de GHL y sí los tienen.
+     */
+    const conFallo = await contactosConTag(TAG_FALLO);
+    const contactos = conFallo.filter((c) => perteneceAlCloser(c.tags, true));
 
     /**
      * Una lectura de notas por contacto. La cola roja de un closer son pocos casos por
@@ -44,7 +57,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })),
     );
 
-    return res.status(200).json({ ok: true, ghlModo: ghl().modo, count: urgentes.length, urgentes });
+    return res.status(200).json({
+      ok: true,
+      ghlModo: ghl().modo,
+      count: urgentes.length,
+      /**
+       * Cuántos tienen el bot caído pero NO son del closer. No se muestra en la cola —
+       * viaja para poder responder "¿por qué no aparece este contacto?" sin abrir GHL.
+       * Si es > 0, esas urgencias son del setter (§11) y hoy no las atiende nadie: el
+       * territorio setter todavía no tiene su propio endpoint de urgentes.
+       */
+      fueraDeZonaCloser: conFallo.length - contactos.length,
+      urgentes,
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error).message });
   }
