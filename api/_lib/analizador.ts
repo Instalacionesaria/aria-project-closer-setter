@@ -29,6 +29,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { TAGS } from "../../src/lib/ghl/contrato.js";
 import { ghl } from "./ghl/index.js";
+import { ORG_ID, db } from "./repo.js";
 import {
   contactosConTag,
   conversacionDeContacto,
@@ -49,6 +50,14 @@ const MAX_MENSAJES = 40;
 export type Territorio = "closer" | "setter";
 
 /**
+ * Los ids que usa la pestaña Auditoría de Agentes. Son los de Francisco (`AgentInfo.id`) y
+ * NO se tocan: cada territorio audita a un agente distinto y su resultado va a su tarjeta.
+ * Los agentes de VOZ (`lead-flow-voz`, `appointment-flow-voz`) no salen de acá — los audita
+ * Fabio con sus propias analizadoras.
+ */
+export type AgenteTextoId = "lead-flow-ai" | "appointment-flow-ai";
+
+/**
  * Qué hace el agente en cada etapa. NO agrega criterios a la rúbrica — los cinco son los
  * mismos para ambos roles. Solo le dice al auditor cuál era el trabajo del agente, que es
  * lo que permite juzgar bien "prometió algo incorrecto" o "insiste y no entiende": prometer
@@ -57,15 +66,17 @@ export type Territorio = "closer" | "setter";
  *
  * Sale de CLAUDE.md §1 y §11 (el embudo y los dos copilotos), no de una decisión mía.
  */
-const TERRITORIOS: Record<Territorio, { tag: string; contexto: string }> = {
+const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteTextoId; contexto: string }> = {
   closer: {
     tag: TAGS.zonaCloser.valor,
+    agenteId: "appointment-flow-ai",
     contexto:
       "El agente auditado es Appointment Flow: atiende la etapa POST-AGENDA. El contacto ya tiene " +
       "una cita agendada, y el trabajo del agente es confirmarla y acompañarla hasta la llamada de venta.",
   },
   setter: {
     tag: TAGS.zonaSetter.valor,
+    agenteId: "lead-flow-ai",
     contexto:
       "El agente auditado es Lead Flow: atiende la etapa PRE-AGENDA. El contacto es un lead que todavía " +
       "no agendó, y el trabajo del agente es calificarlo y conseguir que agende la llamada.",
@@ -89,7 +100,15 @@ pidiendo info, o la IA respondiendo correctamente). En la conversación, "USUARI
 y "IA" es el agente automático.
 
 El motivo debe ser una sola frase en español, concreta y específica de ESTA conversación —
-es el texto que va a leer el closer humano en su cola de intervenciones urgentes.`;
+es el texto que va a leer el closer humano en su cola de intervenciones urgentes.
+
+Además, clasifica el SENTIMIENTO DEL CONTACTO (no el de la IA) a lo largo de la conversación:
+- "positivo": el contacto está receptivo, interesado o conforme.
+- "neutral": intercambio informativo, sin carga emocional en ninguna dirección.
+- "molesto": el contacto muestra fastidio, impaciencia, queja o enojo.
+
+El sentimiento es independiente del fallo: una conversación puede fallar con un contacto que
+siguió amable, y otra puede tener un contacto molesto sin que la IA haya hecho nada mal.`;
 
 /** El esquema es el contrato: el modelo no puede devolver otra forma. */
 const ESQUEMA_VEREDICTO = {
@@ -108,15 +127,24 @@ const ESQUEMA_VEREDICTO = {
       ],
     },
     motivo: { type: "string", description: "Una frase en español explicando el fallo. Vacío si no hubo fallo." },
+    sentimiento: {
+      type: "string",
+      enum: ["positivo", "neutral", "molesto"],
+      description: "Cómo se fue sintiendo el CONTACTO (no la IA) a lo largo de la conversación.",
+    },
   },
-  required: ["fallo", "criterio", "motivo"],
+  required: ["fallo", "criterio", "motivo", "sentimiento"],
   additionalProperties: false,
 } as const;
+
+export type Sentimiento = "positivo" | "neutral" | "molesto";
 
 export interface Veredicto {
   fallo: boolean;
   criterio: string;
   motivo: string;
+  /** Alimenta el panel de tres tramos de Auditoría de Agentes. Es del CONTACTO, no de la IA. */
+  sentimiento: Sentimiento;
 }
 
 /** Transcript cronológico (GHL devuelve del más reciente al más antiguo). */
@@ -167,10 +195,15 @@ export async function evaluarConversacion(
   if (!texto) return null;
 
   const crudo = JSON.parse(texto) as Partial<Veredicto>;
+  const sentimientos: Sentimiento[] = ["positivo", "neutral", "molesto"];
   return {
     fallo: Boolean(crudo.fallo),
     criterio: typeof crudo.criterio === "string" ? crudo.criterio : "ninguno",
     motivo: typeof crudo.motivo === "string" ? crudo.motivo : "",
+    // El esquema ya lo garantiza; el default existe solo por si algún día se relaja.
+    sentimiento: sentimientos.includes(crudo.sentimiento as Sentimiento)
+      ? (crudo.sentimiento as Sentimiento)
+      : "neutral",
   };
 }
 
@@ -182,8 +215,40 @@ export interface ResultadoAnalisis {
   territorio?: Territorio;
   fallo?: boolean;
   criterio?: string;
+  sentimiento?: Sentimiento;
+  /** Si la fila de estadística llegó a la base. Falso no invalida el análisis. */
+  guardado?: boolean;
   /** Si el tag llegó de verdad a GHL (false en modo stub). */
   tagAplicado?: boolean;
+}
+
+/** Persiste el veredicto para que la pestaña de Auditoría de Agentes pueda agregarlo. */
+async function guardarAnalisis(e: {
+  agenteId: AgenteTextoId;
+  ghlContactId: string;
+  conversationId: string;
+  veredicto: Veredicto;
+}): Promise<boolean> {
+  try {
+    const { error } = await db()
+      .from("closer_analisis_agente")
+      .insert({
+        org_id: ORG_ID,
+        agente_id: e.agenteId,
+        ghl_contact_id: e.ghlContactId,
+        conversation_id: e.conversationId,
+        fallo: e.veredicto.fallo,
+        criterio: e.veredicto.criterio,
+        motivo: e.veredicto.motivo || null,
+        sentimiento: e.veredicto.sentimiento,
+        modelo: process.env.CLAUDE_MODEL || "claude-opus-5",
+      });
+    if (error) console.warn("[analizador] no se pudo guardar el análisis:", error.message);
+    return !error;
+  } catch (err) {
+    console.warn("[analizador] no se pudo guardar el análisis:", (err as Error).message);
+    return false;
+  }
 }
 
 /**
@@ -234,8 +299,24 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
     const veredicto = await evaluarConversacion(transcript, territorio);
     if (!veredicto) return { analizado: false, motivo: "sin veredicto del modelo", territorio };
 
+    /**
+     * Se guarda SIEMPRE, falle o no. El panel de sentimiento de Auditoría de Agentes se
+     * calcula sobre todos los análisis: el "85% positivos" sale justamente de las
+     * conversaciones que NO fallaron. Guardar solo los fallos dejaría ese panel midiendo
+     * únicamente lo que salió mal.
+     *
+     * Si la escritura falla no se corta el flujo: perder una fila de estadística es mucho
+     * menos grave que no pausar un bot que está maltratando a un contacto.
+     */
+    const guardado = await guardarAnalisis({
+      agenteId: TERRITORIOS[territorio].agenteId,
+      ghlContactId,
+      conversationId,
+      veredicto,
+    });
+
     if (!veredicto.fallo) {
-      return { analizado: true, territorio, fallo: false, criterio: veredicto.criterio };
+      return { analizado: true, territorio, fallo: false, criterio: veredicto.criterio, sentimiento: veredicto.sentimiento, guardado };
     }
 
     /**
@@ -261,6 +342,8 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
       territorio,
       fallo: true,
       criterio: veredicto.criterio,
+      sentimiento: veredicto.sentimiento,
+      guardado,
       // Se reporta lo que REALMENTE pasó, no lo que se intentó (§ puerto: `aplicado`).
       tagAplicado: aplicacion.ok ? aplicacion.aplicado : false,
     };

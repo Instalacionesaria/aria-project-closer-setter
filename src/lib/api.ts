@@ -116,6 +116,29 @@ export function fetchRespondieron(): Promise<{ count: number; contactos: Respond
   return pedir(`/api/closer/respondieron`);
 }
 
+/**
+ * Métricas medidas de un agente de TEXTO, para la pestaña Auditoría de Agentes.
+ *
+ * Todo campo puede venir `null`: significa "todavía no lo medí", y la vista conserva el
+ * valor que sembró Francisco en vez de pintar un cero que no midió nadie.
+ */
+export interface AgenteTextoMetricas {
+  id: "lead-flow-ai" | "appointment-flow-ai";
+  metric: string | null;
+  delta: { text: string; up: boolean } | null;
+  subtext: string | null;
+  sentiment: { positivos: number; neutrales: number; molestos: number } | null;
+  ops: { label: string; value: string | null }[];
+  history: { week: string; tasa: number; sentimientoPositivo: number }[];
+  /** Cuántos análisis sostienen estos números. 0 = todavía no se midió nada. */
+  analisis: number;
+}
+
+/** Lo que midieron las dos analizadoras de agentes de texto. Los de voz no salen de acá. */
+export function fetchAgentesTexto(): Promise<{ ventanaDias: number; agentes: AgenteTextoMetricas[] }> {
+  return pedir(`/api/agentes/texto`);
+}
+
 /** Un mensaje real de la conversación de GHL, normalizado para el Chat. */
 export interface ConversationMessage {
   id: string;

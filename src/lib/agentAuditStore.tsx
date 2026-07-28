@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { fetchAgentesTexto, type AgenteTextoMetricas } from "./api";
 
 /**
  * Single source of verdad para Agents Audit (§ arquitectura relacional, 2026-07-10):
@@ -387,8 +388,61 @@ interface AgentAuditStoreValue {
 
 const AgentAuditCtx = createContext<AgentAuditStoreValue | null>(null);
 
+/**
+ * Superpone lo MEDIDO sobre lo que sembró Francisco, campo por campo.
+ *
+ * La regla es una sola: si la analizadora no midió algo, gana el valor de Francisco. Un
+ * `null` significa "todavía no lo sé", no "es cero" — pintar un 0% recién medido sobre una
+ * tarjeta que él dejó en 23% haría ver el agente como roto cuando en realidad nadie lo
+ * evaluó todavía.
+ *
+ * El sparkline es el único que se mezcla punto a punto: las semanas realmente medidas pisan
+ * su valor sembrado y el resto queda como estaba, así el gráfico se ve completo desde el
+ * primer día y se vuelve real solo, semana a semana.
+ */
+function conMetricasReales(base: AgentInfo[], medidos: AgenteTextoMetricas[]): AgentInfo[] {
+  return base.map((agente) => {
+    const m = medidos.find((x) => x.id === agente.id);
+    if (!m || m.analisis === 0) return agente;
+
+    const semanasReales = new Map(m.history.map((h) => [h.week, h]));
+
+    return {
+      ...agente,
+      metric: m.metric ?? agente.metric,
+      delta: m.delta ?? agente.delta,
+      subtext: m.subtext ?? agente.subtext,
+      sentiment: m.sentiment ?? agente.sentiment,
+      ops: agente.ops.map((caja) => {
+        const medido = m.ops.find((o) => o.label === caja.label);
+        return medido?.value ? { ...caja, value: medido.value } : caja;
+      }),
+      history: agente.history.map((semana) => semanasReales.get(semana.week) ?? semana),
+    };
+  });
+}
+
 export function AgentAuditProvider({ children }: { children: React.ReactNode }) {
   const [alerts, setAlerts] = useState<AgentAlert[]>(SEED_ALERTS);
+  /**
+   * Arranca con lo de Francisco y se va reemplazando con lo medido. Los agentes de VOZ
+   * quedan intactos: los audita Fabio con sus propias analizadoras.
+   */
+  const [agents, setAgents] = useState<AgentInfo[]>(AGENTS);
+
+  useEffect(() => {
+    let alive = true;
+    fetchAgentesTexto()
+      .then((res) => {
+        if (alive) setAgents(conMetricasReales(AGENTS, res.agentes));
+      })
+      .catch(() => {
+        /* sin backend, las tarjetas quedan con los valores sembrados */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const [adjustments, setAdjustments] = useState<AdjustmentEntry[]>(SEED_ADJUSTMENTS);
 
   const resolveAlertsForContact = useCallback((contactName: string) => {
@@ -420,7 +474,7 @@ export function AgentAuditProvider({ children }: { children: React.ReactNode }) 
     });
   }, []);
 
-  const value: AgentAuditStoreValue = { agents: AGENTS, alerts, adjustments, resolveAlertsForContact, patchAlertGroup };
+  const value: AgentAuditStoreValue = { agents, alerts, adjustments, resolveAlertsForContact, patchAlertGroup };
   return <AgentAuditCtx.Provider value={value}>{children}</AgentAuditCtx.Provider>;
 }
 
