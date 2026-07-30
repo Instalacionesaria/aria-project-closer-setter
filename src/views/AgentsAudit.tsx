@@ -888,7 +888,11 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
         role={isSetterContact && !isCloserContact ? "setter" : "closer"}
         contact={isCloserContact ? closer.contacts[ficheName ?? ""] ?? null : null}
         setterContact={isSetterContact ? setter.contacts[ficheName ?? ""] ?? null : null}
-        onAdvance={(result) => ficheName && result.stage && closer.advance(ficheName, { ...result, stage: result.stage })}
+        /* `situacion: result.situacionSlug` es obligatorio, igual que en CloserAI.tsx:2173.
+           Sin ese mapeo el guard de `closerStore.advance()` —que exige `situacion` y `modo`
+           para hacer el POST— nunca se cumplía, así que un Seguimiento registrado desde esta
+           vista se veía guardado y solo vivía en memoria. */
+        onAdvance={(result) => ficheName && result.stage && closer.advance(ficheName, { ...result, stage: result.stage, situacion: result.situacionSlug })}
         onSetterAdvance={(result) => ficheName && setter.advance(ficheName, result)}
         onAddNota={(texto) => {
           if (!ficheName) return;

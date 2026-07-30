@@ -58,7 +58,17 @@ import { useAgentAudit } from "../lib/agentAuditStore";
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
 
 /** Desenlace de "Avanzar" (tag GHL) → píldora del Buzón: color (vía stage) + texto + estado del bot.
- * El monto/subcategoría fina vendrá de los custom fields más adelante; v1 muestra la categoría. */
+ *
+ * Este mapa deriva la píldora SOLO del tag, que es el único dato que trae hoy
+ * `/api/closer/respondieron`. Por eso una venta real de GHL se lee `VENTA` a secas, sin la
+ * forma de pago ni el monto que sí muestra una venta registrada desde el tool.
+ *
+ * No es el mismo bug que tenía el modal de Avanzar (que capturaba la forma de pago y la
+ * tiraba): acá el dato sencillamente no llegó al browser. `api/_lib/contactos.ts` ya lee el
+ * custom field `forma_de_pago_venta` al sincronizar, pero el endpoint del buzón no lo
+ * devuelve todavía. Cuando lo haga, esto pasa a llamar `armarPildora()` con los tres campos
+ * y queda un solo productor de píldoras. Mientras tanto se muestra la categoría sola en vez
+ * de inventar el resto (§4.10). */
 const OUTCOME_TO_PILL: Record<string, { stage: StageKey; situacion: string; bot: BotEstado }> = {
   venta_ganada: { stage: "ganado", situacion: "VENTA", bot: "muerto_postcall" },
   adelanto_ganado: { stage: "cierre", situacion: "ACORDÓ COMPRAR", bot: "muerto_postcall" },

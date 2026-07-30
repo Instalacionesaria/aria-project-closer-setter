@@ -1,0 +1,37 @@
+-- ============================================================================
+-- Migración 009 · Se borra la vista `closer_mi_dia`
+--
+-- ── Por qué se va ──
+--
+-- La escribí para que el front no reimplementara el criterio de "en qué sección de Mi Día
+-- cae cada contacto": la vista resolvía las cinco (urgentes, agenda, seguimientos,
+-- respondieron, completadas) en SQL, leyendo de la proyección `closer_contactos`.
+--
+-- Nunca llegó a usarse, y el proyecto tomó el camino contrario. Verificado antes de
+-- borrarla, no supuesto:
+--
+--   * Cero referencias a `closer_mi_dia` en `api/` y en `src/`.
+--   * `api/closer/mi-dia.ts` —el endpoint que por nombre parecería usarla— consulta
+--     `closer_seguimientos_de_hoy`, que es otra vista y sigue viva.
+--   * `closer_contactos`, su tabla base, tiene 0 filas: solo la llenan los webhooks, que
+--     nunca se crearon en GHL.
+--
+-- El 2026-07-30 se decidió leer GHL por polling (`/api/closer/{agenda,respondieron,urgentes}`
+-- consultan la API en vivo). Con eso, la vista quedó siendo una segunda definición de las
+-- mismas secciones, sin consumidores y sobre una tabla vacía. Dos criterios para la misma
+-- pregunta es exactamente la clase de cosa que diverge en silencio.
+--
+-- ── Lo que NO se toca ──
+--
+-- `closer_contactos`, `closer_notas` y `closer_evento_tipos` —creadas por la misma
+-- migración 006— se quedan. `closer_notas` hace falta para el tab Notas, y `closer_contactos`
+-- la sigue escribiendo `/api/closer/sincronizar`.
+--
+-- Sin `cascade` a propósito: si algo dependiera de la vista, Postgres aborta y lo nombra,
+-- en vez de arrastrarlo en silencio.
+--
+-- ⚠️ La migración 006 crea esta vista con `create or replace view`. Volver a correrla entera
+-- la resucita. Si eso pasa, re-aplicar esta 009.
+-- ============================================================================
+
+drop view if exists closer_mi_dia;

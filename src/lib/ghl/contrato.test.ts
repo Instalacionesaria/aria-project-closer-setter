@@ -169,8 +169,25 @@ describe("armarPildora — CATEGORÍA · SUBCATEGORÍA en mayúsculas (§12/§39
     expect(armarPildora({ stage: "nurture", subcategoria: null })).toBe("NURTURE");
   });
 
-  it("en venta y acuerdo la plata es la subcategoría", () => {
+  it("una venta lleva TRES campos: categoría, forma de pago y monto", () => {
+    // El caso que reportó Francisco: la píldora salía sin la forma de pago aunque el modal
+    // la exigía para poder confirmar. La subcategoría de `ganado` es `formaPagoVenta`, tal
+    // como lo declara CAMPO_SUBCATEGORIA_POR_STAGE en contrato.ts.
+    expect(armarPildora({ stage: "ganado", subcategoria: "Contado", monto: 100 })).toBe("VENTA · CONTADO · $100");
+    expect(armarPildora({ stage: "ganado", subcategoria: "Buy Now Pay Later", monto: 5400 }))
+      .toBe("VENTA · BUY NOW PAY LATER · $5.400");
+  });
+
+  it("una venta con datos parciales muestra lo que hay, sin inventar (§4.10)", () => {
+    // Un contacto traído de GHL puede tener uno de los dos campos y no el otro. Ninguna de
+    // las dos ausencias debe romper la píldora ni rellenarse con un valor por defecto.
     expect(armarPildora({ stage: "ganado", monto: 5000 })).toBe("VENTA · $5.000");
+    expect(armarPildora({ stage: "ganado", subcategoria: "Cuotas" })).toBe("VENTA · CUOTAS");
+    expect(armarPildora({ stage: "ganado" })).toBe("VENTA");
+  });
+
+  it("en un acuerdo la plata sigue siendo la subcategoría — todavía no hay forma de pago", () => {
+    // `cierre` es una promesa de pago, no un pago: no hay forma de pago que registrar.
     expect(armarPildora({ stage: "cierre", monto: 500 })).toBe("ACORDÓ COMPRAR · $500");
   });
 

@@ -226,6 +226,12 @@ export interface ClosurerContact {
   /** Solo stage "nurture" — decide el sub-texto de la píldora "NURTURE · X". */
   nurtureOrigen?: NurtureOrigen;
   /**
+   * Solo stage "ganado" — la subcategoría de la píldora `VENTA · CONTADO · $100`, y el valor
+   * que va al custom field `forma_de_pago_venta` de GHL. Mismo rol que `nurtureOrigen` para
+   * NURTURE: el sub-texto se guarda como dato, no solo dentro del string ya compuesto.
+   */
+  formaPagoVenta?: string;
+  /**
    * § Gerencia (2026-07-13) — solo relevante en stage "ganado": ¿un setter intervino manualmente
    * en algún punto antes de esta cita? Espejo del `atribucionSetter` de SetterContact, pero vive
    * del lado del closer porque el traspaso setter→closer (§11) es el mismo contacto cambiando de
@@ -252,6 +258,8 @@ export interface AdvanceInput {
   nota?: string;
   /** Seguimiento automático (§16.1 de CLAUDE.md): enciende/apaga el ícono ⏱. */
   seguimientoAutomaticoActivo?: boolean;
+  /** Solo Venta: la subcategoría del stage `ganado` (Contado / Splitwise / BNPL / Cuotas). */
+  formaPagoVenta?: string;
 
   /* ── Solo para contactos reales: lo que el backend necesita para persistir ──
      La situación va como slug y la fecha como INTENCIÓN (el preset), nunca como una fecha
@@ -427,22 +435,31 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
 
   {
-    name: "EJEMPLO JORGE ALVAREZ", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hace 8 días", activity: "",
+    /* Los 5 contactos en `ganado` llevan `monto` + `formaPagoVenta` y su píldora completa de
+       tres campos. Antes decían `"Venta · Contado"` SIN `monto`, así que en Pipeline se leía
+       `VENTA · CONTADO` sin importe y el ícono $ del header quedaba apagado sobre una venta
+       cerrada — el defecto espejo del que tenía el modal de Avanzar (ver `armarPildora`).
+       Montos dentro del rango high-ticket real del producto ($4-8k, §1). */
+    name: "EJEMPLO JORGE ALVAREZ", grade: "A", stage: "ganado", situacion: "VENTA · CONTADO · $6.500", when: "hace 8 días", activity: "",
+    monto: 6500, formaPagoVenta: "Contado",
     botEstado: "muerto_postcall", atribucionSetter: false,
     llamadas: [{ id: "ja-1", origin: "sales_call", fecha: "01 Jul", duracion: "40:00", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
   {
-    name: "EJEMPLO DIEGO GOMEZ", grade: "C", stage: "ganado", situacion: "Venta · Contado", when: "hace 10 días", activity: "",
+    name: "EJEMPLO DIEGO GOMEZ", grade: "C", stage: "ganado", situacion: "VENTA · CUOTAS · $4.800", when: "hace 10 días", activity: "",
+    monto: 4800, formaPagoVenta: "Cuotas",
     botEstado: "muerto_postcall", atribucionSetter: false,
     llamadas: [{ id: "dg-1", origin: "sales_call", fecha: "29 Jun", duracion: "35:20", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
   {
-    name: "EJEMPLO MIGUEL PEREZ", grade: "C", stage: "ganado", situacion: "Venta · Contado", when: "hace 12 días", activity: "",
+    name: "EJEMPLO MIGUEL PEREZ", grade: "C", stage: "ganado", situacion: "VENTA · CONTADO · $5.200", when: "hace 12 días", activity: "",
+    monto: 5200, formaPagoVenta: "Contado",
     botEstado: "muerto_postcall", atribucionSetter: false,
     llamadas: [{ id: "mp-1", origin: "sales_call", fecha: "27 Jun", duracion: "44:10", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
   {
-    name: "EJEMPLO SHIRLEY FAJARDO", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hace 18 días", activity: "Todo bajo control. Venta cerrada.",
+    name: "EJEMPLO SHIRLEY FAJARDO", grade: "A", stage: "ganado", situacion: "VENTA · SPLITWISE · $7.900", when: "hace 18 días", activity: "Todo bajo control. Venta cerrada.",
+    monto: 7900, formaPagoVenta: "Splitwise",
     botEstado: "muerto_postcall", atribucionSetter: true,
     llamadas: [{ id: "sf-1", origin: "sales_call", fecha: "21 Jun", duracion: "50:05", contestada: true, resultado: "Resultado: Venta cerrada" }],
   },
@@ -540,7 +557,8 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
     ],
   },
   {
-    name: "EJEMPLO VALENTINA GOMEZ", grade: "A", stage: "ganado", situacion: "Venta · Contado", when: "hoy", activity: "venta low-ticket cerrada exitosamente",
+    name: "EJEMPLO VALENTINA GOMEZ", grade: "A", stage: "ganado", situacion: "VENTA · BUY NOW PAY LATER · $5.400", when: "hoy", activity: "venta low-ticket cerrada exitosamente",
+    monto: 5400, formaPagoVenta: "Buy Now Pay Later",
     fuente: "META ADS", botEstado: "muerto_postcall", atribucionSetter: true,
     llamadas: [{ id: "vg-1", origin: "sales_call", fecha: "Hoy", duracion: "33:15", contestada: true, resultado: "Resultado: Venta LT cerrada" }],
     perfil: [
@@ -642,6 +660,10 @@ export function applyAdvance(c: ClosurerContact, input: AdvanceInput): ClosurerC
     when: "Hoy",
     activity: input.texto,
     monto: input.monto ?? c.monto,
+    /* La forma de pago solo la escribe una Venta. Se preserva la anterior si este Avanzar
+       no la trae, igual que `monto` — así un Seguimiento posterior no borra el dato de una
+       venta ya registrada. */
+    formaPagoVenta: input.formaPagoVenta ?? c.formaPagoVenta,
     historial,
     notas,
     urgente: undefined,

@@ -23,6 +23,18 @@ dist-ssr
 # subiendo con el otro nombre.
 **/CONTRATO-GHL*.md
 
+# graphify es una herramienta de trabajo local, no parte del proyecto: nada suyo viaja al
+# repo compartido (decisión de Fabio, 2026-07-30). El grafo se regenera con
+# `graphify update .`, así que versionarlo solo agregaría ruido y conflictos.
+#
+# Los hooks de graphify van en `.claude/settings.local.json` (ignorado arriba), NO en
+# `.claude/settings.json`, que sí está versionado y se le aplicaría a todo el equipo.
+graphify-out/
+.claude/settings.json.graphify-bak
+
+# Notas de máquina, fuera del repo compartido.
+CLAUDE.local.md
+
 # build artifacts
 *.tsbuildinfo
 vite.config.js

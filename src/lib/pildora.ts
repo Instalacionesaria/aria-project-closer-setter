@@ -42,27 +42,49 @@ export interface ArmarPildoraInput {
    * Valor crudo del custom field de subcategoría que corresponde al stage actual
    * (ver `CAMPO_SUBCATEGORIA_POR_STAGE` en `ghl/contrato.ts`). Ausente → píldora sin
    * subcategoría, que es lo correcto cuando GHL no tiene el dato.
+   *
+   * Para `ganado`, ese custom field es `formaPagoVenta` — o sea, la forma de pago ES la
+   * subcategoría del stage, igual que la situación lo es para `seguimiento`.
    */
   subcategoria?: string | null;
-  /** Solo para `ganado` y `cierre`: ahí el monto ES la subcategoría visible. */
+  /** Solo para `ganado` y `cierre`: la plata que acompaña a la categoría. */
   monto?: number;
 }
 
 /**
  * `{ stage: "seguimiento", subcategoria: "Muy interesado" }` → `"SEGUIMIENTO · MUY INTERESADO"`.
- * `{ stage: "ganado", monto: 5000 }` → `"VENTA · $5.000"`.
+ * `{ stage: "ganado", subcategoria: "Contado", monto: 100 }` → `"VENTA · CONTADO · $100"`.
+ * `{ stage: "ganado", monto: 5000 }` → `"VENTA · $5.000"` (sin forma de pago conocida).
  * `{ stage: "nurture" }` → `"NURTURE"`.
  */
 export function armarPildora({ stage, subcategoria, monto }: ArmarPildoraInput): string {
   const categoria = CATEGORIA_POR_STAGE[stage];
+  const sub = subcategoria?.trim();
 
-  // En estos dos stages la plata es la subcategoría — así lo produce Avanzar hoy y así lo
-  // documenta §12 (`VENTA · $3.000`, `ACORDÓ COMPRAR · $500`).
-  if ((stage === "ganado" || stage === "cierre") && typeof monto === "number") {
+  // `ganado` es el único stage con TRES campos: categoría + forma de pago + monto.
+  //
+  // Antes esta rama devolvía `VENTA · $100` y trataba al monto como la subcategoría. Era
+  // incoherente con `CAMPO_SUBCATEGORIA_POR_STAGE.ganado = "formaPagoVenta"` en
+  // `ghl/contrato.ts`: el contrato ya decía que la subcategoría de `ganado` es la forma de
+  // pago, no la plata. El modal de Venta pedía la forma de pago como campo OBLIGATORIO y
+  // después la tiraba, así que el dato se capturaba y se perdía. Corregido con Francisco
+  // el 2026-07-30.
+  //
+  // Los dos campos son opcionales por separado: un contacto traído de GHL puede tener la
+  // forma de pago sin el monto, o al revés. Se muestra lo que haya, sin inventar (§4.10).
+  if (stage === "ganado") {
+    const partes = [categoria];
+    if (sub) partes.push(sub.toUpperCase());
+    if (typeof monto === "number") partes.push(dinero(monto));
+    return partes.join(" · ");
+  }
+
+  // `cierre` sigue con dos campos: ahí el monto es una promesa, no un pago, y no hay forma
+  // de pago que registrar todavía (§12: `ACORDÓ COMPRAR · $500`).
+  if (stage === "cierre" && typeof monto === "number") {
     return `${categoria} · ${dinero(monto)}`;
   }
 
-  const sub = subcategoria?.trim();
   return sub ? `${categoria} · ${sub.toUpperCase()}` : categoria;
 }
 

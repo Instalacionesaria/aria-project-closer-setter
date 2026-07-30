@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { isoEnDias, fechaCorta } from "../lib/fechas";
+import { armarPildora } from "../lib/pildora";
 import type { SituacionSeguimiento } from "../lib/ghl/contrato";
 import type { ModoSeguimiento } from "../lib/seguimientos/dominio";
 import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, callsIASummary, type ClosurerContact, type StageKey, type BotEstado, type CallRecord, type CallOrigin, type Sentimiento, type PerfilField, type PerfilGroup, type PerfilFormulario, type VideoPreCallInfo } from "../lib/closerStore";
@@ -85,6 +86,12 @@ type AvanzarResult = {
   nota?: string;
   stage?: StageKey;
   seguimientoAutomaticoActivo?: boolean;
+  /* Solo la salida Venta: la forma de pago elegida en los chips (Contado / Splitwise /
+     Buy Now Pay Later / Cuotas). Es la SUBCATEGORÍA del stage `ganado` según
+     `CAMPO_SUBCATEGORIA_POR_STAGE` en ghl/contrato.ts, y el valor que va al custom field
+     `forma_de_pago_venta`. Antes se capturaba, se exigía para poder confirmar, y se tiraba
+     dentro del texto libre del Historial — con lo cual la píldora salía sin ella. */
+  formaPagoVenta?: string;
   /* Solo la salida Seguimiento: lo que el backend necesita para persistir. La fecha viaja
      como INTENCIÓN (`preset`), nunca calculada acá — el servidor la resuelve contra
      America/Lima. El porqué está documentado en src/lib/fechas.ts. */
@@ -336,10 +343,14 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
     const confirm = () => {
       const monto = Number(ventaMonto);
       onConfirm(withNota({
-        pildora: `VENTA · ${money(monto)}`,
+        // La píldora se delega a `armarPildora` en vez de concatenarse acá: es el único
+        // lugar donde se decide el formato, y así esta pantalla no puede volver a
+        // desincronizarse de la semilla ni del camino de los contactos reales de GHL.
+        pildora: armarPildora({ stage: "ganado", subcategoria: tipoPago, monto }),
         texto: `Registró Venta — ${money(monto)} (${tipoPago})`,
         toast: `Venta registrada — ${money(monto)}`,
         monto,
+        formaPagoVenta: tipoPago ?? undefined,
         celebrate: true,
         stage: "ganado",
       }, nota));
