@@ -1,6 +1,6 @@
 # Estado del proyecto — Comando Central
 
-**Última actualización: 2026-07-25.** Este documento dice qué está hecho, qué está a medias
+**Última actualización: 2026-07-30.** Este documento dice qué está hecho, qué está a medias
 y qué no existe. Se actualiza en cada sesión de trabajo.
 
 > Para el **porqué** de las decisiones: `CLAUDE.md` §50 y
@@ -21,7 +21,8 @@ producto, hoy solo la sección *Seguimientos* del closer escribe y lee de verdad
 
 | Pieza | Estado |
 |---|---|
-| Base de datos (Supabase SOFIA, 9 tablas `closer_*`) | ✅ Aplicada y verificada |
+| Base de datos (Supabase SOFIA, 11 tablas `closer_*`) | ✅ Aplicada y verificada (migraciones 001–008) |
+| RLS en las 11 tablas | ✅ Verificado con la llave `anon`, no solo con `pg_class` |
 | Integración con GHL (lectura y escritura) | ✅ Funcionando en producción |
 | Despliegue automático (push a `main` → Vercel) | ✅ Funcionando |
 | Diagnóstico (`/api/diagnostico`) | ✅ `ok: true` |
@@ -36,10 +37,32 @@ producto, hoy solo la sección *Seguimientos* del closer escribe y lee de verdad
 | Sección | Backend | Notas |
 |---|---|---|
 | **Seguimientos de hoy** | ✅ Completo | Lee, escribe, persiste, y escribe tags y campos en GHL |
-| **Agenda de Hoy** | 🟡 A medias | La tabla y la consulta existen; falta que el endpoint la sirva y el front la lea. Necesita el webhook de cita |
-| **Respondieron / Buzón** | 🟡 A medias | Igual que Agenda: la lógica está en la vista SQL, falta servirla. Necesita los webhooks de mensaje |
-| **Completadas Hoy** | 🟡 A medias | Se calcula en la vista; falta exponerla |
-| **Intervenciones urgentes** | ❌ Sin backend | **Fuera de alcance por decisión de Francisco** — lo toma otra persona |
+| **Agenda de Hoy** | ✅ Endpoint | `GET /api/closer/agenda` — calendario real de GHL, en vivo (Kevin) |
+| **Respondieron / Buzón** | ✅ Endpoint | `GET /api/closer/respondieron` — conversaciones reales de GHL (Kevin) |
+| **Completadas Hoy** | 🟡 A medias | Se calcula en la vista `closer_mi_dia`; falta exponerla |
+| **Intervenciones urgentes** | ✅ Endpoint | `GET /api/closer/urgentes` (Kevin). **El analizador de IA lo toma otra persona** |
+
+**Los tres endpoints nuevos leen de GHL en vivo, no de la base** — o sea, ya son *polling*, que
+es la dirección que se decidió el 2026-07-30 en reemplazo de los webhooks. Funcionan hoy sin
+que Francisco tenga que crear nada.
+
+#### Sobre el solapamiento con la vista `closer_mi_dia`
+
+Las dos piezas calculan las mismas secciones, así que a primera vista una sobra. No es el caso:
+**se reparten según quién es dueño del dato**, y hoy solo una de las dos devuelve algo.
+
+| | Endpoints (Kevin) | Vista `closer_mi_dia` (mía) |
+|---|---|---|
+| Fuente | GHL, en vivo | `closer_contactos`, proyección en Supabase |
+| Se llena con | nada, consulta directa | webhooks — que **nunca se crearon** |
+| Filas hoy | datos reales | **0** (verificado el 2026-07-30) |
+
+La vista no es código muerto: es lo único que sabe de **seguimientos** —
+`fecha_objetivo`, manual/automático, `fijada`, `completada_dia`— y eso GHL no lo puede
+responder, porque es justamente la desviación consciente del contrato §0 (`CLAUDE.md` §50.1).
+Lo que sí sobra es tener **dos implementaciones del criterio de "en qué sección cae cada
+contacto"**: al cablear el front hay que decidir uno de los dos como autoridad y que el otro
+solo aporte su mitad, o los criterios se van a desalinear en silencio.
 
 ### Avanzar (las 6 salidas)
 
@@ -75,17 +98,23 @@ oportunidades. Sin resolver.
 
 ---
 
-## Webhooks
+## Cómo entran los datos — se cambió a *polling* (2026-07-30)
 
-**El endpoint está construido y desplegado** (`/api/webhooks/ghl`) y entiende 8 eventos.
-Guarda todo crudo antes de interpretarlo, así que nada se pierde aunque el mapeo falle.
+**Decisión: se consulta la API de GHL bajo demanda, en vez de esperar webhooks.** Ventaja
+inmediata: no depende de que Francisco arme nada en GHL, y no hay un secreto compartido que
+mantener. Los tres endpoints de Mi Día ya funcionan así.
 
-**Falta crearlos en GHL** — es trabajo de Francisco, con la ficha exacta de cada uno en
-`docs/WEBHOOKS-GHL-para-Francisco.md`.
+El webhook **no se borró**: `/api/webhooks/ghl` sigue construido y desplegado, entiende 8
+eventos y guarda todo crudo antes de interpretarlo. Queda como el camino de baja latencia
+para cuando se quiera (la ficha de cada uno sigue en
+`docs/WEBHOOKS-GHL-para-Francisco.md`). Lo que cambia es que **ya no bloquea nada**.
+
+Lo que sí queda pendiente de resolver con polling: **cada request pega contra GHL**, así que
+hay que mirar los rate limits y decidir si conviene una caché corta. Sin resolver.
 
 También existe `/api/closer/sincronizar`, que barre GHL y trae todos los contactos con
-`zona_closer`. Es la red de seguridad si un webhook se pierde, y lo que carga los contactos
-que ya tenían el tag desde antes.
+`zona_closer` a `closer_contactos`. Con polling deja de ser "la red de seguridad del webhook"
+y pasa a ser lo único que llena la proyección de la base — hoy está en 0 filas.
 
 ---
 
@@ -132,14 +161,14 @@ global justamente por eso — es el dato que va a pasar a ser por cuenta.
 
 ## Orden sugerido para seguir
 
-1. **Crear los webhooks en GHL** (Francisco) y probar con un contacto de prueba. Es lo que
-   destraba Agenda, Respondieron y Buzón, que ya tienen su lógica escrita.
-2. **Servir el resto de las secciones de Mi Día** desde la vista `closer_mi_dia`, que ya las
-   calcula.
-3. **Las 5 salidas restantes de Avanzar** — el catálogo está hecho, es generalizar el caso de
-   uso.
-4. **Notas e Historial** en la ficha.
-5. Después: Perfil, Chat real, y el módulo Setter.
+1. **Cablear el front a los tres endpoints** (`agenda`, `respondieron`, `urgentes`), que ya
+   devuelven datos reales. Al hacerlo, decidir quién manda en el criterio de sección —el
+   endpoint o la vista— y dejarlo escrito, o los dos criterios se desalinean solos.
+2. **Las 5 salidas restantes de Avanzar** — el catálogo está hecho, es generalizar el caso de
+   uso y quitar el `501`.
+3. **Notas e Historial** en la ficha: las tablas existen y los eventos ya se escriben; falta
+   el endpoint de vuelta.
+4. Después: Perfil, Chat real, y el módulo Setter.
 
 ---
 
