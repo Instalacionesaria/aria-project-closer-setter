@@ -11,7 +11,15 @@
  */
 
 import { env } from "../env.js";
-import type { CampoInput, ContactoGhl, GhlPort, NotaInput, ResultadoGhl, TagsInput } from "./port.js";
+import type {
+  CampoInput,
+  ContactoGhl,
+  GhlPort,
+  NotaInput,
+  OportunidadInput,
+  ResultadoGhl,
+  TagsInput,
+} from "./port.js";
 
 const BASE = "https://services.leadconnectorhq.com";
 /** Versión del contrato de la API v2. GHL la exige en cada request. */
@@ -99,6 +107,97 @@ async function catalogoCampos() {
 const idDeCampo = async (clave: string) => (await catalogoCampos()).claveAId.get(normalizar(clave));
 const mapaIdAClave = async () => (await catalogoCampos()).idAClave;
 
+/* ================================================================== */
+/* Oportunidades                                                      */
+/* ================================================================== */
+
+/** Lo único que nos interesa de una oportunidad. El resto del objeto no se toca. */
+interface OportunidadGhl {
+  id: string;
+  /** open | won | lost | abandoned */
+  status?: string;
+  pipelineId?: string;
+}
+
+type FalloLlamada = Extract<Awaited<ReturnType<typeof llamar>>, { ok: false }>;
+
+/**
+ * La oportunidad del contacto: la abierta si tiene una, y si no la más reciente.
+ *
+ * Dos detalles que no son paranoia gratuita:
+ *
+ * 1. **Los parámetros van en snake_case Y camelCase.** El search de oportunidades es el
+ *    único endpoint de v2 que documenta `location_id`/`contact_id` en snake_case, mientras
+ *    todo el resto de la API usa camelCase — y distintas versiones del portal muestran una
+ *    forma u otra. GHL ignora los parámetros que no conoce, así que mandar los dos nombres
+ *    cuesta nada y evita el modo de falla peor de todos.
+ * 2. **El filtro por contacto se vuelve a aplicar acá.** Si GHL ignorara `contact_id` (que
+ *    es exactamente lo que pasaría con el nombre equivocado), la búsqueda devolvería las
+ *    oportunidades de TODA la location y escribiríamos el monto de una venta sobre el trato
+ *    de otra persona. Un filtro local convierte ese escenario en "no tiene oportunidad",
+ *    que es un error visible, en vez de una corrupción silenciosa.
+ */
+/**
+ * Busca LA oportunidad abierta del contacto — exactamente una, o ninguna.
+ *
+ * Devolver `abiertas` como lista y no una elegida es deliberado: **acá no se desempata**.
+ * Este producto tiene dos pipelines por diseño (Lead Flow del setter y Appointment Flow del
+ * closer, CLAUDE.md §2), así que un contacto puede tener dos tratos abiertos a la vez y
+ * elegir "el primero que devuelva GHL" pondría el monto de una venta high-ticket sobre el
+ * trato del setter. El caller corta con un error explícito.
+ *
+ * Tampoco se cae a una oportunidad CERRADA cuando no hay ninguna abierta. Escenario real:
+ * el contacto compró en junio (`won`, $5.000) y en julio acuerda algo nuevo; sin este
+ * cuidado, registrar "Acordó comprar" con una seña de $500 haría un PUT sobre el trato de
+ * junio y convertiría una venta de $5.000 en una de $500, reportando éxito.
+ *
+ * Es el mismo criterio que ya se aplica al no crear la oportunidad cuando no existe: si el
+ * destino es ambiguo, se para y se dice, en vez de adivinar sobre dinero de otro.
+ */
+async function buscarOportunidadesAbiertas(
+  ghlContactId: string,
+): Promise<{ ok: true; abiertas: OportunidadGhl[] } | FalloLlamada> {
+  const locationId = env.ghlLocationId();
+  // Solo los parámetros documentados de v2 (snake_case). Mandarlos duplicados en camelCase
+  // "por si acaso" es contraproducente: varios endpoints de v2 validan el query string con
+  // whitelist y responden 422, que es 4xx → no reintentable → la venta falla entera por
+  // culpa de la mitigación. La defensa real contra un nombre equivocado es el filtro local
+  // de más abajo, que no depende de que GHL respete el parámetro.
+  const params = new URLSearchParams({
+    location_id: locationId,
+    contact_id: ghlContactId,
+    limit: "20",
+  });
+
+  const r = await llamar("GET", `/opportunities/search?${params.toString()}`);
+  if (!r.ok) return r;
+
+  // GHL devuelve `opportunities: [...]`, pero algunas respuestas traen `opportunity` suelta
+  // (un objeto, no un array). Se normaliza a lista antes de filtrar: un `.filter` sobre un
+  // objeto explota, y sería una excepción sin manejar en medio del registro de una venta.
+  const bruto = r.datos?.opportunities ?? r.datos?.opportunity ?? [];
+  const crudas = (Array.isArray(bruto) ? bruto : [bruto]) as any[];
+
+  // El filtro local es la red de seguridad: si GHL ignorara el filtro por contacto,
+  // devolvería las oportunidades de TODA la location. Se contemplan las tres formas del id
+  // por la misma razón por la que se contempla `pipeline_id` abajo — la respuesta de v2 no
+  // es consistente entre versiones, y quedarse corto acá descartaría todo y haría creer que
+  // el contacto no tiene oportunidades.
+  const delContacto = crudas.filter(
+    (o) => (o?.contact?.id ?? o?.contactId ?? o?.contact_id) === ghlContactId,
+  );
+
+  const abiertas = delContacto
+    .filter((o) => (o?.status ?? "open") === "open" && o?.id)
+    .map((o): OportunidadGhl => ({
+      id: o.id,
+      status: o.status ?? "open",
+      pipelineId: o.pipelineId ?? o.pipeline_id,
+    }));
+
+  return { ok: true, abiertas };
+}
+
 const aResultado = (r: Awaited<ReturnType<typeof llamar>>): ResultadoGhl =>
   r.ok
     ? { ok: true, aplicado: true, detalle: r.datos }
@@ -148,6 +247,109 @@ export const ghlReal: GhlPort = {
       customFields: [{ id, field_value: valor }],
     });
     return aResultado(r);
+  },
+
+  /**
+   * Escribe el monto en el **Opportunity Value** de la oportunidad del contacto.
+   *
+   * Son dos llamadas porque la API v2 no expone las oportunidades por contacto: primero
+   * `GET /opportunities/search` para encontrarla, después `PUT /opportunities/{id}`.
+   *
+   * ── Se escribe SOLO si hay exactamente una oportunidad abierta ──
+   *
+   * Ninguna, o más de una, devuelve `ok: false` con el motivo. Las tres razones:
+   *
+   * - **Ninguna**: no se crea. `POST /opportunities` exige `pipelineId` y `pipelineStageId`,
+   *   y este puerto no los conoce (no están en el env ni en el contrato). Elegir uno
+   *   "razonable" metería el trato en un pipeline arbitrario y dispararía los workflows
+   *   enganchados a ese stage — el mismo daño silencioso que ya costó caro con los custom
+   *   fields por `key`.
+   * - **Varias**: el producto tiene dos pipelines por diseño (§2), así que un contacto puede
+   *   tener el trato del setter y el del closer abiertos a la vez. Elegir uno al azar pone
+   *   el monto de una venta high-ticket sobre el trato equivocado.
+   * - **Solo cerradas**: pisar una `won` le cambia el monto a una venta ya cobrada. Un
+   *   contacto que compró en junio por $5.000 y en julio deja una seña de $500 terminaría
+   *   con una venta de $5.000 convertida en una de $500, y con `aplicado: true`.
+   *
+   * ── Por qué el PUT manda más que `monetaryValue` ──
+   *
+   * `pipelineId` se reenvía tal cual vino del search porque algunas versiones del endpoint
+   * lo validan como obligatorio en el cuerpo; mandar el mismo valor que ya tiene es un
+   * no-op. `status` solo se toca cuando la venta está cobrada (`ganada` → `won`); si no, no
+   * se manda, para no reabrir ni cerrar nada por accidente.
+   *
+   * ── El 200 no alcanza ──
+   *
+   * Se relee `monetaryValue` de la respuesta del PUT y se compara con lo que se quiso
+   * escribir. En esta integración un 2xx no prueba escritura (§50.5: el custom field por
+   * `key` devuelve 200 y no escribe), y acá se trata de dinero. Sin coincidencia se
+   * devuelve `aplicado: false`, nunca un éxito sin evidencia.
+   */
+  async fijarValorOportunidad({ ghlContactId, monto, ganada }: OportunidadInput) {
+    if (!Number.isFinite(monto) || monto < 0) {
+      return {
+        ok: false as const,
+        reintentable: false,
+        error: `Monto inválido para el Opportunity Value: ${monto}. Se esperaba un número finito y no negativo.`,
+      };
+    }
+
+    const busqueda = await buscarOportunidadesAbiertas(ghlContactId);
+    if (!busqueda.ok) return aResultado(busqueda);
+
+    const { abiertas } = busqueda;
+
+    if (abiertas.length === 0) {
+      return {
+        ok: false as const,
+        reintentable: false,
+        error:
+          `El contacto ${ghlContactId} no tiene ninguna oportunidad ABIERTA en GHL, así que no hay ` +
+          `dónde escribir el monto sin pisar un trato ya cerrado. Crearla requiere pipelineId y ` +
+          `stageId, que este puerto no conoce: hay que abrir la oportunidad en GHL y reintentar.`,
+      };
+    }
+
+    if (abiertas.length > 1) {
+      const detalle = abiertas.map((o) => `${o.id}${o.pipelineId ? ` (pipeline ${o.pipelineId})` : ""}`).join(", ");
+      return {
+        ok: false as const,
+        reintentable: false,
+        error:
+          `El contacto ${ghlContactId} tiene ${abiertas.length} oportunidades abiertas y no hay forma ` +
+          `de saber cuál corresponde a este resultado: ${detalle}. No se escribe el monto para no ` +
+          `ponerlo sobre el trato equivocado — hay que cerrar las que no correspondan y reintentar.`,
+      };
+    }
+
+    const op = abiertas[0];
+    const cuerpo: Record<string, unknown> = { monetaryValue: monto };
+    if (op.pipelineId) cuerpo.pipelineId = op.pipelineId;
+    if (ganada) cuerpo.status = "won";
+
+    const r = await llamar("PUT", `/opportunities/${op.id}`, cuerpo);
+    if (!r.ok) return aResultado(r);
+
+    // Verificación de escritura: si GHL no devuelve el valor o no coincide, no se afirma
+    // que se aplicó. `ok: true` porque la llamada no falló, `aplicado: false` porque no hay
+    // prueba de que el dinero haya quedado escrito.
+    const escrito = Number(r.datos?.opportunity?.monetaryValue ?? r.datos?.monetaryValue);
+    if (!Number.isFinite(escrito) || escrito !== monto) {
+      return {
+        ok: true as const,
+        aplicado: false,
+        detalle: {
+          oportunidadId: op.id,
+          montoEnviado: monto,
+          montoLeido: Number.isFinite(escrito) ? escrito : null,
+          aviso:
+            "GHL respondió 2xx pero el monto releído no coincide con el enviado. No se puede " +
+            "afirmar que el Opportunity Value quedó escrito.",
+        },
+      };
+    }
+
+    return { ok: true as const, aplicado: true, detalle: { oportunidadId: op.id, monto: escrito } };
   },
 
   async obtenerContacto(ghlContactId: string): Promise<ContactoGhl | null> {

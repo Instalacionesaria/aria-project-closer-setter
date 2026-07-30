@@ -1,17 +1,21 @@
 /**
- * Registrar un seguimiento: el caso de uso completo.
+ * Los resultados de Avanzar (closer): el caso de uso, para las SEIS salidas.
+ *
+ * Hasta el 2026-07-30 este módulo solo sabía de Seguimiento y las otras cinco devolvían 501.
+ * Ahora la lógica es una sola y la diferencia entre salidas vive en el catálogo
+ * (`src/lib/ghl/resultados.ts`): cada una declara su tag, su custom field de subcategoría,
+ * sus opciones válidas y si exige monto. Agregar una salida es agregar una entrada, no
+ * tocar este archivo.
  *
  * Orden deliberado — primero SOFIA, después GHL:
  *
- *   1. Cierra el seguimiento abierto que hubiera (uno por contacto, lo garantiza el índice
- *      parcial único de la base).
- *   2. Inserta el nuevo.
- *   3. Escribe el evento en el historial.
- *   4. Recién ahí aplica los efectos en GHL.
+ *   1. Se cierra el seguimiento abierto que hubiera.
+ *   2. Se registra el resultado (fila nueva si es Seguimiento; evento e historial siempre).
+ *   3. Recién ahí se aplican los efectos en GHL.
  *
- * Si GHL falla en el paso 4, el seguimiento igual quedó registrado y la intención quedó en
- * el outbox — se reintenta. Al revés sería peor: un tag aplicado en GHL sin fila en la base
- * es un contacto que un workflow persigue y que nuestra cola no conoce.
+ * Si GHL falla en el paso 3, el resultado igual quedó registrado y la intención quedó en el
+ * outbox — se reintenta. Al revés sería peor: un tag aplicado en GHL sin fila en la base es
+ * un contacto que un workflow persigue y que nuestra cola no conoce.
  *
  * No es una transacción distribuida y no pretende serlo. Es "registrar primero, propagar
  * después", que para este dominio es la falla correcta.
@@ -24,8 +28,10 @@ import {
   TAGS_SEGUIMIENTO_EXCLUYENTES,
   assertEnviable,
   situacionPorSlug,
+  type Literal,
   type SituacionSeguimiento,
 } from "../../src/lib/ghl/contrato.js";
+import { RESULTADOS, TAGS_RESULTADO_EXCLUYENTES, type ResultadoAvanzar } from "../../src/lib/ghl/resultados.js";
 import {
   DIAS_GRACIA_SERIE,
   SERIE_RECUPERO,
@@ -35,9 +41,237 @@ import {
 } from "../../src/lib/seguimientos/dominio.js";
 import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
-import { ORG_ID, db } from "./repo.js";
+import type { ResultadoGhl } from "./ghl/port.js";
+import { ORG_ID, db, hoyOrg } from "./repo.js";
 
 const CLOSER_POR_DEFECTO = "00000000-0000-0000-0000-0000000000c1";
+/** Un solo closer mientras `zona_closer` sea territorio y no asignación (§50.7). */
+const AUTOR_POR_DEFECTO = "Diego M.";
+
+/** Toda salida que NO es Seguimiento — no crea fila, solo cierra la que hubiera. */
+export type ResultadoSinSeguimiento = Exclude<ResultadoAvanzar, "seguimiento">;
+
+export interface EfectoGhl {
+  operacion: string;
+  detalle: string;
+  ok: boolean;
+  /** `true` solo si GHL lo confirmó. El stub siempre devuelve `false` (§4 del puerto). */
+  aplicado: boolean;
+  error?: string;
+  /**
+   * Lo que devolvió el adapter, cuando dice algo que el resumen no puede inferir.
+   *
+   * Existe por un caso concreto: en modo stub casi todas las operaciones quedan anotadas en
+   * `closer_ghl_outbox` (una cola de replay real), pero `fijar_valor_oportunidad` NO —
+   * `operacion` es un enum cerrado en la base y no tiene ese valor. Sin propagar esto, la
+   * respuesta decía "los efectos se registraron pero no se aplicaron" y el operador asumía
+   * que había una cola pendiente con los montos. No la hay: se pierden. Y es dinero.
+   */
+  aviso?: string;
+}
+
+/* ================================================================== */
+/* Traducción de etiquetas de la UI a valores literales de GHL         */
+/* ================================================================== */
+
+/**
+ * La UI escribe las subcategorías con separador tipográfico —`"Avisó · quiere reagendar"`—
+ * y GHL espera el valor EXACTO de su dropdown —`"Avisó quiere reagendar"`—. Si no matchea
+ * carácter por carácter, GHL devuelve **200 y no escribe nada**: el fallo más caro de esta
+ * integración, porque no se nota.
+ *
+ * Por eso la traducción vive acá y en ningún otro lado, y por eso siempre se devuelve el
+ * literal DEL CATÁLOGO, nunca el string que mandó el cliente: aunque venga con una tilde de
+ * más o de menos, lo que sale hacia GHL es la opción declarada.
+ *
+ * Tres pasadas, de la más estricta a la más tolerante:
+ *   1. Igualdad exacta contra `def.opciones`.
+ *   2. Igualdad tras quitar los separadores `·`.
+ *   3. Igualdad sin tildes ni mayúsculas, por si el front cambia una etiqueta.
+ *
+ * `null` = no matchea ninguna opción. El endpoint responde 400 con la lista, que es
+ * infinitamente mejor que un 200 que no escribió nada.
+ */
+export function resolverSubcategoria(resultado: ResultadoAvanzar, valorUi: string): string | null {
+  const opciones = RESULTADOS[resultado].opciones;
+  if (opciones.length === 0) return null;
+
+  const crudo = valorUi.trim();
+  const sinSeparador = quitarSeparadores(crudo);
+
+  const exacta = opciones.find((o) => o === crudo || o === sinSeparador);
+  if (exacta) return exacta;
+
+  const plano = aplanar(crudo);
+  return opciones.find((o) => aplanar(o) === plano) ?? null;
+}
+
+/** `"Avisó · quiere reagendar"` → `"Avisó quiere reagendar"`. */
+const quitarSeparadores = (v: string) =>
+  v
+    .replace(/\s*[·•]\s*/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/**
+ * Sin separadores, sin tildes y en minúsculas — solo para COMPARAR, nunca para enviar.
+ * `NFD` parte la "ó" en "o" + acento combinante, y `\p{Diacritic}` se lleva el acento; se usa
+ * la propiedad Unicode en vez de un rango literal para que el rango no viva en el código
+ * fuente como caracteres invisibles pegados al corchete.
+ */
+const aplanar = (v: string) =>
+  quitarSeparadores(v)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+
+/* ================================================================== */
+/* Efectos en GHL — el motor genérico de las 6 salidas                 */
+/* ================================================================== */
+
+export interface EfectosGhlInput {
+  ghlContactId: string;
+  resultado: ResultadoAvanzar;
+  /** Valor YA resuelto contra `def.opciones` por `resolverSubcategoria`. */
+  subcategoria?: string | null;
+  /** Venta y Acordó comprar: va al Opportunity Value. */
+  monto?: number;
+  /** Solo Seguimiento: el tag del modo elegido, que convive con `seguimiento`. */
+  tagModo?: Literal;
+  seguimientoId?: string;
+  idempotencyKey: string;
+}
+
+/**
+ * Aplica CUALQUIERA de las seis salidas a partir de su definición del catálogo.
+ *
+ * Ningún efecto interrumpe a los otros: si uno falla se anota y se sigue. El resultado dice
+ * exactamente qué se aplicó y qué no — el caller decide si eso es aceptable, y la respuesta
+ * del endpoint lo muestra tal cual.
+ */
+export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGhl[]> {
+  const def = RESULTADOS[args.resultado];
+  const cliente = ghl();
+  const modoReal = env.ghlModo() === "real";
+  const efectos: EfectoGhl[] = [];
+  const base = { ghlContactId: args.ghlContactId, seguimientoId: args.seguimientoId };
+
+  const tagResultado = TAGS[def.tag];
+  const aAplicar: Literal[] = args.tagModo ? [tagResultado, args.tagModo] : [tagResultado];
+  const aQuitar = tagsAQuitar(args.resultado, args.tagModo);
+  const campo = def.campo ? CAMPOS[def.campo] : null;
+
+  // Portón: un literal sin confirmar no sale nunca en modo real.
+  for (const t of [...aAplicar, ...aQuitar]) assertEnviable(t, modoReal);
+  if (campo) assertEnviable(campo, modoReal);
+
+  const anotar = (operacion: string, detalle: string, r: ResultadoGhl) => {
+    if (!r.ok) {
+      efectos.push({ operacion, detalle, ok: false, aplicado: false, error: r.error });
+      return;
+    }
+    // El adapter puede dejar un aviso en `detalle` que el resumen no puede deducir solo con
+    // `ok`/`aplicado` — el caso real es el stub avisando que esta operación NO quedó en el
+    // outbox. Se propaga en vez de descartarse.
+    const d = r.detalle as Record<string, unknown> | undefined;
+    const aviso = typeof d?.aviso === "string" ? d.aviso : typeof d?.sinOutbox === "string" ? d.sinOutbox : undefined;
+    efectos.push({ operacion, detalle, ok: true, aplicado: r.aplicado, ...(aviso ? { aviso } : {}) });
+  };
+
+  if (aQuitar.length > 0) {
+    anotar(
+      "remover_tag",
+      aQuitar.map((t) => t.valor).join(", "),
+      await cliente.removerTags({
+        ...base,
+        tags: aQuitar.map((t) => t.valor),
+        idempotencyKey: `${args.idempotencyKey}:quitar`,
+      }),
+    );
+  }
+
+  anotar(
+    "aplicar_tag",
+    aAplicar.map((t) => t.valor).join(", "),
+    await cliente.aplicarTags({
+      ...base,
+      tags: aAplicar.map((t) => t.valor),
+      idempotencyKey: `${args.idempotencyKey}:aplicar`,
+    }),
+  );
+
+  // Sin campo declarado (Acordó comprar) o sin valor no hay nada que escribir. Que el valor
+  // exista cuando el catálogo lo exige lo garantiza la validación del endpoint.
+  if (campo && args.subcategoria) {
+    anotar(
+      "escribir_campo",
+      `${campo.valor} = ${args.subcategoria}`,
+      await cliente.escribirCampo({
+        ...base,
+        campo: campo.valor,
+        valor: args.subcategoria,
+        idempotencyKey: `${args.idempotencyKey}:campo`,
+      }),
+    );
+  }
+
+  /**
+   * El monto no es un custom field: es el **Opportunity Value** de la oportunidad del
+   * contacto — lo que después alimenta Cash Collected y las métricas de Gerencia. Venta lo
+   * manda como ganada; Acordó comprar manda la seña sobre una oportunidad que sigue abierta,
+   * porque una promesa no es un cobro (§12).
+   *
+   * Es el único efecto que puede fallar por una razón de negocio y no técnica: si el contacto
+   * no tiene ninguna oportunidad en GHL, el puerto devuelve `ok: false` con el motivo en vez
+   * de crear una en un pipeline arbitrario. Ese error llega tal cual a la respuesta — el tag
+   * y la subcategoría se aplicaron, el monto no, y eso se dice.
+   */
+  if (def.requiereMonto && typeof args.monto === "number") {
+    anotar(
+      "fijar_valor_oportunidad",
+      `Opportunity Value = ${args.monto}${args.resultado === "venta" ? " (ganada)" : ""}`,
+      await cliente.fijarValorOportunidad({
+        ...base,
+        monto: args.monto,
+        ganada: args.resultado === "venta",
+        idempotencyKey: `${args.idempotencyKey}:valor`,
+      }),
+    );
+  }
+
+  return efectos;
+}
+
+/**
+ * Qué tags se quitan al registrar cada salida. Son dos reglas distintas:
+ *
+ * **Seguimiento** — exclusión entre MODOS: un contacto está en manual, o en una serie, o en
+ * ninguna, nunca en dos. No toca los tags de los otros resultados: el contrato §9 aclara que
+ * `seguimiento` "sirve pre y post call", así que convive con ellos.
+ *
+ * **Las otras cinco** — exclusión entre RESULTADOS (no se puede estar en Venta y en No-show
+ * a la vez) **más la cancelación universal**: se quitan `seguimiento_recupero` y
+ * `seguimiento_manual` sí o sí. Sin eso, registrar un No-show sobre un contacto con serie
+ * activa deja el tag puesto y el workflow de GHL sigue persiguiendo a alguien ya resuelto.
+ *
+ * Las series del setter (`seguimiento_para_agendar`, `seguimiento_decision_lt`) se dejan
+ * intactas a propósito: desde el territorio del closer son de solo lectura (ver su `uso` en
+ * `contrato.ts`), y pisarlas sería resolverle la cola a otro rol.
+ */
+function tagsAQuitar(resultado: ResultadoAvanzar, tagModo?: Literal): Literal[] {
+  if (resultado === "seguimiento") {
+    return TAGS_SEGUIMIENTO_EXCLUYENTES.map((k) => TAGS[k]).filter((t) => t.valor !== tagModo?.valor);
+  }
+
+  const propio = TAGS[RESULTADOS[resultado].tag].valor;
+  const otrosResultados = TAGS_RESULTADO_EXCLUYENTES.map((k) => TAGS[k]).filter((t) => t.valor !== propio);
+
+  return [...otrosResultados, TAGS.seguimientoRecupero, TAGS.seguimientoManual];
+}
+
+/* ================================================================== */
+/* Salida Seguimiento — crea fila, con su fecha y su serie             */
+/* ================================================================== */
 
 export interface RegistrarSeguimientoInput {
   ghlContactId: string;
@@ -48,14 +282,6 @@ export interface RegistrarSeguimientoInput {
   nota?: string;
   idempotencyKey: string;
   closerId?: string;
-}
-
-export interface EfectoGhl {
-  operacion: string;
-  detalle: string;
-  ok: boolean;
-  aplicado: boolean;
-  error?: string;
 }
 
 export interface ResultadoRegistro {
@@ -70,7 +296,6 @@ export interface ResultadoRegistro {
 export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Promise<ResultadoRegistro> {
   const closerId = input.closerId ?? CLOSER_POR_DEFECTO;
   const fechaObjetivo = resolverFechaObjetivo({ ...input, closerId });
-  const ahora = new Date().toISOString();
   const esAutomatico = input.modo === "automatico";
 
   const situacionLabel = situacionPorSlug(input.situacion).label;
@@ -94,7 +319,7 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
     p_serie_toques: esAutomatico ? SERIE_RECUPERO.toques : null,
     p_serie_dias: esAutomatico ? SERIE_RECUPERO.dias : null,
     p_texto_evento: textoEvento,
-    p_autor_nombre: "Diego M.",
+    p_autor_nombre: AUTOR_POR_DEFECTO,
     p_org_id: ORG_ID,
   });
 
@@ -109,83 +334,196 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
   /* ── 2. Efectos en GHL ───────────────────────────────────────────────── */
   const efectos = await aplicarEfectosGhl({
     ghlContactId: input.ghlContactId,
+    resultado: "seguimiento",
+    subcategoria: situacionLabel,
+    tagModo: esAutomatico ? TAGS.seguimientoRecupero : TAGS.seguimientoManual,
     seguimientoId,
-    situacionLabel,
-    esAutomatico,
     idempotencyKey: input.idempotencyKey,
   });
 
-  const toast = esAutomatico
-    ? "Seguimiento automático activado"
-    : `Seguimiento programado — ${fechaObjetivo}`;
+  const toast = esAutomatico ? "Seguimiento automático activado" : `Seguimiento programado — ${fechaObjetivo}`;
 
   return { seguimientoId, fechaObjetivo, reemplazo, efectosGhl: efectos, toast };
 }
 
-/**
- * Los tres efectos, en orden de importancia:
- *   - Quitar los tags de seguimiento que hubiera (son mutuamente excluyentes: un contacto
- *     está en manual, o en una serie, o en ninguna — nunca en dos).
- *   - Aplicar el del modo elegido, más `seguimiento`, que es el que mueve el stage.
- *   - Escribir la situación en el custom field, que es lo que pinta la subcategoría.
- *
- * Ninguno interrumpe a los otros: si uno falla, se anota y se sigue. El resultado dice
- * exactamente qué se aplicó y qué no — el caller decide si eso es aceptable.
- */
-async function aplicarEfectosGhl(args: {
+/* ================================================================== */
+/* Las otras cinco salidas                                             */
+/* ================================================================== */
+
+export interface RegistrarResultadoInput {
   ghlContactId: string;
-  seguimientoId: string;
-  situacionLabel: string;
-  esAutomatico: boolean;
+  resultado: ResultadoSinSeguimiento;
+  /** Valor ya resuelto contra el catálogo. `null` = esta salida no escribe campo. */
+  subcategoria?: string | null;
+  monto?: number;
+  nota?: string;
+  /** Píldora ya compuesta. Va como contexto de la nota en el tab Notas (§3). */
+  pildora: string;
+  /** Texto exacto que se escribe en el Historial. */
+  textoEvento: string;
   idempotencyKey: string;
-}): Promise<EfectoGhl[]> {
-  const cliente = ghl();
-  const modoReal = env.ghlModo() === "real";
-  const efectos: EfectoGhl[] = [];
-  const base = { ghlContactId: args.ghlContactId, seguimientoId: args.seguimientoId };
+  closerId?: string;
+}
 
-  const tagModo = args.esAutomatico ? TAGS.seguimientoRecupero : TAGS.seguimientoManual;
-  const aQuitar = TAGS_SEGUIMIENTO_EXCLUYENTES.map((k) => TAGS[k]).filter((t) => t.valor !== tagModo.valor);
+export interface ResultadoRegistroAvanzar {
+  /** El seguimiento que cerró la cancelación universal, si había uno abierto. */
+  seguimientoCancelado?: { id: string; modo: ModoSeguimiento; situacion: SituacionSeguimiento };
+  efectosGhl: EfectoGhl[];
+  /** Lo que falló sin ser fatal (la nota, la tarea del día). Se reporta, no se esconde. */
+  advertencias: string[];
+}
 
-  // Portón: un literal sin confirmar no sale nunca en modo real.
-  for (const t of [tagModo, TAGS.seguimiento, ...aQuitar]) assertEnviable(t, modoReal);
-  assertEnviable(CAMPOS.nivelInteresSeguimiento, modoReal);
+/**
+ * Registra cualquier salida que no sea Seguimiento.
+ *
+ * Lo que hace, en orden, y por qué cada paso está donde está:
+ *
+ *   1. **Cancelación universal.** Cierra el seguimiento abierto con motivo `avanzar` y autor
+ *      `Sistema` — el closer registró un resultado, no canceló un seguimiento a mano. Es lo
+ *      que apaga el ⏱ y lo que evita que un trato ganado siga en la cola.
+ *   2. **Historial.** `avanzar_registrado`, con autor real: esto lo hizo una persona.
+ *   3. **Nota** al tab Notas, con la píldora como contexto (§3).
+ *   4. **Tarea del día completada** — el closer ya trabajó a este contacto hoy, así que cae
+ *      en "Completadas Hoy", igual que hace la RPC de Seguimiento.
+ *   5. **Efectos en GHL.**
+ *
+ * Los pasos 1 y 2 lanzan si fallan: son EL registro, y sin ellos no hay nada que propagar.
+ * Los pasos 3 y 4 son accesorios de la cola de trabajo — que falle la nota no puede impedir
+ * registrar una venta, así que se anotan en `advertencias` y se sigue.
+ *
+ * No es atómico: son escrituras separadas desde Node, sin transacción. Meterlas en una
+ * función de Postgres —como se hizo con Seguimiento en 003_*.sql— sería mejor, y hace falta
+ * una migración para eso. Queda anotado, no disimulado.
+ */
+export async function registrarResultadoAvanzar(
+  input: RegistrarResultadoInput,
+): Promise<ResultadoRegistroAvanzar> {
+  const closerId = input.closerId ?? CLOSER_POR_DEFECTO;
+  const ahora = new Date().toISOString();
+  const advertencias: string[] = [];
 
-  const anotar = (operacion: string, detalle: string, r: Awaited<ReturnType<typeof cliente.aplicarTags>>) =>
-    efectos.push(
-      r.ok
-        ? { operacion, detalle, ok: true, aplicado: r.aplicado }
-        : { operacion, detalle, ok: false, aplicado: false, error: r.error },
-    );
+  /* ── 1. Cancelación universal ────────────────────────────────────────── */
+  // El índice parcial único garantiza como mucho un seguimiento abierto por contacto, así
+  // que `maybeSingle()` es exacto y no una apuesta.
+  const { data: cerrado, error: errCerrar } = await db()
+    .from("closer_seguimientos")
+    .update({ estado: "cancelado", motivo_cierre: "avanzar", cerrado_el: ahora, cerrado_por: closerId })
+    .eq("ghl_contact_id", input.ghlContactId)
+    .in("estado", ["pendiente", "agotado"])
+    .select("id, modo, situacion")
+    .maybeSingle();
 
-  anotar(
-    "remover_tag",
-    aQuitar.map((t) => t.valor).join(", "),
-    await cliente.removerTags({ ...base, tags: aQuitar.map((t) => t.valor), idempotencyKey: `${args.idempotencyKey}:quitar` }),
-  );
+  if (errCerrar) throw new Error(`cancelar el seguimiento abierto: ${errCerrar.message}`);
 
-  anotar(
-    "aplicar_tag",
-    [TAGS.seguimiento.valor, tagModo.valor].join(", "),
-    await cliente.aplicarTags({
-      ...base,
-      tags: [TAGS.seguimiento.valor, tagModo.valor],
-      idempotencyKey: `${args.idempotencyKey}:aplicar`,
-    }),
-  );
+  const seguimientoCancelado = cerrado
+    ? { id: cerrado.id as string, modo: cerrado.modo as ModoSeguimiento, situacion: cerrado.situacion as SituacionSeguimiento }
+    : undefined;
 
-  anotar(
-    "escribir_campo",
-    `${CAMPOS.nivelInteresSeguimiento.valor} = ${args.situacionLabel}`,
-    await cliente.escribirCampo({
-      ...base,
-      campo: CAMPOS.nivelInteresSeguimiento.valor,
-      valor: args.situacionLabel,
-      idempotencyKey: `${args.idempotencyKey}:campo`,
-    }),
-  );
+  if (seguimientoCancelado) {
+    // Autor `Sistema`: nadie canceló este seguimiento, lo cerró la consecuencia de otro
+    // resultado (§2 — los eventos automáticos llevan autor Sistema y no pasan por Avanzar).
+    await registrarEvento({
+      ghlContactId: input.ghlContactId,
+      seguimientoId: seguimientoCancelado.id,
+      tipo: "seguimiento_cancelado",
+      texto: `Seguimiento cerrado automáticamente al registrar ${RESULTADOS[input.resultado].categoriaPildora}`,
+      autor: { tipo: "sistema" },
+      payload: { motivo: "avanzar", resultado: input.resultado },
+    });
+  }
 
-  return efectos;
+  /* ── 2. Historial ────────────────────────────────────────────────────── */
+  await registrarEvento({
+    ghlContactId: input.ghlContactId,
+    tipo: "avanzar_registrado",
+    texto: input.textoEvento,
+    autor: { tipo: "usuario", nombre: AUTOR_POR_DEFECTO, usuarioId: closerId },
+    payload: {
+      resultado: input.resultado,
+      subcategoria: input.subcategoria ?? null,
+      monto: input.monto ?? null,
+      pildora: input.pildora,
+    },
+  });
+
+  /* ── 3. Nota ─────────────────────────────────────────────────────────── */
+  const nota = input.nota?.trim();
+  if (nota) {
+    const { error } = await db().from("closer_notas").insert({
+      org_id: ORG_ID,
+      ghl_contact_id: input.ghlContactId,
+      texto: nota,
+      contexto: input.pildora,
+      autor_nombre: AUTOR_POR_DEFECTO,
+      autor_usuario_id: closerId,
+    });
+    if (error) advertencias.push(`La nota no se guardó: ${error.message}`);
+  }
+
+  /* ── 4. Tarea del día ────────────────────────────────────────────────── */
+  // El día lo calcula Postgres, nunca Node: la sesión de Supabase corre en UTC y a las 20:00
+  // de Lima daría el día siguiente. Si no se puede resolver, no se escribe un día inventado.
+  const hoy = await hoyOrg();
+  if (!hoy) {
+    advertencias.push("No se pudo resolver el día de la organización: el contacto no se marcó como completado hoy.");
+  } else {
+    const { error } = await db()
+      .from("closer_contacto_tarea")
+      .upsert(
+        {
+          ghl_contact_id: input.ghlContactId,
+          org_id: ORG_ID,
+          fijada: false,
+          completada_dia: hoy,
+          completada_el: ahora,
+          completada_por: closerId,
+          actualizado_el: ahora,
+        },
+        { onConflict: "ghl_contact_id" },
+      );
+    if (error) advertencias.push(`El contacto no se marcó como completado hoy: ${error.message}`);
+  }
+
+  /* ── 5. Efectos en GHL ───────────────────────────────────────────────── */
+  const efectosGhl = await aplicarEfectosGhl({
+    ghlContactId: input.ghlContactId,
+    resultado: input.resultado,
+    subcategoria: input.subcategoria,
+    monto: input.monto,
+    idempotencyKey: input.idempotencyKey,
+  });
+
+  return { seguimientoCancelado, efectosGhl, advertencias };
+}
+
+/**
+ * Un evento del timeline. La tabla es append-only por trigger, así que esto es la única
+ * forma de escribir historia — y el CHECK `sistema_se_llama_sistema` obliga a que el autor
+ * `sistema` se llame literalmente "Sistema".
+ */
+async function registrarEvento(args: {
+  ghlContactId: string;
+  tipo: string;
+  texto: string;
+  seguimientoId?: string;
+  autor: { tipo: "sistema" } | { tipo: "usuario"; nombre: string; usuarioId: string };
+  payload?: Record<string, unknown>;
+}): Promise<void> {
+  const { error } = await db()
+    .from("closer_contacto_eventos")
+    .insert({
+      org_id: ORG_ID,
+      ghl_contact_id: args.ghlContactId,
+      seguimiento_id: args.seguimientoId ?? null,
+      tipo: args.tipo,
+      texto: args.texto,
+      autor_tipo: args.autor.tipo,
+      autor_nombre: args.autor.tipo === "sistema" ? "Sistema" : args.autor.nombre,
+      autor_usuario_id: args.autor.tipo === "usuario" ? args.autor.usuarioId : null,
+      payload: args.payload ?? {},
+    });
+
+  if (error) throw new Error(`historial (${args.tipo}): ${error.message}`);
 }
 
 /** Lo que el módulo espera del catálogo de series — expuesto para el diagnóstico. */

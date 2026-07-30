@@ -15,7 +15,12 @@
  * sin esperar el webhook de vuelta.
  */
 
-import { CAMPOS, TAGS, type CampoKey, type Literal, type TagKey } from "./contrato";
+// La extensión `.js` es obligatoria, no cosmética: este módulo lo importan las funciones de
+// `api/`, que corren como ESM nativo en Node y no resuelven un import relativo sin ella
+// (CLAUDE.md §50.9). `tsc` no lo detecta —con `moduleResolution: "bundler"` es válido— y
+// falla recién en runtime, con un FUNCTION_INVOCATION_FAILED que no dice qué módulo fue.
+// Vite lo resuelve igual, así que el front no cambia.
+import { CAMPOS, TAGS, type CampoKey, type Literal, type TagKey } from "./contrato.js";
 
 export type ResultadoAvanzar = "venta" | "acordo" | "seguimiento" | "no_interesa" | "no_show" | "nurture";
 
@@ -114,7 +119,16 @@ export const RESULTADOS: Readonly<Record<ResultadoAvanzar, ResultadoDef>> = {
   },
 };
 
-export const esResultadoValido = (v: string): v is ResultadoAvanzar => v in RESULTADOS;
+/**
+ * Propiedad propia, no `in`: el operador `in` recorre la cadena de prototipos, así que
+ * `esResultadoValido("toString")` devolvía `true` y un body con `resultado: "constructor"`
+ * pasaba la validación del endpoint para después no encontrar nada en el catálogo.
+ *
+ * Se usa `hasOwnProperty.call` y no `Object.hasOwn` porque el `lib` del proyecto es ES2020
+ * y `hasOwn` llegó en ES2022 — subir el target por una línea traería cambios que nadie pidió.
+ */
+export const esResultadoValido = (v: string): v is ResultadoAvanzar =>
+  Object.prototype.hasOwnProperty.call(RESULTADOS, v);
 
 /** El tag y el campo de un resultado, ya resueltos a sus literales. */
 export function literalesDe(r: ResultadoAvanzar): { tag: Literal; campo: Literal | null } {

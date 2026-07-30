@@ -35,6 +35,17 @@ export interface NotaInput extends OperacionBase {
   cuerpo: string;
 }
 
+export interface OportunidadInput extends OperacionBase {
+  /** Monto que va al Opportunity Value, en la moneda de la subcuenta. Nunca negativo. */
+  monto: number;
+  /**
+   * `true` cuando el monto viene de una Venta cerrada: además del valor, la oportunidad
+   * pasa a `won`. Sin esto, un "Acordó comprar, falta pago" (§16.2) marcaría como ganado
+   * un trato que todavía no se cobró.
+   */
+  ganada?: boolean;
+}
+
 export interface ContactoGhl {
   id: string;
   nombre: string;
@@ -62,6 +73,25 @@ export interface GhlPort {
    * workflow, así que no hay efecto que reproducir después. Igual devuelve `aplicado: false`.
    */
   escribirNota(i: NotaInput): Promise<ResultadoGhl>;
+
+  /**
+   * Fija el **Opportunity Value** de la oportunidad del contacto — el monto de una Venta
+   * tiene que llegar ahí, no solo a un custom field (decisión de Francisco, 2026-07-30):
+   * es el número con el que GHL arma sus propios reportes de pipeline.
+   *
+   * Es una operación idempotente por naturaleza: escribe un valor absoluto, no un delta,
+   * así que reintentarla con el mismo monto deja el mismo resultado. `idempotencyKey`
+   * viaja igual por `OperacionBase` para que el stub —y cualquier outbox futuro— puedan
+   * deduplicar la intención sin tratar esta operación distinto del resto.
+   *
+   * **Requiere que el contacto YA tenga una oportunidad.** Crearla necesita `pipelineId` y
+   * `stageId`, que este puerto no conoce; si no hay ninguna devuelve `ok: false` con el
+   * motivo, nunca un éxito silencioso. El detalle de por qué está en `real.ts`.
+   *
+   * Igual que `escribirNota`, el stub NO la registra en el outbox: `operacion` es un enum
+   * cerrado en la base y no incluye esta operación. Ver el comentario en `stub.ts`.
+   */
+  fijarValorOportunidad(i: OportunidadInput): Promise<ResultadoGhl>;
 
   obtenerContacto(ghlContactId: string): Promise<ContactoGhl | null>;
 

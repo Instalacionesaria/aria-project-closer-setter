@@ -11,7 +11,15 @@
  */
 
 import { registrarEnOutbox } from "../repo.js";
-import type { CampoInput, ContactoGhl, GhlPort, NotaInput, ResultadoGhl, TagsInput } from "./port.js";
+import type {
+  CampoInput,
+  ContactoGhl,
+  GhlPort,
+  NotaInput,
+  OportunidadInput,
+  ResultadoGhl,
+  TagsInput,
+} from "./port.js";
 
 async function anotar(
   operacion: "aplicar_tag" | "remover_tag" | "escribir_campo",
@@ -54,6 +62,33 @@ export const ghlStub: GhlPort = {
    */
   async escribirNota(_i: NotaInput): Promise<ResultadoGhl> {
     return { ok: true, aplicado: false, detalle: { omitido: "nota no registrada en modo stub" } };
+  },
+
+  /**
+   * Segunda operación fuera del outbox, por el mismo motivo estructural que la nota:
+   * `closer_ghl_outbox.operacion` es un enum cerrado en la base
+   * (`aplicar_tag | remover_tag | escribir_campo | mover_stage`, ver `docs/db/001_seguimientos.sql`)
+   * y no tiene un valor para esto. Insertar uno inventado no "queda pendiente": la check
+   * constraint lo rechaza, `registrarEnOutbox` lanza, y el stub devolvería `ok: false` —
+   * o sea, una operación que en modo stub no debería fallar pasaría a romper el registro
+   * de la venta entera. Se elige el camino que no rompe.
+   *
+   * **Pero acá sí se pierde algo.** Una nota es descriptiva y no dispara nada (por eso su
+   * omisión es inocua); un Opportunity Value es dinero, y es exactamente el tipo de efecto
+   * que el outbox existe para poder reproducir. Hasta que una migración agregue
+   * `fijar_valor_oportunidad` al enum, en modo stub el monto NO queda anotado en ningún
+   * lado: se dice en el `detalle` para que ningún caller lo interprete como diferido.
+   */
+  async fijarValorOportunidad(_i: OportunidadInput): Promise<ResultadoGhl> {
+    return {
+      ok: true,
+      aplicado: false,
+      detalle: {
+        omitido: "valor de oportunidad no aplicado en modo stub",
+        sinOutbox:
+          "la operación no existe en el enum de closer_ghl_outbox — la intención NO quedó registrada",
+      },
+    };
   },
 
   /**
