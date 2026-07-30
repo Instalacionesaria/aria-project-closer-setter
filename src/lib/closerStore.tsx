@@ -1,6 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useSettings } from "./settingsStore";
-import { filaAContacto, registrarSeguimientoRemoto, traerMiDia } from "./seguimientos/cliente";
+import {
+  filaAContacto,
+  registrarResultadoRemoto,
+  registrarSeguimientoRemoto,
+  traerMiDia,
+  type RespuestaAvanzar,
+} from "./seguimientos/cliente";
 import type { ModoSeguimiento } from "./seguimientos/dominio";
 import type { SituacionSeguimiento } from "./ghl/contrato";
 
@@ -260,6 +266,17 @@ export interface AdvanceInput {
   seguimientoAutomaticoActivo?: boolean;
   /** Solo Venta: la subcategoría del stage `ganado` (Contado / Splitwise / BNPL / Cuotas). */
   formaPagoVenta?: string;
+  /**
+   * La subcategoría elegida en la pantalla de Avanzar: la forma de pago en una Venta, la
+   * razón en un No-show o una descalificación, el motivo en un Nurture.
+   *
+   * Se manda tal como la escribe la UI —con separador tipográfico incluido,
+   * `"Avisó · quiere reagendar"`— y el backend la traduce al valor exacto del dropdown de GHL
+   * (`"Avisó quiere reagendar"`) contra el catálogo. La traducción vive en un solo lugar a
+   * propósito: si no matchea carácter por carácter, GHL devuelve 200 y no escribe nada, que
+   * es el fallo más caro de esta integración (§50.5).
+   */
+  subcategoriaGhl?: string;
 
   /* ── Solo para contactos reales: lo que el backend necesita para persistir ──
      La situación va como slug y la fecha como INTENCIÓN (el preset), nunca como una fecha
@@ -272,9 +289,27 @@ export interface AdvanceInput {
   idempotencyKey?: string;
 }
 
+/**
+ * Etapa resultante → salida de Avanzar que la produjo. Es el inverso del mapa que ya usa
+ * cada pantalla del modal, y existe para que el store sepa QUÉ resultado mandarle al backend
+ * sin que cada llamador tenga que acordarse de pasarlo.
+ *
+ * `agendado` no aparece a propósito: es la etapa de ENTRADA (la produce GHL al agendar, vía
+ * el tag `zona_closer`), no la produce ninguna salida de Avanzar.
+ */
+export const RESULTADO_POR_STAGE: Partial<
+  Record<StageKey, "venta" | "acordo" | "no_interesa" | "no_show" | "nurture">
+> = {
+  ganado: "venta",
+  cierre: "acordo",
+  descalificado: "no_interesa",
+  no_show: "no_show",
+  nurture: "nurture",
+};
+
 export const STAGE_META: Record<
   StageKey,
-  { label: string; dot: string; headerBg: string; labelColor: string; pill: string; hiddenOffset: number }
+  { label: string; dot: string; headerBg: string; labelColor: string; pill: string }
 > = {
   agendado: {
     label: "Agendado",
@@ -282,7 +317,6 @@ export const STAGE_META: Record<
     headerBg: "bg-indigo-50/50 dark:bg-indigo-900/10",
     labelColor: "text-foreground",
     pill: "bg-sky-50 text-sky-700 border-sky-200/60 dark:bg-sky-500/20 dark:text-sky-300 dark:border-sky-500/30",
-    hiddenOffset: 14 - 4,
   },
   seguimiento: {
     label: "Seguimiento",
@@ -290,7 +324,6 @@ export const STAGE_META: Record<
     headerBg: "bg-amber-50/30 dark:bg-amber-900/5",
     labelColor: "text-foreground",
     pill: "bg-amber-50 text-amber-700 border-amber-200/60 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/30",
-    hiddenOffset: 24 - 4,
   },
   cierre: {
     label: "Cierre en curso",
@@ -298,7 +331,6 @@ export const STAGE_META: Record<
     headerBg: "bg-amber-50/50 dark:bg-amber-900/10",
     labelColor: "text-amber-700 dark:text-amber-500",
     pill: "bg-indigo-50 text-indigo-700 border-indigo-200/60 dark:bg-indigo-500/20 dark:text-indigo-300 dark:border-indigo-500/30",
-    hiddenOffset: 4 - 4,
   },
   ganado: {
     label: "Ganado",
@@ -306,7 +338,6 @@ export const STAGE_META: Record<
     headerBg: "bg-emerald-50/50 dark:bg-emerald-900/10",
     labelColor: "text-foreground",
     pill: "bg-emerald-50 text-emerald-700 border-emerald-200/60 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/30",
-    hiddenOffset: 4 - 4,
   },
   no_show: {
     label: "No-show",
@@ -314,7 +345,6 @@ export const STAGE_META: Record<
     headerBg: "bg-orange-50/50 dark:bg-orange-900/10",
     labelColor: "text-foreground",
     pill: "bg-orange-50 text-orange-700 border-orange-200/60 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30",
-    hiddenOffset: 26 - 4,
   },
   nurture: {
     label: "Nurture",
@@ -322,7 +352,6 @@ export const STAGE_META: Record<
     headerBg: "bg-violet-50/50 dark:bg-violet-900/10",
     labelColor: "text-foreground",
     pill: "bg-violet-50 text-violet-700 border-violet-200/60 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/30",
-    hiddenOffset: 0,
   },
   descalificado: {
     label: "Descalificado",
@@ -330,7 +359,6 @@ export const STAGE_META: Record<
     headerBg: "bg-muted/5",
     labelColor: "text-foreground",
     pill: "bg-rose-50 text-rose-700 border-rose-200/60 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/30",
-    hiddenOffset: 8 - 4,
   },
 };
 
@@ -693,12 +721,10 @@ export function applyAdvance(c: ClosurerContact, input: AdvanceInput): ClosurerC
   };
 }
 
-interface SessionDeltas {
-  ventasCount: number;
-  ventasMonto: number;
-}
-
-const ZERO_DELTAS: SessionDeltas = { ventasCount: 0, ventasMonto: 0 };
+/* Los "deltas de sesión" (ventasCount / ventasMonto) se eliminaron el 2026-07-30. Existían
+   para sumarle al `COCKPIT_BASE` fijo las ventas registradas durante la sesión. Con el
+   cockpit derivado de `contacts` sobran: una venta nueva cambia el stage del contacto y el
+   total se recalcula solo, sin un acumulador paralelo que pueda desincronizarse. */
 
 export interface Cockpit {
   cashCollected: number;
@@ -711,6 +737,8 @@ interface ClosurerStoreValue {
   contacts: Record<string, ClosurerContact>;
   cockpit: Cockpit;
   cierreEnCursoMonto: number;
+  /** Suma de los montos de la etapa Ganado — el mismo dinero que el Cash Collected de Inicio. */
+  ganadoMonto: number;
   openContactName: string | null;
   /** contactId de GHL de la ficha abierta (cuando se abrió desde una cita real) — para traer su conversación real. */
   openGhlContactId: string | null;
@@ -750,7 +778,6 @@ const ClosurerCtx = createContext<ClosurerStoreValue | null>(null);
 
 export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Record<string, ClosurerContact>>(() => buildSeedContacts());
-  const [deltas, setDeltas] = useState<SessionDeltas>(ZERO_DELTAS);
   const [openContactName, setOpenContactName] = useState<string | null>(null);
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const { comisiones } = useSettings();
@@ -801,25 +828,53 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
        * consola lo dice y la próxima carga muestra la verdad. Bloquear la interfaz por una
        * escritura que casi siempre funciona sería peor experiencia que la de hoy.
        */
-      if (c.ghlContactId && input.stage === "seguimiento" && input.situacion && input.modo) {
-        registrarSeguimientoRemoto({
-          ghlContactId: c.ghlContactId,
-          situacion: input.situacion,
-          modo: input.modo,
-          preset: input.preset,
-          fechaPersonalizada: input.fechaPersonalizada,
-          nota: input.nota,
-          idempotencyKey: input.idempotencyKey ?? `${c.ghlContactId}-${Date.now()}`,
-        }).then((r) => {
-          if (!r?.ok) console.warn("[seguimientos] no se pudo persistir el Avanzar de", c.ghlContactId);
-        });
+      if (c.ghlContactId) {
+        const idem = input.idempotencyKey ?? `${c.ghlContactId}-${Date.now()}`;
+        const avisar = (r: RespuestaAvanzar | null) => {
+          if (!r?.ok) {
+            console.warn("[avanzar] no se pudo persistir el resultado de", c.ghlContactId);
+            return;
+          }
+          // El backend distingue "quedó registrado" de "llegó a GHL". Un tag que no se aplicó
+          // significa que el workflow de GHL no se va a disparar, así que no se puede tratar
+          // como éxito silencioso.
+          if (r.ghl?.advertencia) console.warn("[avanzar]", r.ghl.advertencia);
+          if (r.ghl?.nota) console.warn("[avanzar]", r.ghl.nota);
+        };
+
+        if (input.stage === "seguimiento" && input.situacion && input.modo) {
+          registrarSeguimientoRemoto({
+            ghlContactId: c.ghlContactId,
+            situacion: input.situacion,
+            modo: input.modo,
+            preset: input.preset,
+            fechaPersonalizada: input.fechaPersonalizada,
+            nota: input.nota,
+            idempotencyKey: idem,
+          }).then(avisar);
+        } else {
+          /**
+           * Las otras cinco salidas. Antes de esto el guard exigía `stage === "seguimiento"`,
+           * así que registrar una Venta sobre un contacto real de GHL no escribía nada: ni el
+           * tag, ni el custom field, ni el Opportunity Value. Solo cambiaba la píldora en
+           * pantalla y se revertía al recargar.
+           */
+          const resultado = RESULTADO_POR_STAGE[input.stage];
+          if (resultado) {
+            registrarResultadoRemoto({
+              ghlContactId: c.ghlContactId,
+              resultado,
+              subcategoria: input.subcategoriaGhl,
+              monto: input.monto,
+              nota: input.nota,
+              idempotencyKey: idem,
+            }).then(avisar);
+          }
+        }
       }
 
       return { ...prev, [name]: applyAdvance(c, input) };
     });
-    if (input.stage === "ganado" && input.monto) {
-      setDeltas((d) => ({ ventasCount: d.ventasCount + 1, ventasMonto: d.ventasMonto + input.monto! }));
-    }
   }, []);
 
   const addNota = useCallback((name: string, texto: string) => {
@@ -906,25 +961,56 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  /**
+   * Los dos totales de dinero del Pipeline, derivados de los MISMOS contactos que se pintan
+   * en cada etapa. Nunca una base fija: si un contacto entra o sale de la etapa, el número se
+   * corrige solo.
+   *
+   * Se suman TODOS los de la etapa, sin mirar los filtros de grade/destacados de la barra
+   * (decisión de Fabio, 2026-07-30): el encabezado dice cuánta plata hay en esa etapa, no
+   * cuánta estás mirando. Filtrar la vista no debería mover un total de dinero.
+   */
   const cierreEnCursoMonto = useMemo(
     () => Object.values(contacts).filter((c) => c.stage === "cierre").reduce((sum, c) => sum + (c.monto ?? 0), 0),
     [contacts]
   );
 
+  const ganadoMonto = useMemo(
+    () => Object.values(contacts).filter((c) => c.stage === "ganado").reduce((sum, c) => sum + (c.monto ?? 0), 0),
+    [contacts]
+  );
+
+  const ganadoCount = useMemo(
+    () => Object.values(contacts).filter((c) => c.stage === "ganado").length,
+    [contacts]
+  );
+
+  /**
+   * El cockpit de Inicio ahora se DERIVA de los contactos, igual que los totales del Pipeline.
+   *
+   * Antes salía de `COCKPIT_BASE` ($34.000 / 8 ventas), un literal sin relación con ningún
+   * contacto: el Pipeline decía $29.800 sobre 5 ventas y Inicio $34.000 sobre 8, a un clic de
+   * distancia y sin forma de explicar la diferencia. Decisión de Fabio (2026-07-30): un solo
+   * número para la misma plata en toda la app.
+   *
+   * `callsMes` sigue siendo una referencia de `COCKPIT_BASE` — es lo único que no se puede
+   * derivar de los contactos, porque el store no sabe cuántas llamadas hubo en el mes.
+   */
   const cockpit: Cockpit = useMemo(
     () => ({
-      cashCollected: COCKPIT_BASE.cashCollected + deltas.ventasMonto,
-      ventas: COCKPIT_BASE.ventas + deltas.ventasCount,
+      cashCollected: ganadoMonto,
+      ventas: ganadoCount,
       callsMes: COCKPIT_BASE.callsMes,
-      comision: Math.round((COCKPIT_BASE.cashCollected + deltas.ventasMonto) * comisionPct),
+      comision: Math.round(ganadoMonto * comisionPct),
     }),
-    [deltas, comisionPct]
+    [ganadoMonto, ganadoCount, comisionPct]
   );
 
   const value: ClosurerStoreValue = {
     contacts,
     cockpit,
     cierreEnCursoMonto,
+    ganadoMonto,
     openContactName,
     openGhlContactId,
     openContact: (name: string, ghlContactId?: string) => {

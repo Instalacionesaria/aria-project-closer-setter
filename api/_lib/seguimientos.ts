@@ -217,23 +217,31 @@ export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGh
 
   /**
    * El monto no es un custom field: es el **Opportunity Value** de la oportunidad del
-   * contacto — lo que después alimenta Cash Collected y las métricas de Gerencia. Venta lo
-   * manda como ganada; Acordó comprar manda la seña sobre una oportunidad que sigue abierta,
-   * porque una promesa no es un cobro (§12).
+   * contacto — lo que después alimenta Cash Collected y las métricas de Gerencia.
+   *
+   * **Solo lo escribe Venta** (regla de Fabio, 2026-07-30). Antes el gate era
+   * `def.requiereMonto`, que también es `true` en "Acordó comprar", así que una seña de $500
+   * pisaba el Opportunity Value con un valor que no es una venta. El Opportunity Value
+   * representa plata cobrada: una promesa de pago no tiene por qué moverlo.
+   *
+   * `requiereMonto` sigue existiendo pero significa otra cosa — que la UI y el endpoint
+   * exigen un monto para esa salida— y por eso ya no sirve como gate acá. La seña de un
+   * acuerdo se guarda igual del lado del tool (`closer_notas` y el evento del Historial), no
+   * en GHL.
    *
    * Es el único efecto que puede fallar por una razón de negocio y no técnica: si el contacto
-   * no tiene ninguna oportunidad en GHL, el puerto devuelve `ok: false` con el motivo en vez
-   * de crear una en un pipeline arbitrario. Ese error llega tal cual a la respuesta — el tag
-   * y la subcategoría se aplicaron, el monto no, y eso se dice.
+   * no tiene exactamente una oportunidad abierta en GHL, el puerto devuelve `ok: false` con
+   * el motivo en vez de escribir sobre el trato equivocado. Ese error llega tal cual a la
+   * respuesta — el tag y la subcategoría se aplicaron, el monto no, y eso se dice.
    */
-  if (def.requiereMonto && typeof args.monto === "number") {
+  if (args.resultado === "venta" && typeof args.monto === "number") {
     anotar(
       "fijar_valor_oportunidad",
-      `Opportunity Value = ${args.monto}${args.resultado === "venta" ? " (ganada)" : ""}`,
+      `Opportunity Value = ${args.monto} (ganada)`,
       await cliente.fijarValorOportunidad({
         ...base,
         monto: args.monto,
-        ganada: args.resultado === "venta",
+        ganada: true,
         idempotencyKey: `${args.idempotencyKey}:valor`,
       }),
     );

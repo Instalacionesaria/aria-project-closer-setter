@@ -1214,7 +1214,15 @@ function PipelineAgendaRow({ a, onOpen }: { a: PipelineAgendaContact; onOpen: (n
 }
 
 function PipelineTab() {
-  const { contacts, openContact, cierreEnCursoMonto } = useClosurer();
+  const { contacts, openContact, cierreEnCursoMonto, ganadoMonto } = useClosurer();
+
+  /* Las dos tarjetas de arriba eran literales de JSX (`84` y `42`). Ahora se derivan de los
+     mismos contactos que pinta el Pipeline: sin dato real detrás, un número grande en un
+     dashboard es peor que no mostrarlo (§4.10). */
+  const totalContactos = Object.keys(contacts).length;
+  const contactosVivos = Object.values(contacts).filter(
+    (c) => c.stage === "agendado" || c.stage === "seguimiento" || c.stage === "cierre",
+  ).length;
   // Agenda REAL de GHL para la columna "Agendado" (hoy + próximos días), deduplicada por contacto.
   const [agendaRange, setAgendaRange] = useState<AgendaAppointment[]>([]);
   const [agendaTodayStr, setAgendaTodayStr] = useState<string>("");
@@ -1421,7 +1429,9 @@ function PipelineTab() {
             <Users className="w-4 h-4 text-muted-foreground opacity-50" />
           </div>
           <div>
-            <div className="text-4xl font-light tracking-tight">84</div>
+            {/* Antes era el literal `84`, escrito en el JSX y sin ninguna variable detrás.
+                Ahora cuenta los contactos que el módulo realmente conoce. */}
+            <div className="text-4xl font-light tracking-tight">{totalContactos}</div>
             <p className="text-[10px] font-medium text-muted-foreground mt-2 uppercase tracking-wider">
               Contactos en CRM
             </p>
@@ -1435,7 +1445,10 @@ function PipelineTab() {
             <Target className="w-4 h-4 text-primary opacity-50" />
           </div>
           <div>
-            <div className="text-4xl font-light tracking-tight text-primary">42</div>
+            {/* Antes era el literal `42`. "Vivo" = el trato sigue en juego: agendado,
+                en seguimiento o en cierre. Ganado, no-show, nurture y descalificado ya
+                salieron del embudo activo. */}
+            <div className="text-4xl font-light tracking-tight text-primary">{contactosVivos}</div>
             <p className="text-[10px] font-medium text-primary mt-2 uppercase tracking-wider">
               Contactos vivos
             </p>
@@ -1464,12 +1477,21 @@ function PipelineTab() {
         {stagesToRender.map((stageKey) => {
           const meta = STAGE_META[stageKey];
           const isAgendado = stageKey === "agendado";
+          // `members` = todos los de la etapa. `rows` = los que además pasan el filtro de la
+          // barra. El badge cuenta `members` y el monto suma `members`; la tabla pinta `rows`.
           const members = Object.values(contacts).filter((c) => c.stage === stageKey);
           const rows = members.filter(filterRow);
+          /* Las dos etapas con dinero llevan su total al lado del nombre. Los dos salen de
+             sumar el `monto` de los contactos de esa etapa (en el store), no de una base
+             fija: si un contacto se mueve de etapa, los dos números se corrigen solos.
+             `ganadoMonto` es además el MISMO valor que el Cash Collected de Inicio — un solo
+             número para la misma plata en toda la app. */
           const label =
             stageKey === "cierre"
               ? `${meta.label} · 🔥 ${money(cierreEnCursoMonto)} SOBRE LA MESA`
-              : meta.label;
+              : stageKey === "ganado" && ganadoMonto > 0
+                ? `${meta.label} · 💰 ${money(ganadoMonto)} COBRADO`
+                : meta.label;
           return (
             <div
               key={stageKey}
@@ -1490,8 +1512,15 @@ function PipelineTab() {
                 >
                   {label}
                 </span>
+                {/* Conteo real de la etapa. Antes sumaba un `hiddenOffset` —siete constantes
+                    escritas como restas literales (24-4, 26-4…) que representaban "contactos
+                    del CRM no incluidos en el demo"— y el badge terminaba mintiendo: mostraba
+                    27 en Seguimiento sobre 7 filas, 28 en No-show sobre 6. Eliminado.
+                    Cuenta `members` (todos los de la etapa) y no `rows`, para que el número no
+                    cambie al filtrar por grade: el badge dice cuántos hay en la etapa, no
+                    cuántos estás mirando. */}
                 <div className="inline-flex items-center border py-0.5 font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 ml-2 text-[10px] h-5 px-1.5 shadow-none rounded-full">
-                  {isAgendado ? agendaContacts.length : meta.hiddenOffset + members.length}
+                  {isAgendado ? agendaContacts.length : members.length}
                 </div>
               </div>
               {isAgendado ? (

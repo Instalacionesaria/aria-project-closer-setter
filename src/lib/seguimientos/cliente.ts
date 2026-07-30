@@ -82,12 +82,27 @@ export interface AvanzarSeguimientoBody {
   idempotencyKey: string;
 }
 
+export interface EfectoGhlApi {
+  operacion: string;
+  ok: boolean;
+  aplicado: boolean;
+  error?: string;
+  aviso?: string;
+}
+
 export interface RespuestaAvanzar {
   ok: boolean;
-  seguimientoId: string;
-  fechaObjetivo: string;
+  seguimientoId?: string;
+  fechaObjetivo?: string;
   toast: string;
-  ghl: { modo: string; efectos: { operacion: string; ok: boolean; aplicado: boolean; error?: string }[] };
+  ghl: {
+    modo: string;
+    todoAplicado?: boolean;
+    efectos: EfectoGhlApi[];
+    /** Frase para mostrarle a un humano cuando la respuesta NO es limpia. */
+    advertencia?: string;
+    nota?: string;
+  };
 }
 
 export const registrarSeguimientoRemoto = (body: AvanzarSeguimientoBody) =>
@@ -95,6 +110,31 @@ export const registrarSeguimientoRemoto = (body: AvanzarSeguimientoBody) =>
     method: "POST",
     body: JSON.stringify({ resultado: "seguimiento", ...body }),
   });
+
+/**
+ * Las otras cinco salidas de Avanzar (venta, acordo, no_interesa, no_show, nurture).
+ *
+ * Existe porque el front se quedó atrás del backend: `api/closer/avanzar.ts` rutea las seis
+ * desde el 2026-07-30, pero acá solo había un cliente que hardcodeaba
+ * `resultado: "seguimiento"`. Consecuencia real: registrar una Venta sobre un contacto de
+ * GHL cambiaba la píldora en pantalla y no aplicaba NADA — ni el tag `venta_ganada`, ni el
+ * custom field de forma de pago, ni el Opportunity Value.
+ *
+ * `subcategoria` es el valor del custom field del stage: la forma de pago en una venta, la
+ * razón en un no-show o una descalificación, el motivo en un nurture. El endpoint la exige
+ * cuando el catálogo la declara, así que mandarla vacía devuelve 400 y no un éxito falso.
+ */
+export interface AvanzarResultadoBody {
+  ghlContactId: string;
+  resultado: "venta" | "acordo" | "no_interesa" | "no_show" | "nurture";
+  subcategoria?: string;
+  monto?: number;
+  nota?: string;
+  idempotencyKey: string;
+}
+
+export const registrarResultadoRemoto = (body: AvanzarResultadoBody) =>
+  pedir<RespuestaAvanzar>("/closer/avanzar", { method: "POST", body: JSON.stringify(body) });
 
 /**
  * Traduce una fila del API a la forma que ya consumen las vistas.

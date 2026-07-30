@@ -92,6 +92,8 @@ type AvanzarResult = {
      `forma_de_pago_venta`. Antes se capturaba, se exigía para poder confirmar, y se tiraba
      dentro del texto libre del Historial — con lo cual la píldora salía sin ella. */
   formaPagoVenta?: string;
+  /** Subcategoria elegida, tal como la escribe la UI. El backend la traduce al valor de GHL. */
+  subcategoriaGhl?: string;
   /* Solo la salida Seguimiento: lo que el backend necesita para persistir. La fecha viaja
      como INTENCIÓN (`preset`), nunca calculada acá — el servidor la resuelve contra
      America/Lima. El porqué está documentado en src/lib/fechas.ts. */
@@ -351,6 +353,9 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
         toast: `Venta registrada — ${money(monto)}`,
         monto,
         formaPagoVenta: tipoPago ?? undefined,
+        // Es la subcategoría del stage `ganado` (`forma_de_pago_venta` en GHL). Sin esto el
+        // backend rechaza la venta con 400: el catálogo la declara obligatoria.
+        subcategoriaGhl: tipoPago ?? undefined,
         celebrate: true,
         stage: "ganado",
       }, nota));
@@ -414,6 +419,7 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
         pildora: `NO LE INTERESA · ${(razonPerdida ?? "").toUpperCase()}`,
         texto: `Registró No le interesa — ${razonPerdida}`,
         toast: "Prospecto descalificado",
+        subcategoriaGhl: razonPerdida ?? undefined,
         stage: "descalificado",
       }, nota));
     };
@@ -450,6 +456,10 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
       pildora: `NO-SHOW · ${(razonNoShow ?? "").split(" · ")[0].toUpperCase()}`,
       texto: `Registró No-show — ${razonNoShow}`,
       toast: "No-show registrado",
+      // Se manda la razón COMPLETA, con el separador `·` incluido — el backend la traduce al
+      // valor exacto del dropdown de GHL. La píldora se queda con la primera mitad, pero eso
+      // es una decisión de presentación y no debe recortar el dato que viaja.
+      subcategoriaGhl: razonNoShow ?? undefined,
       stage: "no_show",
     }, nota));
   };
@@ -754,6 +764,9 @@ function NurtureScreen({
       texto: `Registró Nurture — ${motivo}`,
       toast: "Nurture registrado",
       nota: nota.trim() || undefined,
+      // Subcategoría del stage `nurture` en GHL. El componente lo comparte Closer y Setter,
+      // pero solo el Closer persiste hoy — el Setter no tiene backend todavía.
+      subcategoriaGhl: motivo,
       stage,
       setterStage,
       situacionTone,
