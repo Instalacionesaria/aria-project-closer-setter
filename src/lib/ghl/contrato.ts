@@ -254,6 +254,244 @@ export const CAMPOS = {
 export type CampoKey = keyof typeof CAMPOS;
 
 /* ================================================================== */
+/* CUSTOM FIELDS DEL PERFIL — CONTRATO-GHL.md §4                      */
+/* ================================================================== */
+
+/**
+ * Los campos que el lead llenó —o que un agente registró sobre él— y que alimentan el tab
+ * Perfil de la ficha.
+ *
+ * ── Por qué van aparte de `CAMPOS` y no adentro ──
+ *
+ * `CAMPOS` son las subcategorías que el tool ESCRIBE al registrar un Avanzar: cada una
+ * tiene un tag y un workflow detrás, y por eso pasan por `assertEnviable()` antes de salir.
+ * Estos son de **solo lectura**: los escriben los formularios (VSL, Meta Lead Ads) y los
+ * agentes de GHL, y el tool no los toca nunca. Mezclarlos haría que `literalesPendientes()`
+ * —el inventario de "qué falta confirmar antes de poder escribirlo"— hablara también de
+ * campos que nadie escribe desde acá, y `CampoKey` (que hoy significa "subcategoría de
+ * Avanzar" en `resultados.ts` y en `CAMPO_SUBCATEGORIA_POR_STAGE`) pasaría a significar dos
+ * cosas distintas a la vez.
+ *
+ * ── Cada entrada dice además dónde va en la ficha ──
+ *
+ * `grupo` sigue la regla del Perfil (CLAUDE.md §41.2): se agrupa por SIGNIFICADO, no por rol
+ * ni por formulario de origen. `formulario` solo aplica dentro de `calificacion`, y esa
+ * separación VSL/Meta es intencional del contrato: son campos DISTINTOS aunque la pregunta
+ * se parezca ("NO unificar", §4), y un contacto puede tener llenos los de uno, los del otro,
+ * o ambos — mostrarlos juntos borraría esa información.
+ *
+ * Ojo con los literales: llevan los typos y las vocales comidas tal como están en la cuenta
+ * (`_cul_es_...`, `confirmacin_...`). Son unique keys, no prosa. "Arreglarlos" hace que el
+ * campo deje de encontrarse y el Perfil quede vacío sin que nada falle.
+ */
+
+/**
+ * Espejo estructural de `PerfilGroup` / `PerfilFormulario` de `src/lib/closerStore.tsx`.
+ * No se importan de ahí a propósito: este módulo es isomorfo (lo cargan las funciones de
+ * `api/`) y aquel es un componente de React. Si divergen, lo canta el endpoint que arma la
+ * respuesta, porque la forma que espera `PerfilTab` es la de allá.
+ */
+export type GrupoPerfil = "detalles" | "origen" | "calificacion" | "interacciones";
+export type FormularioPerfil = "vsl" | "meta";
+
+export interface CampoPerfil extends Literal {
+  /** Label corto que ve el usuario en la ficha. No es la pregunta entera del formulario. */
+  readonly etiqueta: string;
+  readonly grupo: GrupoPerfil;
+  /** Solo en `calificacion`: decide el bloque "Form VSL" o "Form Meta". */
+  readonly formulario?: FormularioPerfil;
+  /** Micro-label opcional de procedencia, ej. "vía llamada IA". Informa, no agrupa. */
+  readonly procedencia?: string;
+}
+
+export const CAMPOS_PERFIL = {
+  /* ---- Calificación · Form VSL (landing) — CONTRATO-GHL.md §4 ---- */
+
+  vslEtapaNegocio: {
+    valor: "contact._en_qu_etapa_est_tu_negocio_hoy",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: 'Pregunta "¿En qué etapa está tu negocio hoy?". Solo lectura.',
+    etiqueta: "Etapa del negocio",
+    grupo: "calificacion",
+    formulario: "vsl",
+  },
+  vslObjetivoFacturacion: {
+    valor: "contact._cul_es_tu_objetivo_de_facturacin",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: 'Pregunta "¿Cuál es tu objetivo de facturación?". Solo lectura.',
+    etiqueta: "Objetivo de facturación",
+    grupo: "calificacion",
+    formulario: "vsl",
+  },
+  vslTipoServicios: {
+    valor: "contact._qu_tipo_de_servicios_ofreces_o_planeas_ofrecer",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: 'Pregunta "¿Qué tipo de servicios ofreces (o planeas ofrecer)?". Solo lectura.',
+    etiqueta: "Tipo de servicios",
+    grupo: "calificacion",
+    formulario: "vsl",
+  },
+  vslMayorObstaculo: {
+    valor: "contact._cul_es_el_mayor_obstculo_que_te_est_impidiendo_llegar_a_ese_objetivo",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: 'Pregunta "¿Cuál es el mayor obstáculo que te está impidiendo llegar a ese objetivo?". Solo lectura.',
+    etiqueta: "Mayor obstáculo",
+    grupo: "calificacion",
+    formulario: "vsl",
+  },
+  vslListoParaEmpezar: {
+    valor: "contact._si_somos_una_buena_opcin_para_ti_y_tenemos_cupo_disponible_estaras_listo_para_empezar_ahora",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: 'Pregunta "Si somos una buena opción y hay cupo, ¿estarías listo para empezar ahora?". Solo lectura.',
+    etiqueta: "Listo para empezar ahora",
+    grupo: "calificacion",
+    formulario: "vsl",
+  },
+  vslInversion4a8k: {
+    valor: "contact._podras_asumir_una_inversin_de_4000_a_8000_usd",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: 'Pregunta "¿Podrías asumir una inversión de $4,000 a $8,000 USD?" — el filtro de capital del high-ticket (§1). Solo lectura.',
+    etiqueta: "Inversión $4-8k",
+    grupo: "calificacion",
+    formulario: "vsl",
+  },
+  vslCompromisoAsistencia: {
+    valor: "contact._al_agendar_confirmas_tu_compromiso_de_asistencia",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: '"Al agendar, confirmas tu compromiso de asistencia". Solo lectura.',
+    etiqueta: "Compromiso de asistencia",
+    grupo: "calificacion",
+    formulario: "vsl",
+  },
+  vslTieneEquipo: {
+    valor: "contact.tiene_equipo_",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
+    uso: "¿Tiene equipo? Lo llena el agente de voz durante la llamada, no el formulario. Solo lectura.",
+    etiqueta: "Tiene equipo",
+    grupo: "calificacion",
+    formulario: "vsl",
+    procedencia: "vía llamada IA",
+  },
+
+  /* ---- Calificación · Form Meta (Lead Ads) — CONTRATO-GHL.md §4 ---- */
+
+  metaEtapaNegocio: {
+    valor: "contact.en_que_etapa_esta_tu_negocio_hoy",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Meta Lead Ads — form Meta",
+    uso: 'Pregunta "En que etapa esta tu negocio hoy?". Campo propio de Meta, distinto del homónimo de la VSL. Solo lectura.',
+    etiqueta: "Etapa del negocio",
+    grupo: "calificacion",
+    formulario: "meta",
+  },
+  metaObjetivoFacturacion: {
+    valor: "contact.cual_es_tu_objetivo_de_facturacion",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Meta Lead Ads — form Meta",
+    uso: 'Pregunta "Cual es tu objetivo de facturacion?". Campo propio de Meta. Solo lectura.',
+    etiqueta: "Objetivo de facturación",
+    grupo: "calificacion",
+    formulario: "meta",
+  },
+  metaMayorObstaculo: {
+    valor: "contact.cual_es_el_mayor_obstaculo_que_te_esta_impidiendo_llegar_a_ese_objetivo",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Meta Lead Ads — form Meta",
+    uso: 'Pregunta "Cual es el mayor obstaculo...?". Campo propio de Meta. Solo lectura.',
+    etiqueta: "Mayor obstáculo",
+    grupo: "calificacion",
+    formulario: "meta",
+  },
+
+  /* ---- Interacciones (eje engagement, §7) — CONTRATO-GHL.md §4 ---- */
+
+  confirmacionCitaWsp: {
+    valor: "contact.confirmacin_cita_por_wsp",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Interacciones",
+    uso: "Clic al botón de confirmación post-agenda por WhatsApp. Solo lectura.",
+    etiqueta: "Confirmación de cita por WhatsApp",
+    grupo: "interacciones",
+  },
+  videoPrecall: {
+    valor: "contact._video_precall",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Interacciones",
+    uso: "Porcentaje visto del video pre-call. NUNCA modifica el score (§9). Solo lectura.",
+    etiqueta: "Video pre-call",
+    grupo: "interacciones",
+  },
+  videoPrecallFecha: {
+    valor: "contact._video_precall_fecha",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Interacciones",
+    uso: "Cuándo se vio el video pre-call. Solo lectura.",
+    etiqueta: "Video pre-call · fecha",
+    grupo: "interacciones",
+  },
+  llamadasIaIntentos: {
+    valor: "contact._llamadas_ia_intentos",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Interacciones",
+    uso: "Intentos de llamada IA hasta contestar. Las sales calls no cuentan acá (§8). Solo lectura.",
+    etiqueta: "Llamadas IA · intentos",
+    grupo: "interacciones",
+  },
+  llamadasIaContestadas: {
+    valor: "contact._llamadas_ia_contestadas",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Interacciones",
+    uso: "Llamadas IA contestadas (puede haber dos: lead flow + app flow). Solo lectura.",
+    etiqueta: "Llamadas IA · contestadas",
+    grupo: "interacciones",
+  },
+  ultimaLlamadaIaResultado: {
+    valor: "contact.ultima_llamada_ia__resultado",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Interacciones",
+    uso: "Resultado de la última llamada IA (responde / buzón / etc.). Solo lectura.",
+    etiqueta: "Última llamada IA · resultado",
+    grupo: "interacciones",
+  },
+
+  /**
+   * Mismo campo que la subcategoría de la píldora NURTURE — se referencia `CAMPOS` en vez de
+   * repetir el literal, para que no puedan divergir. Acá se lee por la regla de acumulación
+   * (§4 del contrato): el campo queda lleno aunque el contacto ya no esté en Nurture, y ese
+   * historial es justamente lo que sirve ver en la ficha.
+   */
+  origenNurture: {
+    valor: CAMPOS.origenNurture.valor,
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §4 · Carpeta Interacciones",
+    uso: "Origen del nurture (No-show / Pidió tiempo / Se enfrió). Acá solo se lee; lo escribe el Avanzar.",
+    etiqueta: "Origen nurture",
+    grupo: "interacciones",
+  },
+} as const satisfies Record<string, CampoPerfil>;
+
+export type CampoPerfilKey = keyof typeof CAMPOS_PERFIL;
+
+/**
+ * Los mismos campos como lista, ya tipada como `CampoPerfil[]`.
+ *
+ * `Object.values(CAMPOS_PERFIL)` devuelve la unión de los tipos exactos de cada entrada, y
+ * como `as const` no agrega las propiedades opcionales que un objeto no tiene, leer
+ * `campo.formulario` sobre esa unión no compila. Esta lista existe para recorrerlos sin
+ * repetir un cast en cada caller. El ORDEN es el de declaración, y es el que termina viendo
+ * el usuario dentro de cada grupo — cambiarlo reordena la ficha.
+ */
+export const CAMPOS_PERFIL_ORDENADOS: readonly CampoPerfil[] = Object.values(CAMPOS_PERFIL);
+
+/* ================================================================== */
 /* SITUACIÓN DEL SEGUIMIENTO                                          */
 /* ================================================================== */
 

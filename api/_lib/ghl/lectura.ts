@@ -15,6 +15,12 @@
  */
 
 import { env } from "../env.js";
+import {
+  CAMPOS_PERFIL_ORDENADOS,
+  type FormularioPerfil,
+  type GrupoPerfil,
+} from "../../../src/lib/ghl/contrato.js";
+import type { ContactoGhl } from "./port.js";
 
 const BASE = "https://services.leadconnectorhq.com";
 
@@ -186,4 +192,113 @@ export async function ultimaNotaIa(ghlContactId: string): Promise<string | null>
   const ordenadas = [...notas].sort((a, b) => (b.dateAdded ?? "").localeCompare(a.dateAdded ?? ""));
   const ia = ordenadas.find((n) => (n.body ?? "").startsWith("[IA]"));
   return ia ? (ia.body as string).replace(/^\[IA\]\s*/, "") : null;
+}
+
+/* ================================================================== */
+/* Perfil                                                              */
+/* ================================================================== */
+
+/**
+ * Un campo ya listo para el tab Perfil. Es la forma que espera `PerfilTab` (`PerfilField` de
+ * `src/lib/closerStore.tsx`); se redeclara acá en vez de importarse porque aquel módulo es un
+ * componente de React y esto corre en una función serverless.
+ */
+export interface CampoPerfilLeido {
+  label: string;
+  value: string;
+  group: GrupoPerfil;
+  /** Solo cuando `group === "calificacion"`: decide el bloque "Form VSL" / "Form Meta". */
+  formulario?: FormularioPerfil;
+  procedencia?: string;
+}
+
+/**
+ * Misma normalización que `normalizar` en `real.ts` (no se importa: es privada de ese módulo,
+ * y este frente no lo toca). GHL devuelve la unique key a veces con el prefijo `contact.` y a
+ * veces sin él, según por dónde entre el dato — comparar los strings crudos hace que la mitad
+ * de los campos "no existan" y el Perfil salga vacío sin que nada falle.
+ *
+ * Una diferencia deliberada con `real.ts`: allá se quita el prefijo ANTES de bajar a
+ * minúsculas, así que un `Contact.` con mayúscula sobrevive y la clave deja de matchear.
+ * Acá se baja primero, con lo que la insensibilidad a mayúsculas alcanza también al prefijo.
+ * Es más barato que depender de que GHL nunca cambie la caja del prefijo.
+ */
+const normalizarClave = (k: string) => k.toLowerCase().replace(/^contact\./, "");
+
+/**
+ * El valor de un custom field llega tipado como `string`, pero GHL manda números para los
+ * numéricos y arrays para los de selección múltiple. Un `.trim()` sobre un número revienta en
+ * runtime, en medio de una lectura que debería ser inofensiva.
+ */
+function aTexto(valor: unknown): string {
+  if (valor === null || valor === undefined) return "";
+  if (Array.isArray(valor)) return valor.map(aTexto).filter(Boolean).join(", ");
+  return String(valor).trim();
+}
+
+/**
+ * Traduce un contacto de GHL a los campos del tab Perfil.
+ *
+ * ── La regla que manda acá es la §4.10 ──
+ *
+ * Un campo sin valor NO se incluye. Nunca un guion, nunca un "Sin datos", nunca la etiqueta
+ * sola: el front pinta lo que le llega como si fuera verdad, así que un placeholder que viaja
+ * en la respuesta es indistinguible de un dato real. La ausencia también es informativa —
+ * `PerfilTab` ya sabe qué hacer con ella (los bloques Form VSL / Form Meta muestran "Sin datos
+ * de este formulario", y un grupo entero sin campos directamente no se renderiza).
+ *
+ * ── Tres orígenes distintos, no uno ──
+ *
+ * 1. **Detalles**: teléfono y correo son campos NATIVOS del contacto, no custom fields — por
+ *    eso no están en `CAMPOS_PERFIL` y se leen directo.
+ * 2. **Origen**: la fuente se deriva de los tags, igual que el chip de la fila (§8).
+ * 3. **Calificación e Interacciones**: los custom fields declarados en el contrato.
+ *
+ * ── Por qué "DIRECTO" no se emite ──
+ *
+ * `derivarFuente` devuelve `DIRECTO` cuando ningún tag identifica el origen. Como chip de fila
+ * eso es correcto y está en el contrato (§8: "ninguna fila sin origen"), pero como campo del
+ * Perfil sería afirmar que el lead entró de forma directa cuando lo cierto es que no sabemos
+ * de dónde vino. Es exactamente el placeholder que la §4.10 pide omitir, así que se omite.
+ *
+ * El orden de salida es: detalles → origen → calificación (VSL y después Meta) →
+ * interacciones, siguiendo el orden de declaración de `CAMPOS_PERFIL`. `PerfilTab` filtra por
+ * grupo, así que lo único que importa es el orden DENTRO de cada grupo.
+ */
+export function perfilDesdeContacto(contacto: ContactoGhl): CampoPerfilLeido[] {
+  // Se indexa una vez y ya normalizado, para no repetir el reemplazo por cada campo buscado.
+  // Los vacíos se descartan acá: así "existe la clave" y "hay un dato" son lo mismo más abajo.
+  const porClave = new Map<string, string>();
+  for (const [clave, valor] of Object.entries(contacto.customFields ?? {})) {
+    const texto = aTexto(valor);
+    if (texto) porClave.set(normalizarClave(clave), texto);
+  }
+
+  const campos: CampoPerfilLeido[] = [];
+
+  const telefono = aTexto(contacto.telefono);
+  if (telefono) campos.push({ label: "Teléfono", value: telefono, group: "detalles" });
+
+  const email = aTexto(contacto.email);
+  if (email) campos.push({ label: "Correo", value: email, group: "detalles" });
+
+  const fuente = derivarFuente(contacto.tags ?? []);
+  if (fuente !== "DIRECTO") campos.push({ label: "Fuente", value: fuente, group: "origen" });
+
+  for (const campo of CAMPOS_PERFIL_ORDENADOS) {
+    const valor = porClave.get(normalizarClave(campo.valor));
+    if (!valor) continue;
+
+    campos.push({
+      label: campo.etiqueta,
+      value: valor,
+      group: campo.grupo,
+      // Las opcionales se agregan solo si existen: `formulario: undefined` viaja como clave
+      // presente en el JSON de algunos serializadores y confunde el filtro por formulario.
+      ...(campo.formulario ? { formulario: campo.formulario } : {}),
+      ...(campo.procedencia ? { procedencia: campo.procedencia } : {}),
+    });
+  }
+
+  return campos;
 }
