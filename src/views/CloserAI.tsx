@@ -33,7 +33,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { fetchAgendaHoy, fetchAgendaRange, fetchUrgentes, fetchRespondieron, type AgendaAppointment } from "../lib/api";
+import { fetchAgendaHoy, fetchAgendaRange, fetchRespondieron, type AgendaAppointment } from "../lib/api";
 import ContactDrawer from "./ContactDrawer";
 
 /** Cada cuánto se re-consulta la agenda a GHL mientras la vista está abierta (polling, hasta tener tiempo real). */
@@ -620,43 +620,12 @@ function MiDiaTab() {
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
 
-  // Urgentes REALES: contactos con tag bot_pausado_fallo en GHL (detectados por la IA). Se muestran
-  // junto a los EJEMPLO, en el mismo formato. Polling cada AGENDA_POLL_MS.
-  const [realUrgentes, setRealUrgentes] = useState<ClosurerContact[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      fetchUrgentes()
-        .then((res) => {
-          if (!alive) return;
-          setRealUrgentes(
-            res.urgentes.map((u) => ({
-              name: u.name.toUpperCase(),
-              grade: undefined,
-              stage: "descalificado" as StageKey, // solo define el color rojo de la píldora; el texto lo fijamos abajo
-              situacion: "IA pausada · fallo",
-              when: "hoy",
-              activity: "",
-              fuente: u.source,
-              botEstado: "pausado_fallo" as BotEstado,
-              ghlContactId: u.contactId,
-              urgente: { pill: "bg-rose-500/10 text-rose-700 dark:text-rose-300", detail: u.fallo, highlighted: true },
-              historial: [],
-              notas: [],
-            })),
-          );
-        })
-        .catch(() => {
-          /* si el backend no responde, se quedan solo los EJEMPLO */
-        });
-    };
-    load();
-    const iv = setInterval(load, AGENDA_POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
+  /* Los urgentes REALES de GHL ya no se piden acá: los trae
+     `polling-closer-intervenciones-urgentes` en `closerStore.tsx` y entran al store como
+     contactos de verdad, así que el filtro de arriba los incluye solo. Movido el 2026-07-30:
+     mientras vivió en esta vista, una urgencia existía únicamente con Mi Día abierto — no
+     aparecía en el Pipeline y su ficha abría sin historial ni notas. */
+
   // Respondieron REALES: contactos con zona_closer + desenlace de Avanzar que volvieron a escribir
   // (último mensaje entrante sin responder). Se muestran junto a los EJEMPLO. Polling cada AGENDA_POLL_MS.
   const [realRespondieron, setRealRespondieron] = useState<ClosurerContact[]>([]);
@@ -1042,30 +1011,24 @@ function MiDiaTab() {
             Intervenciones urgentes
           </h3>
           <span className="bg-rose-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-            {urgentes.length + realUrgentes.length}
+            {urgentes.length}
           </span>
         </div>
+        {/* Una sola lista: los urgentes REALES de GHL los trae ahora
+            `polling-closer-intervenciones-urgentes` (en closerStore) y viven en el store como
+            cualquier otro contacto, así que `urgentes` ya los incluye. Antes había un segundo
+            `.map` sobre un `useState` local, y esa duplicación era el síntoma de que una
+            urgencia real no era un contacto del sistema sino una fila de esta pantalla. */}
         <div className="divide-y divide-border">
           {urgentes.map((iv) => (
             <MiDiaRow
-              key={iv.name}
+              key={iv.ghlContactId ?? iv.name}
               c={iv}
               onOpen={openContact}
               microtext={iv.urgente!.detail}
               microClass={iv.urgente!.detailClass}
               prefix="Falla detectada por IA:"
               badge={iv.urgente!.daysBadge}
-              highlighted={iv.urgente!.highlighted}
-            />
-          ))}
-          {/* Urgentes REALES (tag bot_pausado_fallo desde GHL) — mismo formato que los EJEMPLO */}
-          {realUrgentes.map((iv) => (
-            <MiDiaRow
-              key={iv.ghlContactId}
-              c={iv}
-              onOpen={openContact}
-              microtext={iv.urgente!.detail}
-              prefix="Falla detectada por IA:"
               highlighted={iv.urgente!.highlighted}
             />
           ))}

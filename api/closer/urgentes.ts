@@ -53,6 +53,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         contactId: c.id,
         name: c.nombre,
         source: c.fuente,
+        /**
+         * Los tags crudos viajan para que el front pueda derivar la ETAPA real del contacto
+         * con `etapaDesdeTags()`. Sin esto, la urgencia entraba a la vista con un stage
+         * inventado (`descalificado`, elegido solo porque pinta la píldora de rojo) y, al
+         * mover estos contactos al store, ese invento los habría metido en la columna
+         * Descalificado del Pipeline. La urgencia es un MARCADOR, no una etapa: un contacto
+         * con el bot caído sigue estando donde su historia lo dejó.
+         */
+        tags: c.tags,
         fallo: (await ultimaNotaIa(c.id).catch(() => null)) ?? MOTIVO_SIN_NOTA,
       })),
     );

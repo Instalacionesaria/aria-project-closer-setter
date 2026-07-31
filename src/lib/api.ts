@@ -142,6 +142,11 @@ export interface UrgenteReal {
   source: string;
   /** El motivo real que dejó el analizador. El prefijo "Falla detectada por IA:" lo pone la vista. */
   fallo: string;
+  /**
+   * Tags crudos de GHL. Con ellos el store deriva la ETAPA real vía `etapaDesdeTags()`, en
+   * vez de inventar una: la urgencia es un marcador sobre el contacto, no una etapa.
+   */
+  tags: string[];
 }
 
 /** Contactos con `bot_pausado_fallo` + `zona_closer` → Intervenciones Urgentes del closer. */

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useSettings } from "./settingsStore";
 import {
   filaAContacto,
@@ -9,6 +9,32 @@ import {
 } from "./seguimientos/cliente";
 import type { ModoSeguimiento } from "./seguimientos/dominio";
 import type { SituacionSeguimiento } from "./ghl/contrato";
+import { etapaDesdeTags } from "./ghl/etapas";
+import { armarPildora } from "./pildora";
+import { fetchPipeline, fetchUrgentes } from "./api";
+
+/**
+ * `polling-closer-intervenciones-urgentes` — cada cuánto se re-consulta la cola roja.
+ *
+ * Se mantiene el valor que tenía en la vista (10s) para no cambiar dos cosas a la vez. Vale
+ * revisarlo: una intervención urgente se mide en minutos, y el analizador que aplica el tag
+ * corre cuando entra un mensaje, no continuamente.
+ */
+const POLLING_URGENTES_MS = 10_000;
+
+/**
+ * `polling-closer-pipeline` — cada cuánto se re-barre el territorio completo (`zona_closer`).
+ *
+ * Más espaciado que los demás a propósito: es el único que puede pedir varias páginas a GHL,
+ * y un contacto nuevo apareciendo dentro de los 30 segundos es más que suficiente.
+ */
+const POLLING_PIPELINE_MS = 30_000;
+
+/**
+ * Cuánto tiempo un contacto tocado a mano conserva su etapa local frente a lo que diga GHL.
+ * Cubre la ventana entre que se registra un Avanzar y que GHL termina de aplicar el tag.
+ */
+const GRACIA_MS = 20_000;
 
 /**
  * Single source of truth for the Closer module (§4.4 de CLAUDE.md): Avanzar es el
@@ -784,6 +810,15 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   const comisionPct = (comisiones[CURRENT_CLOSER_NAME] ?? 10) / 100;
 
   /**
+   * `ghlContactId` → cuándo se registró un Avanzar sobre él, en esta pestaña.
+   *
+   * Lo lee `polling-closer-pipeline` para no pisar con la etapa vieja de GHL un cambio que
+   * acaba de hacer el humano y que GHL todavía está procesando. Es un `useRef` y no estado
+   * porque cambiarlo no tiene que redibujar nada.
+   */
+  const recienTocados = useRef<Record<string, number>>({});
+
+  /**
    * Hidratación desde el backend.
    *
    * Los contactos reales se suman a la semilla en vez de reemplazarla: la cuenta de GHL
@@ -817,6 +852,171 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  /**
+   * ── polling-closer-intervenciones-urgentes ──
+   *
+   * Trae los contactos con el bot caído (`bot_pausado_fallo` + `zona_closer`) y los mete en
+   * el store como contactos de verdad.
+   *
+   * **Por qué vive acá y no en Mi Día.** Antes era un `useState` local dentro de `MiDiaTab`,
+   * así que una urgencia existía únicamente mientras esa pestaña estuviera abierta: no
+   * aparecía en el Pipeline, la ficha se abría sin historial ni notas, y el contacto se
+   * evaporaba al cambiar de vista. Acá es un contacto más, con las mismas reglas que el
+   * resto (§4.4: ninguna vista tiene estado propio).
+   *
+   * **La etapa se deriva, no se inventa.** La versión anterior escribía
+   * `stage: "descalificado"` — no porque el contacto lo estuviera, sino porque ese stage
+   * pinta la píldora de rojo. Al mover esto al store, ese invento habría metido a cada
+   * urgencia en la columna Descalificado del Pipeline. La urgencia es un MARCADOR (`urgente`),
+   * no una etapa: el contacto sigue donde su historia lo dejó, y eso lo dicen sus tags.
+   *
+   * **Merge, no reemplazo.** Si el contacto ya está en el store (por la cola de seguimientos
+   * o por un Avanzar registrado en esta sesión), se le agrega la urgencia y se respeta lo que
+   * ya sabíamos de él. Solo se crea desde cero cuando no existía.
+   */
+  useEffect(() => {
+    let vigente = true;
+
+    const traerUrgentes = () => {
+      fetchUrgentes()
+        .then((res) => {
+          if (!vigente) return;
+          setContacts((prev) => {
+            const siguiente = { ...prev };
+            const conUrgenciaAhora = new Set<string>();
+
+            for (const u of res.urgentes) {
+              conUrgenciaAhora.add(u.contactId);
+              const previo = siguiente[u.contactId];
+              const urgente: UrgenteInfo = {
+                pill: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
+                detail: u.fallo,
+                highlighted: true,
+              };
+              const etapa = etapaDesdeTags(u.tags);
+
+              siguiente[u.contactId] = previo
+                ? { ...previo, urgente, botEstado: "pausado_fallo", stage: etapa }
+                : {
+                    name: u.name.toUpperCase(),
+                    // Sin calificación no se inventa una letra: la fila muestra "—" (§4.7).
+                    grade: undefined,
+                    stage: etapa,
+                    situacion: armarPildora({ stage: etapa }),
+                    when: "hoy",
+                    activity: "",
+                    fuente: u.source,
+                    botEstado: "pausado_fallo",
+                    ghlContactId: u.contactId,
+                    urgente,
+                    historial: [],
+                    notas: [],
+                  };
+            }
+
+            /**
+             * Si una urgencia se resolvió en GHL (le quitaron el tag), tiene que apagarse acá
+             * también. Sin esto la cola roja solo crecería: se limpia únicamente lo que este
+             * mismo polling puso, nunca la semilla ni una urgencia resuelta desde la ficha.
+             */
+            for (const [clave, c] of Object.entries(siguiente)) {
+              if (c.urgente && c.ghlContactId && !conUrgenciaAhora.has(c.ghlContactId)) {
+                siguiente[clave] = { ...c, urgente: undefined };
+              }
+            }
+
+            return siguiente;
+          });
+        })
+        .catch(() => {
+          /* Backend caído: se queda lo que ya había. Nunca una pantalla vacía. */
+        });
+    };
+
+    traerUrgentes();
+    const iv = setInterval(traerUrgentes, POLLING_URGENTES_MS);
+    return () => {
+      vigente = false;
+      clearInterval(iv);
+    };
+  }, []);
+
+  /**
+   * ── polling-closer-pipeline ──
+   *
+   * El territorio completo: TODOS los contactos con `zona_closer`, cada uno en la etapa que
+   * dicen sus tags. Es lo que hace que un contacto recién etiquetado en GHL aparezca en el
+   * Pipeline sin que nadie lo cargue a mano.
+   *
+   * **La etapa la manda GHL, no el front.** El stage lo mueve un workflow disparado por el
+   * tag, así que la verdad está en los tags y este polling la trae de vuelta. Registrar un
+   * Avanzar cambia el stage local al instante (optimista) y aplica el tag en GHL; el
+   * siguiente ciclo confirma. Si la escritura hubiera fallado, este mismo ciclo lo corrige —
+   * la pantalla nunca se queda mostrando algo que GHL no tiene.
+   *
+   * **Por qué existe `recienTocados`.** Ese ida y vuelta tiene una ventana: entre que se
+   * registra el Avanzar y que GHL termina de procesar el tag pueden pasar unos segundos, y
+   * un ciclo que cayera justo ahí devolvería la etapa VIEJA y revertiría la píldora en
+   * pantalla. Se vería como "registré la venta y se deshizo sola". Por eso un contacto tocado
+   * a mano hace menos de `GRACIA_MS` conserva su etapa local: se le da tiempo a GHL a ponerse
+   * al día antes de dejar que el servidor mande.
+   */
+  useEffect(() => {
+    let vigente = true;
+
+    const traerPipeline = () => {
+      fetchPipeline()
+        .then((res) => {
+          if (!vigente || !res?.ok) return;
+          setContacts((prev) => {
+            const siguiente = { ...prev };
+            const ahora = Date.now();
+
+            for (const c of res.contactos) {
+              const previo = siguiente[c.ghlContactId];
+              const tocadoReciente = (recienTocados.current[c.ghlContactId] ?? 0) > ahora - GRACIA_MS;
+              const etapa = (tocadoReciente && previo ? previo.stage : c.etapa) as StageKey;
+
+              siguiente[c.ghlContactId] = previo
+                ? {
+                    ...previo,
+                    stage: etapa,
+                    // La píldora se recompone solo si la etapa la manda el servidor: si el
+                    // contacto está en gracia, se respeta la que armó el Avanzar (que además
+                    // trae monto y forma de pago, datos que el Pipeline no conoce).
+                    situacion: tocadoReciente ? previo.situacion : armarPildora({ stage: etapa }),
+                    fuente: previo.fuente ?? c.fuente,
+                  }
+                : {
+                    // `nombre` puede venir null: GHL no siempre tiene uno. No se inventa (§4.10).
+                    name: (c.nombre ?? "SIN NOMBRE").toUpperCase(),
+                    grade: undefined,
+                    stage: etapa,
+                    situacion: armarPildora({ stage: etapa }),
+                    when: "",
+                    activity: "",
+                    fuente: c.fuente,
+                    ghlContactId: c.ghlContactId,
+                    historial: [],
+                    notas: [],
+                  };
+            }
+            return siguiente;
+          });
+        })
+        .catch(() => {
+          /* Backend caído: se queda lo que ya había. */
+        });
+    };
+
+    traerPipeline();
+    const iv = setInterval(traerPipeline, POLLING_PIPELINE_MS);
+    return () => {
+      vigente = false;
+      clearInterval(iv);
+    };
+  }, []);
+
   const advance = useCallback((name: string, input: AdvanceInput) => {
     setContacts((prev) => {
       const c = prev[name];
@@ -829,6 +1029,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
        * escritura que casi siempre funciona sería peor experiencia que la de hoy.
        */
       if (c.ghlContactId) {
+        // Marca de gracia: durante los próximos GRACIA_MS, `polling-closer-pipeline` respeta
+        // la etapa que acabamos de poner en vez de traer la que GHL todavía no actualizó.
+        recienTocados.current[c.ghlContactId] = Date.now();
         const idem = input.idempotencyKey ?? `${c.ghlContactId}-${Date.now()}`;
         const avisar = (r: RespuestaAvanzar | null) => {
           if (!r?.ok) {
