@@ -25,12 +25,14 @@ import {
   CAMPO_SUBCATEGORIA_POR_STAGE,
   CAMPOS,
   TAGS,
+  TAGS_BOT,
   TAGS_SEGUIMIENTO_EXCLUYENTES,
   assertEnviable,
   situacionPorSlug,
   type Literal,
   type SituacionSeguimiento,
 } from "../../src/lib/ghl/contrato.js";
+import { desenlaceDesdeTags } from "../../src/lib/ghl/etapas.js";
 import { RESULTADOS, TAGS_RESULTADO_EXCLUYENTES, type ResultadoAvanzar } from "../../src/lib/ghl/resultados.js";
 import {
   DIAS_GRACIA_SERIE,
@@ -156,9 +158,47 @@ export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGh
   const efectos: EfectoGhl[] = [];
   const base = { ghlContactId: args.ghlContactId, seguimientoId: args.seguimientoId };
 
+  /**
+   * Contacto congelado (§7 del doc de conexiones): perdió `zona_closer`, así que hacia GHL
+   * es un cuerpo inerte — el Avanzar se registra COMPLETO del lado del tool (Supabase), pero
+   * no viaja ni un tag. Se dice en el efecto en vez de omitirse, porque "no se aplicó nada"
+   * sin motivo se lee como un fallo.
+   */
+  const { data: fila } = await db()
+    .from("closer_contactos")
+    .select("congelado")
+    .eq("ghl_contact_id", args.ghlContactId)
+    .maybeSingle();
+  if (fila?.congelado) {
+    return [
+      {
+        operacion: "omitido_congelado",
+        detalle: "El contacto perdió zona_closer: se registró en el tool, sin mandar nada a GHL (§7).",
+        ok: true,
+        aplicado: false,
+      },
+    ];
+  }
+
   const tagResultado = TAGS[def.tag];
   const aAplicar: Literal[] = args.tagModo ? [tagResultado, args.tagModo] : [tagResultado];
+
+  /**
+   * La regla del bot post-call (doc §8.6): TODA salida de Avanzar menos No-show demuestra
+   * que el contacto ya conversó con el closer → se manda `bot_desactivado_postcall` y el
+   * chatbot muere. No-show es la excepción: su workflow de recuperación NECESITA al bot
+   * trabajando, así que no solo no se manda — se QUITA si quedó de un resultado anterior
+   * (espejo del §34 del front: no_show → bot activo).
+   */
+  if (args.resultado !== "no_show") {
+    aAplicar.push(TAGS_BOT.botDesactivadoPostcall);
+  }
+
   const aQuitar = tagsAQuitar(args.resultado, args.tagModo);
+  if (args.resultado === "no_show") {
+    aQuitar.push(TAGS_BOT.botDesactivadoPostcall);
+  }
+
   const campo = def.campo ? CAMPOS[def.campo] : null;
 
   // Portón: un literal sin confirmar no sale nunca en modo real.
@@ -278,6 +318,78 @@ function tagsAQuitar(resultado: ResultadoAvanzar, tagModo?: Literal): Literal[] 
 }
 
 /* ================================================================== */
+/* Proyección — Supabase como fuente de verdad del stage y del dinero  */
+/* ================================================================== */
+
+/** Columna de `closer_contactos` donde vive la subcategoría de cada etapa. */
+const COLUMNA_SUBCATEGORIA: Record<string, string> = {
+  ganado: "forma_pago_venta",
+  seguimiento: "nivel_interes_seguimiento",
+  no_show: "razon_noshow",
+  nurture: "origen_nurture",
+  descalificado: "motivo_descalificacion",
+};
+
+export interface ProyeccionInput {
+  ghlContactId: string;
+  resultado: ResultadoAvanzar;
+  subcategoria?: string | null;
+  monto?: number;
+  nota?: string;
+  /** Contexto extra de la salida (modo/fecha del seguimiento, tipo de pago...). */
+  detalleExtra?: Record<string, unknown>;
+  /** Los tags que viajaron a GHL, para el registro inmutable. */
+  tagsEnviados: string[];
+}
+
+/**
+ * La proyección de CADA uso de Avanzar (doc §1/§8.3):
+ *
+ *   1. Fila en `closer_avances` — el timeline inmutable del que el dashboard de Inicio
+ *      CALCULA cash collected y ventas por query. Nunca contadores sueltos.
+ *   2. `closer_contactos.stage_key` — desde acá, la fuente de verdad del stage es Supabase:
+ *      GHL recibe tags para sus workflows pero nunca vuelve a pisar la etapa. El refresco de
+ *      contacto (`sincronizarContacto`) no escribe stage_key a propósito.
+ *
+ * Se llama DESPUÉS de que el registro principal quedó firme y ANTES de los efectos GHL: si
+ * GHL falla, la proyección ya está; si esto falla, se anota como advertencia — no puede
+ * impedir registrar una venta.
+ */
+export async function proyectarAvance(input: ProyeccionInput): Promise<string[]> {
+  const advertencias: string[] = [];
+
+  const { error: errAvance } = await db()
+    .from("closer_avances")
+    .insert({
+      ghl_contact_id: input.ghlContactId,
+      salida: input.resultado,
+      detalle: {
+        ...(input.subcategoria ? { subcategoria: input.subcategoria } : {}),
+        ...(typeof input.monto === "number" ? { monto: input.monto } : {}),
+        ...(input.nota?.trim() ? { nota: input.nota.trim() } : {}),
+        ...(input.detalleExtra ?? {}),
+      },
+      tags_enviados: input.tagsEnviados,
+    });
+  if (errAvance) advertencias.push(`closer_avances: ${errAvance.message}`);
+
+  // La etapa se deriva del MISMO tag que viaja a GHL — la única fuente coherente con lo que
+  // el resto de las vistas derivan de tags. Un resultado siempre resuelve etapa.
+  const etapa = desenlaceDesdeTags([TAGS[RESULTADOS[input.resultado].tag].valor])?.etapa;
+  if (etapa) {
+    const cambios: Record<string, unknown> = { stage_key: etapa };
+    const columna = COLUMNA_SUBCATEGORIA[etapa];
+    if (columna && input.subcategoria) cambios[columna] = input.subcategoria;
+    if (input.resultado === "venta" && typeof input.monto === "number") cambios.monto = input.monto;
+
+    const { error } = await db().from("closer_contactos").update(cambios).eq("ghl_contact_id", input.ghlContactId);
+    if (error) advertencias.push(`closer_contactos.stage_key: ${error.message}`);
+  }
+
+  return advertencias;
+}
+
+/* ================================================================== */
 /* Salida Seguimiento — crea fila, con su fecha y su serie             */
 /* ================================================================== */
 
@@ -339,12 +451,23 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
 
   if (!seguimientoId) throw new Error("registrar seguimiento: la función no devolvió id");
 
-  /* ── 2. Efectos en GHL ───────────────────────────────────────────────── */
+  /* ── 2. Proyección (timeline + stage en Supabase) ────────────────────── */
+  const tagModo = esAutomatico ? TAGS.seguimientoRecupero : TAGS.seguimientoManual;
+  await proyectarAvance({
+    ghlContactId: input.ghlContactId,
+    resultado: "seguimiento",
+    subcategoria: situacionLabel,
+    nota: input.nota,
+    detalleExtra: { modo: input.modo, fecha_objetivo: fechaObjetivo },
+    tagsEnviados: [TAGS.seguimiento.valor, tagModo.valor, TAGS_BOT.botDesactivadoPostcall.valor],
+  });
+
+  /* ── 3. Efectos en GHL ───────────────────────────────────────────────── */
   const efectos = await aplicarEfectosGhl({
     ghlContactId: input.ghlContactId,
     resultado: "seguimiento",
     subcategoria: situacionLabel,
-    tagModo: esAutomatico ? TAGS.seguimientoRecupero : TAGS.seguimientoManual,
+    tagModo,
     seguimientoId,
     idempotencyKey: input.idempotencyKey,
   });
@@ -491,6 +614,23 @@ export async function registrarResultadoAvanzar(
       );
     if (error) advertencias.push(`El contacto no se marcó como completado hoy: ${error.message}`);
   }
+
+  /* ── 4.5 Proyección (timeline + stage en Supabase) ───────────────────── */
+  const tagsEnviados = [
+    TAGS[RESULTADOS[input.resultado].tag].valor,
+    ...(input.resultado !== "no_show" ? [TAGS_BOT.botDesactivadoPostcall.valor] : []),
+  ];
+  advertencias.push(
+    ...(await proyectarAvance({
+      ghlContactId: input.ghlContactId,
+      resultado: input.resultado,
+      subcategoria: input.subcategoria,
+      monto: input.monto,
+      nota: input.nota,
+      detalleExtra: { pildora: input.pildora },
+      tagsEnviados,
+    })),
+  );
 
   /* ── 5. Efectos en GHL ───────────────────────────────────────────────── */
   const efectosGhl = await aplicarEfectosGhl({
