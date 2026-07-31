@@ -455,8 +455,10 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
 
   {
-    name: "EJEMPLO ELENA ALVAREZ", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hace 15 días", activity: "link enviado · sin pago", monto: 500,
+    // Buzón general (Mi Día): escribió y no tiene bot activo (muerto_postcall) → `respondido`.
+    name: "EJEMPLO ELENA ALVAREZ", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hoy", activity: "respondió hace 45 min", monto: 500,
     botEstado: "muerto_postcall",
+    respondido: { microtext: "respondió hace 45 min" },
     llamadas: [{ id: "ea-1", origin: "sales_call", fecha: "24 Jun", duracion: "42:15", contestada: true, resultado: "Resultado: Acordó comprar" }],
   },
 
@@ -467,17 +469,29 @@ const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
   },
 
   // Nurture: maduración post-call — sub-origen decide el texto de la píldora "NURTURE · X".
+  // Además demuestra "Completadas Hoy" (Mi Día): tarea del día ya cerrada, fila atenuada + tachado.
   {
     name: "EJEMPLO PATRICIA VEGA", grade: "C", stage: "nurture", nurtureOrigen: "pidio_tiempo",
-    situacion: "NURTURE · PIDIÓ TIEMPO", when: "hace 20 días",
+    situacion: "NURTURE · PIDIÓ TIEMPO", when: "hoy",
     activity: "pidió tiempo tras la llamada · re-contacto programado en 30-60 días",
+    completedToday: true,
     botEstado: "muerto_postcall",
     llamadas: [{ id: "pv-1", origin: "sales_call", fecha: "18 Jun", duracion: "34:10", contestada: true, resultado: "Resultado: Quiere pensarlo — pidió tiempo" }],
   },
 
   {
-    name: "EJEMPLO MIGUEL SANCHEZ", grade: "C", stage: "descalificado", situacion: "No interesado · Precio", when: "hace 2 días", activity: "",
-    fuente: "META ADS", botEstado: "muerto_postcall",
+    // Intervención urgente (Mi Día): la IA no detectó una solicitud de pago → pausado_fallo + marcador `urgente`.
+    name: "EJEMPLO MIGUEL SANCHEZ", grade: "C", stage: "descalificado", situacion: "No interesado · Precio", when: "hoy",
+    activity: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió. Requiere intervención inmediata para no perder la venta.",
+    fuente: "META ADS", botEstado: "pausado_fallo",
+    urgente: {
+      pill: URGENTE_ROJO,
+      detail: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió. Requiere intervención inmediata para no perder la venta.",
+      detailClass: "text-rose-700 dark:text-rose-400 font-medium",
+      daysBadge: "Abierta hace 40 min",
+      highlighted: true,
+      phone: true,
+    },
     llamadas: [{ id: "ms-1", origin: "sales_call", fecha: "05 Jul", duracion: "28:40", contestada: true, resultado: "Resultado: No interesado" }],
   },
 
