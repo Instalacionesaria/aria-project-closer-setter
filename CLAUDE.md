@@ -975,6 +975,79 @@ relativo, y comparar.
 
 Comprobado: con la extensión, `/api/diagnostico` devuelve `ok: true` contra SOFIA y GHL.
 
+## 51. Conexiones y fin del polling masivo (2026-07-31)
+
+Ejecuta `CONTEXTO-CLOSER-Conexiones-Polling.md` (el contrato de la tarea, de Fabio).
+**Reemplaza la arquitectura de §50 en tres puntos y enmienda §2.**
+
+### 51.1 La inversión: Supabase manda el stage (enmienda a §2)
+
+- **`closer_contactos.stage_key` es la fuente de verdad de la etapa.** Lo escribe SOLO
+  `proyectarAvance()` (`api/_lib/seguimientos.ts`) al registrar un Avanzar; el refresco de
+  contacto (`sincronizarContacto`) no lo toca. Para un contacto sin ningún Avanzar,
+  la etapa se deriva de los tags UNA vez en la lectura (`etapaDesdeTags`).
+- **El dinero también:** cash collected y ventas del mes se CALCULAN por query sobre
+  `closer_avances` (`GET /api/closer/inicio`). El Opportunity Value se MANDA a GHL al
+  registrar la venta y **nunca se lee de vuelta** (se eliminó `/api/closer/cockpit`).
+  El dashboard de Inicio arranca el mes en $0 y lo dice; las semillas EJEMPLO no suman ahí.
+- GHL sigue siendo la fuente de mensajes, citas y tags — que se INGIEREN y se cachean
+  (`closer_mensajes`, `closer_citas`, `closer_contactos`). El frontend NUNCA llama a GHL.
+
+### 51.2 Ingesta: webhook + reconciliación (doble vía)
+
+- `POST /api/webhooks/ghl` (secreto OBLIGATORIO — sin `WEBHOOK_SECRET` rechaza todo) da
+  ≤1s; `POST /api/closer/reconciliar` da ≤10s sin depender de que Francisco cree workflows.
+- **El "reloj de 10s" lo dispara el frontend** (solo con pestaña visible) y **el candado
+  vive en Postgres** (`closer_reconciliar_claim`, migración 012): N pestañas = el costo de
+  una. Camina `/conversations/search` por MARCA DE AGUA — verificado: el `tags=` del search
+  SE IGNORA, así que se cruza contra los ids cacheados; costo O(actividad), no O(cuenta).
+- Dedupe entre vías = la primary key de `closer_mensajes` (messageId de GHL).
+- El analizador de Kevin se dispara SOLO desde el webhook, jamás desde la reconciliación.
+
+### 51.3 Reglas nuevas de producto
+
+- **Bot default APAGADO** (decisión de Fabio — INVIERTE el supuesto anterior): sin tags de
+  bot, el mensaje entra al Buzón. Orden en `estadoBotDesdeTags()` (`contrato.ts`):
+  postcall→OFF, fallo→OFF, `bot_activado`→ON, nada→OFF. Francisco debe aplicar
+  `bot_activado` en sus workflows.
+- **Toda salida de Avanzar menos No-show manda `bot_desactivado_postcall`**; No-show lo
+  QUITA (el workflow de recuperación necesita al bot — espejo del §34).
+- **Buzón General** = zona_closer + bot apagado + último entrante posterior a
+  `buzon_resuelto_el`. DERIVADO por query, sin flag. "Marcar resuelto" mueve la marca.
+- **Congelado** (`congelado=true` al perder `zona_closer`): visible y movible, pero CERO
+  llamadas a GHL por él (Avanzar registra solo en Supabase; no se le envían mensajes).
+- **Alta de contactos** (decisión de Fabio): NO hay barrido de descubrimiento —
+  `zona_closer` se aplica DESPUÉS de agendar, así que todo contacto nuevo llega con cita
+  (webhook de cita o cron :25/:55). Red de seguridad: cualquier webhook de un contacto
+  desconocido lo crea por upsert (`asegurarContacto`).
+- **Completadas Hoy** de contactos reales se deriva por query (avances + resoluciones del
+  día, Lima) — a medianoche se vacía sola. El flag `completedToday` quedó solo para semillas.
+
+### 51.4 El presupuesto de GHL (reemplaza la tabla de COSTOS-Y-POLLING.md)
+
+| Proceso | Frecuencia | Llamadas |
+|---|---|---|
+| Reconciliación (candado en Postgres) | ≤1 vez/10s, solo con app abierta | 1 + 2×cambiados |
+| Cron de citas `citas-respaldo` (vercel.json) | :25 y :55 | ~2-3/hora (incluye refresco pre-reunión) |
+| Enviar mensaje / Avanzar / abrir día no cacheado | por acción del usuario | 1-2 |
+| Urgentes del Setter (fuera de alcance, bajado 10s→60s) | 60s con pestaña visible | 1 + N notas |
+| **Todo lo demás** | — | **0** |
+
+El frontend tiene UN módulo de relojes (`src/lib/polling.ts`): pestaña oculta = cero
+intervalos; el chat envía de verdad (`POST /api/closer/mensajes`, antes era estado local).
+NOTA FUTURA: con Supabase Realtime, ese módulo se reemplaza por suscripciones.
+
+### 51.5 Trampas nuevas contra los sistemas reales
+
+- **PostgREST puede quedar con schema cache viejo tras un ALTER** (migración 011): el
+  UPDATE con filtros daba 42703 "column does not exist" con la columna existente y el
+  SELECT funcionando. Ni `NOTIFY pgrst` ni el PATCH de config lo destrabaron al instante.
+  Salida: mover la operación a una función SQL (RPC) — migración 012. Si vuelve a pasar:
+  sonda con SELECT + UPDATE + host (patrón `sonda-011`, ya borrada).
+- El search de conversaciones pagina con `startAfterDate` y trae
+  `lastMessageBody/Direction/Date` por conversación; el envío es
+  `POST /conversations/messages {type:"WhatsApp", contactId, message}`.
+
 ## 49. Cómo trabajar en este repo
 
 - Los cambios llegan como **specs** de Francisco (reglas + prompts + mockups). Implementar lo especificado; NO inventar features, textos ni estados. Si un dato no existe, el elemento no se renderiza (regla 10 de §4).

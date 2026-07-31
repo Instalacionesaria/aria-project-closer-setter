@@ -1,9 +1,15 @@
 # Webhooks de GHL — qué crear en la subcuenta
 
-**Para Francisco · 2026-07-25**
+**Para Francisco · 2026-07-25 · actualizado 2026-07-31**
 
 Esto es lo que hay que armar del lado de GoHighLevel para que los contactos y sus eventos
 lleguen a la herramienta del closer. Del lado del código ya está todo listo y desplegado.
+
+> **Actualización 2026-07-31 — el sistema ya no depende de estos workflows para funcionar.**
+> Hay una reconciliación automática cada 10 segundos que ingiere los mensajes aunque el
+> webhook no exista (degradada de ≤1s a ≤10s), y un respaldo de citas a los :25 y :55 de
+> cada hora. Los workflows siguen valiendo la pena por la inmediatez, pero podés crearlos
+> con calma. **Lo único NUEVO que sí te pido está al final: el tag `bot_activado`.**
 
 ---
 
@@ -36,9 +42,9 @@ https://project-closer-setter.vercel.app/api/webhooks/ghl
 | `X-Webhook-Secret` | *(un valor que elijas — ver abajo)* |
 
 El endpoint es público: sin este header, cualquiera que descubra la URL puede inyectar
-contactos y eventos falsos. Elegí una cadena larga y aleatoria, decímela y la configuro en
-Vercel. Mientras no esté configurada el endpoint acepta todo, para poder probar — pero no
-debería quedarse así.
+contactos y eventos falsos. **Desde el 2026-07-31 el header es OBLIGATORIO**: el secreto ya
+está configurado en Vercel y el endpoint rechaza todo request sin él (antes aceptaba y solo
+avisaba). Pedime el valor por un canal privado para ponerlo en los workflows.
 
 **Cuerpo**: JSON, y **muy corto a propósito**. Solo el tipo de evento y el id del contacto:
 todo lo demás se lo preguntamos a GHL en el momento, que es la fuente de verdad. Si el
@@ -77,13 +83,17 @@ Es lo que puebla **Respondieron** y **Buzón general**. Además cancela la serie
 día si ya se había completado.
 
 - **Trigger**: `Customer Replied`
-- **Cuerpo**:
+- **Cuerpo** (los campos nuevos de 2026-07-31 permiten cachear el chat completo y
+  deduplicar contra la reconciliación; si algún merge field no existe, mandá los que haya —
+  el sistema fabrica el resto):
 
 ```json
 {
   "evento": "mensaje.entrante",
   "contactId": "{{contact.id}}",
-  "mensaje": "{{message.body}}"
+  "mensaje": "{{message.body}}",
+  "messageId": "{{message.id}}",
+  "conversationId": "{{message.conversation_id}}"
 }
 ```
 
@@ -92,8 +102,18 @@ día si ya se había completado.
 Sin esto, un contacto al que ya le respondimos seguiría apareciendo como "le debes
 respuesta" para siempre.
 
-- **Trigger**: cuando se envía un mensaje al contacto (WhatsApp/SMS saliente)
-- **Cuerpo**: `{"evento": "mensaje.saliente", "contactId": "{{contact.id}}"}`
+- **Trigger**: cuando se envía un mensaje al contacto (WhatsApp saliente)
+- **Cuerpo** (mismos campos nuevos que el entrante):
+
+```json
+{
+  "evento": "mensaje.saliente",
+  "contactId": "{{contact.id}}",
+  "mensaje": "{{message.body}}",
+  "messageId": "{{message.id}}",
+  "conversationId": "{{message.conversation_id}}"
+}
+```
 
 ### 5. Cita agendada ⭐
 
@@ -108,9 +128,16 @@ Puebla **Agenda de Hoy**.
   "contactId": "{{contact.id}}",
   "citaEl": "{{appointment.start_time}}",
   "meetUrl": "{{appointment.address}}",
+  "appointmentId": "{{appointment.id}}",
+  "titulo": "{{appointment.title}}",
   "estado": "confirmada"
 }
 ```
+
+> **Este workflow es además el ALTA de contactos nuevos** (2026-07-31): como `zona_closer`
+> se aplica después de agendar, todo contacto nuevo llega con una cita — y si el sistema no
+> lo conocía, este webhook lo crea en el momento. El respaldo de :25/:55 cubre si el
+> workflow no existe todavía.
 
 > El nombre exacto de los merge fields de cita puede variar según la versión — si alguno
 > sale vacío, mandámelo y ajusto el mapeo. El evento igual se guarda entero, así que no se
@@ -177,11 +204,27 @@ va a disparar un evento retroactivo.
 
 ---
 
-## Dos cosas que necesito de vos
+## Lo que necesito de vos
 
-1. **El valor del `X-Webhook-Secret`** que quieras usar, para configurarlo en Vercel.
-2. **Confirmación de los merge fields de cita** (punto 5) — son los únicos que no pude
+1. **Confirmación de los merge fields de cita y mensaje** (puntos 3-5) — no los pude
    verificar contra la cuenta.
+2. **⭐ NUEVO (2026-07-31) — el tag `bot_activado`.** El sistema decide si un mensaje
+   entrante va al Buzón del closer con esta regla, en este orden:
+
+   ```
+   tiene bot_desactivado_postcall → bot APAGADO (ya tuvo la sales call)
+   tiene bot_pausado_fallo        → bot APAGADO (lo apagó el auditor)
+   tiene bot_activado             → bot PRENDIDO (sus mensajes NO van al Buzón)
+   ninguno                        → bot APAGADO (default conservador: va al Buzón)
+   ```
+
+   El default apagado es a propósito: mejor que el closer vea un mensaje de más a que se
+   pierda uno. Pero para que los contactos que el chatbot SÍ está atendiendo no inunden el
+   Buzón, **tus workflows tienen que aplicar `bot_activado` cuando el bot toma la
+   conversación** (y pueden quitarlo al soltarla, aunque no es obligatorio: los tags de
+   apagado le ganan). Hoy ese tag no existe en la subcuenta.
+3. **Cuál de la familia `seguimiento_*` dispara la serie automática post-call** — el
+   sistema asume `seguimiento_recupero`; si es otro, es cambiar una constante.
 
 ---
 

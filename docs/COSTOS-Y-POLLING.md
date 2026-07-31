@@ -9,6 +9,26 @@ Donde algo es una proyección, se dice.
 
 ---
 
+## ⚠️ SUPERSEDED (2026-07-31) — la arquitectura de este documento ya no existe
+
+Los 8 pollings que este documento describe **se eliminaron** ejecutando
+`CONTEXTO-CLOSER-Conexiones-Polling.md`. La arquitectura vigente está en **CLAUDE.md §51**;
+el presupuesto real de GHL pasó de "88% del límite diario con un solo closer" a:
+
+| Proceso | Llamadas a GHL |
+|---|---|
+| Reconciliación de mensajes (candado en Postgres, solo con la app abierta) | 1 + 2×cambiados cada 10s → **~6/min en reposo** |
+| Cron de citas (:25 y :55) + refresco pre-reunión | **~2-3/hora**, 24/7 |
+| Acciones del usuario (enviar mensaje, Avanzar, refrescar un día) | 1-2 por acción |
+| Urgentes del Setter (fuera del alcance, bajado a 60s + pausa por pestaña oculta) | 1+N por minuto con la app abierta |
+| Todo lo demás (Pipeline, Mi Día, chat, Inicio, Agenda) | **0** — leen de Supabase |
+
+Con la pestaña oculta: **cero** intervalos en el frontend. El análisis de costos de
+Anthropic (Parte 4) y el contexto histórico siguen siendo válidos — el resto se conserva
+como registro de POR QUÉ se hizo el cambio.
+
+---
+
 ## Resumen para quien decide
 
 **Vercel no es el problema. Nunca lo va a ser.** Con el plan Pro entran cómodamente cuatro

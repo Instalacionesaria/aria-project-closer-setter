@@ -151,34 +151,18 @@ export interface UrgenteReal {
   tags: string[];
 }
 
-/** Contactos con `bot_pausado_fallo` + `zona_closer` → Intervenciones Urgentes del closer. */
-export function fetchUrgentes(): Promise<{ count: number; urgentes: UrgenteReal[] }> {
-  return pedir(`/api/closer/urgentes`);
-}
+/* `fetchUrgentes` (closer) y `fetchRespondieron` se eliminaron el 2026-07-31: sus datos
+   llegan ahora en `fetchMiDiaCompleto` (una respuesta, cero GHL). El del SETTER sobrevive
+   porque esa sección quedó fuera del alcance de la tarea de conexiones (decisión 4). */
 
 /**
- * Lo mismo para el SETTER: `bot_pausado_fallo` + `zona_setter`.
+ * Urgentes del SETTER: `bot_pausado_fallo` + `zona_setter`.
  *
- * Son dos endpoints y no uno con parámetro porque los tags de territorio son excluyentes:
- * cada rol pide su cola y no hay forma de que un contacto aparezca en las dos (§11).
+ * Son dos colas y no una con parámetro porque los tags de territorio son excluyentes:
+ * cada rol pide la suya y no hay forma de que un contacto aparezca en las dos (§11).
  */
 export function fetchUrgentesSetter(): Promise<{ count: number; urgentes: UrgenteReal[] }> {
   return pedir(`/api/setter/urgentes`);
-}
-
-export interface RespondidoReal {
-  contactId: string;
-  name: string;
-  source: string;
-  /** Tag de desenlace: venta_ganada | adelanto_ganado | noshow | seguimiento | nurture_appflow | descalificado. */
-  outcome: string;
-  snippet: string;
-  when: string; // "hace 2h"
-}
-
-/** Buzón General del closer: territorio closer + desenlace + último mensaje entrante sin responder. */
-export function fetchRespondieron(): Promise<{ count: number; contactos: RespondidoReal[] }> {
-  return pedir(`/api/closer/respondieron`);
 }
 
 /**
@@ -412,50 +396,10 @@ export function fetchPipeline(): Promise<PipelineResponse> {
   return pedir<PipelineResponse>(`/api/closer/pipeline`);
 }
 
-/* ================================================================== */
-/* Cockpit (Inicio) — el dinero real, desde las oportunidades de GHL    */
-/* ================================================================== */
-
-/** Total de una etapa de dinero: cuánto y sobre cuántas oportunidades (§4.9, todo % con su base). */
-export interface CockpitTotal {
-  /** Todo lo que hay en la etapa, incluidos los tratos que el tool no muestra. */
-  monto: number;
-  cantidad: number;
-  /**
-   * Quién aporta cada peso. Existe para que la vista sume SOLO los contactos que de hecho
-   * muestra: en la cuenta hay tratos parados en GANADO cuyo contacto perdió el tag
-   * `zona_closer`, y sumarlos daría un Cash Collected que ninguna otra vista puede explicar.
-   */
-  porContacto: { contactId: string; monto: number }[];
-  /** Dinero de la etapa sin contacto asociado — no atribuible a ninguna fila. */
-  montoSinContacto: number;
-}
-
-export interface CockpitResponse {
-  ok: boolean;
-  ghlModo: string;
-  /**
-   * `false` cuando GHL no se pudo consultar o no se supo QUÉ pipeline leer. Distingue
-   * "no hay ventas" (disponible con monto 0) de "no sabemos" — la vista no debe pintar un
-   * $0 rotundo cuando en realidad no pudo preguntar.
-   */
-  disponible: boolean;
-  /** Por qué no está disponible. Solo viene cuando `disponible` es `false`. */
-  motivo?: string;
-  pipeline?: { id: string; nombre: string; comoSeEligio: string };
-  /** Etapa GANADO del pipeline del closer — el Cash Collected real. */
-  ganado: CockpitTotal;
-  /** Etapas de acuerdo ("Cierre en curso" / "Adelanto/Segna") — seña o promesa sin pago. */
-  cierre: CockpitTotal;
-  cobertura?: { completo: boolean; oportunidadesLeidas?: number };
-  /** Problemas parciales (paginación incompleta, etapa faltante) con datos igualmente válidos. */
-  avisos?: string[];
-}
-
-/** Cash Collected y Acuerdos reales, leídos del pipeline de oportunidades del closer. */
-export function fetchCockpit(): Promise<CockpitResponse> {
-  return pedir<CockpitResponse>(`/api/closer/cockpit`);
-}
+/* El fetcher del cockpit de GHL (`fetchCockpit`, Opportunity Value leído de vuelta) se
+   eliminó el 2026-07-31 — decisión de la tarea de conexiones: el dinero del dashboard sale
+   de `/api/closer/inicio` (queries sobre closer_avances) y el Opportunity Value solo se
+   ESCRIBE al registrar la venta. */
 
 /* ================================================================== */
 /* Notas del contacto (tab Notas)                                      */
