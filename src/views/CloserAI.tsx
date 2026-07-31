@@ -421,6 +421,15 @@ function GoldRing({ percentage }: { percentage: number }) {
   );
 }
 
+/**
+ * Meses anteriores del "Histórico de Ingresos" — datos de REFERENCIA, no del negocio.
+ *
+ * No hay de dónde sacarlos: ningún endpoint devuelve el cash collected de meses cerrados, y el
+ * store solo conoce el estado de hoy. Se conservan para que el gráfico tenga forma, pero se
+ * pintan distinto y la tarjeta lo dice — un dueño mirando tres barras doradas en ascenso las
+ * lee como su facturación real, y acá son inventadas. Mismo criterio honesto que el
+ * "Personalizado" de Gerencia (§46.E): mostrar el hueco, no disimularlo.
+ */
 const CHART_HIST = [
   { mes: "Abr", valor: 8500 },
   { mes: "May", valor: 17000 },
@@ -428,12 +437,25 @@ const CHART_HIST = [
 ];
 
 function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
-  const { cockpit, contacts } = useClosurer();
+  const { cockpit, cockpitFuente, cierreEnCursoMonto, contacts } = useClosurer();
   const { miCuenta } = useSettings();
+  /* El MONTO de Acuerdos viene del store (semilla + real de GHL), no se recalcula acá: esta
+     vista lo sumaba por su cuenta desde los montos del store, así que ignoraba el dinero real
+     de GHL y mostraba una cifra distinta a la del encabezado del Pipeline (§44). */
   const cierreEnCurso = Object.values(contacts).filter((c) => c.stage === "cierre");
-  const cierreMonto = cierreEnCurso.reduce((s, c) => s + (c.monto ?? 0), 0);
   const tareas = pendingTasksBreakdown(contacts);
-  const closeRate = cockpit.ventas > 0 ? ((cockpit.ventas / 40) * 100).toFixed(1) : "0.0";
+  /**
+   * Tasa de Cierre = ventas ÷ citas ATENDIDAS (§6.A). El denominador es real: contactos con al
+   * menos una `sales_call` registrada. Antes era `ventas / 40` — un 40 escrito a mano en esta
+   * línea, que hacía que la tasa bajara al agregar una venta si el divisor no acompañaba.
+   */
+  const closeRate = cockpit.atendieron > 0 ? ((cockpit.ventas / cockpit.atendieron) * 100).toFixed(1) : null;
+  /**
+   * Show rate = se presentaron ÷ (se presentaron + no-show). Antes era el literal "60%" con
+   * "meta 70%" al lado; la meta no existe en Ajustes, así que en su lugar va la base (§4.9).
+   */
+  const showBase = cockpit.atendieron + cockpit.noShow;
+  const showRate = showBase > 0 ? Math.round((cockpit.atendieron / showBase) * 100) : null;
   const falta = miCuenta.metaComision - cockpit.comision;
   const avgComision = cockpit.ventas > 0 ? cockpit.comision / cockpit.ventas : 0;
   const ventasFaltantes = falta > 0 && avgComision > 0 ? Math.ceil(falta / avgComision) : 0;
@@ -442,11 +464,28 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
   const metaSuperada = falta <= 0 && cockpit.comision > 0;
   // Anillo dorado (§ 2026-07-11): % real hacia la meta, capado a 100 solo para el SVG — el texto puede superar el 100%.
   const ringPercentage = miCuenta.metaComision > 0 ? Math.min((cockpit.comision / miCuenta.metaComision) * 100, 100) : 0;
+  /**
+   * Cada tarjeta lleva su base real, y las que no tienen dato muestran "—" en vez de un número
+   * inventado (§4.10). Antes las cuatro tenían literales: "tasa X%" sobre un divisor 40,
+   * "20 semanales", "meta 70%" — ninguno salía de ningún lado.
+   */
   const cockpitStats = [
-    { l: "Ventas", v: String(cockpit.ventas), s: `tasa ${closeRate}%` },
-    { l: "Acuerdos", v: money(cierreMonto), s: `${cierreEnCurso.length} leads` },
-    { l: "Calls Mes", v: String(cockpit.callsMes), s: "20 semanales" },
-    { l: "Show rate", v: "60%", s: "meta 70%" },
+    {
+      l: "Ventas",
+      v: String(cockpit.ventas),
+      s: closeRate ? `tasa ${closeRate}% · ${cockpit.ventas} de ${cockpit.atendieron}` : "sin calls atendidas aún",
+    },
+    { l: "Acuerdos", v: money(cierreEnCursoMonto), s: `${cierreEnCurso.length} leads` },
+    {
+      l: "Sales calls",
+      v: cockpit.salesCalls > 0 ? String(cockpit.salesCalls) : "—",
+      s: cockpit.salesCalls > 0 ? `${cockpit.atendieron} contactos atendidos` : "sin llamadas registradas",
+    },
+    {
+      l: "Show rate",
+      v: showRate !== null ? `${showRate}%` : "—",
+      s: showRate !== null ? `${cockpit.atendieron} de ${showBase}` : "sin citas registradas",
+    },
   ];
   const chart = [...CHART_HIST, { mes: "Jul", valor: cockpit.cashCollected }];
   const max = Math.max(...chart.map((c) => c.valor));
@@ -472,11 +511,32 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
             >
               <AnimatedNumber value={cockpit.cashCollected} format={money} />
             </div>
+            {/* El delta "▲ $5,100" se eliminó el 2026-07-31: comparaba contra un mes pasado que
+                no existe en ningún dato (§4.10). En su lugar, de dónde salió esta cifra — que en
+                un número de dinero conectado a GHL vale más que una flecha verde inventada. */}
             <div className="flex flex-col gap-3 text-sm text-white/60 font-light mb-10">
-              <p className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500/80 animate-pulse" />
-                Cobrado real, no prometido <span className="text-white/20">|</span>{" "}
-                <span className="text-green-400/90 font-medium">▲ $5,100</span>
+              <p className="flex items-center gap-2 flex-wrap">
+                <span
+                  className={`w-1.5 h-1.5 rounded-full ${cockpitFuente.disponible ? "bg-green-500/80 animate-pulse" : "bg-amber-400/80"}`}
+                />
+                Cobrado real, no prometido
+                {cockpitFuente.disponible ? (
+                  cockpitFuente.ganadoSemilla > 0 && (
+                    <>
+                      <span className="text-white/20">|</span>
+                      <span className="text-white/40 text-xs">
+                        {money(cockpitFuente.ganadoReal)} de GHL + {money(cockpitFuente.ganadoSemilla)} de ejemplos
+                      </span>
+                    </>
+                  )
+                ) : (
+                  <>
+                    <span className="text-white/20">|</span>
+                    <span className="text-amber-300/90 text-xs" title={cockpitFuente.motivo}>
+                      solo ejemplos — no se pudo leer GHL
+                    </span>
+                  </>
+                )}
               </p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4">
@@ -541,10 +601,17 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
               <span className="text-blue-500 font-medium flex items-center gap-1">
                 <span className="text-sm">💬</span> {tareas.respondieron} espera
               </span>
-              <span className="text-muted-foreground/30">•</span>
-              <span className="flex items-center gap-1">
-                <Phone className="w-3 h-3" /> 6 calls hoy
-              </span>
+              {/* "6 calls hoy" era un literal. Ahora son los seguimientos que tocan hoy, que sí
+                  vienen de `pendingTasksBreakdown` — y si son 0 el chip no se pinta (§4.1). */}
+              {tareas.seguimientosHoy > 0 && (
+                <>
+                  <span className="text-muted-foreground/30">•</span>
+                  <span className="flex items-center gap-1">
+                    <Phone className="w-3 h-3" /> {tareas.seguimientosHoy} seguimiento
+                    {tareas.seguimientosHoy === 1 ? "" : "s"} hoy
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -558,7 +625,9 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
         <div className="flex justify-between items-start mb-6">
           <div>
             <h3 className="text-sm font-semibold text-foreground">Histórico de Ingresos</h3>
-            <p className="text-[11px] text-muted-foreground">Cash collected últimos 4 meses</p>
+            <p className="text-[11px] text-muted-foreground">
+              Julio es real · abril a junio son datos de referencia
+            </p>
           </div>
         </div>
         <div className="h-[220px] w-full flex">
@@ -568,25 +637,36 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
             ))}
           </div>
           <div className="flex-1 flex items-end justify-around border-l border-b border-border/30 pl-2">
-            {chart.map((c) => (
-              <div key={c.mes} className="flex-1 flex flex-col items-center justify-end h-full">
-                <div
-                  className="w-6 rounded-t bg-[#D4AF37] opacity-90 hover:opacity-100 transition-opacity"
-                  style={{ height: `${(c.valor / max) * 100}%` }}
-                />
-                <span className="text-[10px] text-muted-foreground/40 mt-2">{c.mes}</span>
-              </div>
-            ))}
+            {chart.map((c, i) => {
+              // La última barra es el mes en curso, el único con dato real: va dorada sólida.
+              // Las de referencia van huecas (solo borde) para que no se lean como facturación.
+              const esReal = i === chart.length - 1;
+              return (
+                <div key={c.mes} className="flex-1 flex flex-col items-center justify-end h-full">
+                  <div
+                    className={
+                      esReal
+                        ? "w-6 rounded-t bg-[#D4AF37] opacity-90 hover:opacity-100 transition-opacity"
+                        : "w-6 rounded-t border border-dashed border-[#D4AF37]/40 bg-[#D4AF37]/5"
+                    }
+                    style={{ height: `${max > 0 ? (c.valor / max) * 100 : 0}%` }}
+                    title={esReal ? `${c.mes}: ${money(c.valor)} (real)` : `${c.mes}: dato de referencia`}
+                  />
+                  <span className={`text-[10px] mt-2 ${esReal ? "text-muted-foreground" : "text-muted-foreground/40"}`}>
+                    {c.mes}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Footer */}
+      {/* Footer — la línea "Tu desempeño: respuesta a urgentes 12 min · seguimientos a tiempo 86%
+          · registro post-call 9 min" se eliminó el 2026-07-31. Eran tres métricas de desempeño
+          personal sin ninguna fuente: nada mide tiempos de respuesta en este sistema, y una
+          cifra de desempeño inventada es peor que ausente cuando alguien la usa para evaluar. */}
       <div className="pt-8 text-center space-y-4">
-        <p className="text-xs font-medium text-muted-foreground/60">
-          Tu desempeño: respuesta a urgentes 12 min · seguimientos a tiempo 86% · registro
-          post-call 9 min.
-        </p>
         <p className="text-[10px] text-muted-foreground/40">
           Prototipo · datos demo · Comando Central — las acciones simulan los eventos que en producción
           vienen de GHL.

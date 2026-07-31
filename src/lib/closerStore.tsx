@@ -11,7 +11,7 @@ import type { ModoSeguimiento } from "./seguimientos/dominio";
 import type { SituacionSeguimiento } from "./ghl/contrato";
 import { etapaDesdeTags } from "./ghl/etapas";
 import { armarPildora } from "./pildora";
-import { fetchPipeline, fetchUrgentes } from "./api";
+import { fetchCockpit, fetchPipeline, fetchUrgentes } from "./api";
 
 /**
  * `polling-closer-intervenciones-urgentes` — cada cuánto se re-consulta la cola roja.
@@ -29,6 +29,19 @@ const POLLING_URGENTES_MS = 10_000;
  * y un contacto nuevo apareciendo dentro de los 30 segundos es más que suficiente.
  */
 const POLLING_PIPELINE_MS = 30_000;
+
+/**
+ * `polling-closer-cockpit` — cada cuánto se relee el dinero real (oportunidades de GHL).
+ *
+ * 5 minutos, el más espaciado de todos, por dos razones que apuntan al mismo lado: el Cash
+ * Collected del mes no cambia entre parpadeos, y cada ciclo son 3 llamadas a GHL (pipelines +
+ * won + open). A 10s serían ~26.000 llamadas diarias para redibujar el mismo número, contra
+ * ~860 así — y el límite de GHL es el techo real del sistema (`docs/COSTOS-Y-POLLING.md`).
+ *
+ * No se pierde reactividad donde importa: registrar una Venta mueve el contacto en el store al
+ * instante, sin esperar a este ciclo.
+ */
+const POLLING_COCKPIT_MS = 300_000;
 
 /**
  * Cuánto tiempo un contacto tocado a mano conserva su etapa local frente a lo que diga GHL.
@@ -522,17 +535,11 @@ function buildSeedContacts(): Record<string, ClosurerContact> {
   return map;
 }
 
-interface CockpitBase {
-  cashCollected: number;
-  ventas: number;
-  callsMes: number;
-}
-
-const COCKPIT_BASE: CockpitBase = {
-  cashCollected: 34000,
-  ventas: 8,
-  callsMes: 80,
-};
+/* `COCKPIT_BASE` ($34.000 / 8 ventas / 80 calls) se eliminó el 2026-07-31. Era el último
+   literal de dinero del cockpit: sobrevivió a la derivación del 2026-07-30 porque nada en el
+   store sabía cuántas llamadas hubo. Ahora las sales calls se cuentan del tab Llamada de cada
+   contacto y el dinero real sale de las oportunidades de GHL (`/api/closer/cockpit`), así que
+   no queda ningún número del cockpit sin un dato detrás. */
 
 /** Closer activo del demo (sin auth real) — su % vive en Ajustes > Administración > Comisiones. */
 const CURRENT_CLOSER_NAME = "Diego M.";
@@ -606,13 +613,48 @@ export function applyAdvance(c: ClosurerContact, input: AdvanceInput): ClosurerC
 export interface Cockpit {
   cashCollected: number;
   ventas: number;
-  callsMes: number;
+  /**
+   * Sales calls registradas en el tab Llamada de los contactos del store.
+   *
+   * NO es "del mes" y por eso no se llama así: `CallRecord.fecha` es texto libre ("05 Jun",
+   * "Hoy", "Hace 1 día"), no una fecha con la que se pueda filtrar un rango. Se cuenta lo que
+   * hay, y la vista rotula la base — antes era el literal 80, que no salía de ningún lado.
+   */
+  salesCalls: number;
   comision: number;
+  /**
+   * Contactos que llegaron a tener su llamada con el closer (≥1 `sales_call`). Es la base de
+   * la Tasa de Cierre: §6.A la define como "% de ventas sobre citas atendidas", y una llamada
+   * registrada ES la prueba de que la cita se atendió.
+   */
+  atendieron: number;
+  /** Contactos en etapa No-show — el denominador que le falta al Show rate. */
+  noShow: number;
+}
+
+/**
+ * Lo que el cockpit sabe del dinero REAL de GHL, además de lo que deriva del store.
+ *
+ * Viaja separado del `Cockpit` a propósito: la vista necesita distinguir "no hay ventas" de
+ * "no se pudo consultar GHL" para no pintar un $0 rotundo cuando en realidad no preguntó.
+ */
+export interface CockpitFuente {
+  /** `false` mientras la primera consulta no volvió, o si GHL no se pudo leer. */
+  disponible: boolean;
+  /** Por qué no está disponible, en palabras del servidor. */
+  motivo?: string;
+  /** Dinero de oportunidades `won` en el pipeline del closer. */
+  ganadoReal: number;
+  /** Dinero de las semillas EJEMPLO — no existe en GHL, pero sí en el Pipeline que el closer ve. */
+  ganadoSemilla: number;
+  avisos?: string[];
 }
 
 interface ClosurerStoreValue {
   contacts: Record<string, ClosurerContact>;
   cockpit: Cockpit;
+  /** De dónde salió el dinero del cockpit y qué no se pudo leer — para que Inicio sea honesto. */
+  cockpitFuente: CockpitFuente;
   cierreEnCursoMonto: number;
   /** Suma de los montos de la etapa Ganado — el mismo dinero que el Cash Collected de Inicio. */
   ganadoMonto: number;
@@ -1024,15 +1066,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * (decisión de Fabio, 2026-07-30): el encabezado dice cuánta plata hay en esa etapa, no
    * cuánta estás mirando. Filtrar la vista no debería mover un total de dinero.
    */
-  const cierreEnCursoMonto = useMemo(
-    () => Object.values(contacts).filter((c) => c.stage === "cierre").reduce((sum, c) => sum + (c.monto ?? 0), 0),
-    [contacts]
-  );
-
-  const ganadoMonto = useMemo(
-    () => Object.values(contacts).filter((c) => c.stage === "ganado").reduce((sum, c) => sum + (c.monto ?? 0), 0),
-    [contacts]
-  );
+  /* `cierreEnCursoMonto` se calcula más abajo, junto al resto del dinero: necesita el monto real
+     de GHL, que llega por `polling-closer-cockpit`. Antes salía solo de los montos del store,
+     que en un contacto real de GHL viene indefinido — el mismo agujero que tenía Ganado. */
 
   const ganadoCount = useMemo(
     () => Object.values(contacts).filter((c) => c.stage === "ganado").length,
@@ -1040,31 +1076,152 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   );
 
   /**
-   * El cockpit de Inicio ahora se DERIVA de los contactos, igual que los totales del Pipeline.
+   * ── polling-closer-cockpit ──
    *
-   * Antes salía de `COCKPIT_BASE` ($34.000 / 8 ventas), un literal sin relación con ningún
-   * contacto: el Pipeline decía $29.800 sobre 5 ventas y Inicio $34.000 sobre 8, a un clic de
-   * distancia y sin forma de explicar la diferencia. Decisión de Fabio (2026-07-30): un solo
-   * número para la misma plata en toda la app.
+   * El dinero real: oportunidades `won` del pipeline del closer, vía `/api/closer/cockpit`.
    *
-   * `callsMes` sigue siendo una referencia de `COCKPIT_BASE` — es lo único que no se puede
-   * derivar de los contactos, porque el store no sabe cuántas llamadas hubo en el mes.
+   * Hace falta porque `polling-closer-pipeline` lee `POST /contacts/search`, que devuelve tags
+   * y NO montos: un contacto real con `venta_ganada` entra a la etapa Ganado y suma +1 a
+   * "Ventas", pero con `monto` indefinido — o sea, aportando $0 al Cash Collected. El cockpit
+   * contaba las ventas reales y cobraba solo las de la semilla.
+   *
+   * Intervalo largo (5 min) a propósito, y no los 10-30s del resto: el Cash Collected del mes
+   * no cambia entre parpadeos, y este endpoint son 3 llamadas a GHL por ciclo (pipelines + won
+   * + open). A 10s serían ~26.000 llamadas diarias solo para redibujar el mismo número —
+   * exactamente el gasto que `docs/COSTOS-Y-POLLING.md` identifica como el techo del sistema.
+   * Una venta registrada acá se ve al instante igual, porque `advance()` mueve el contacto en
+   * el store sin esperar a GHL.
+   */
+  const [cockpitReal, setCockpitReal] = useState<{
+    ganado: number;
+    cierre: number;
+    disponible: boolean;
+    motivo?: string;
+    avisos?: string[];
+  }>({ ganado: 0, cierre: 0, disponible: false, motivo: "Consultando GHL…" });
+
+  useEffect(() => {
+    let vivo = true;
+    const cargar = () => {
+      fetchCockpit()
+        .then((r) => {
+          if (!vivo) return;
+          setCockpitReal({
+            ganado: r.ganado?.monto ?? 0,
+            cierre: r.cierre?.monto ?? 0,
+            disponible: Boolean(r.disponible),
+            motivo: r.motivo,
+            avisos: r.avisos,
+          });
+        })
+        .catch((e) => {
+          if (!vivo) return;
+          // Sin backend la app sigue con la semilla (§50.7). Se registra el motivo para que
+          // Inicio pueda decir "no se pudo leer GHL" en vez de afirmar un $0 que no verificó.
+          setCockpitReal({ ganado: 0, cierre: 0, disponible: false, motivo: `No se pudo leer GHL: ${(e as Error).message}` });
+        });
+    };
+    cargar();
+    const iv = setInterval(cargar, POLLING_COCKPIT_MS);
+    return () => {
+      vivo = false;
+      clearInterval(iv);
+    };
+  }, []);
+
+  /**
+   * Monto de las semillas EJEMPLO en Ganado, contado aparte del real.
+   *
+   * El filtro es `!c.ghlContactId`: los contactos reales de GHL no traen `monto` (su plata sale
+   * del endpoint de oportunidades), y las semillas no existen en GHL. Separarlos así es lo que
+   * evita contar dos veces la misma venta el día que el pipeline empiece a devolver montos —
+   * un Cash Collected duplicado se celebra en vez de notarse.
+   *
+   * Se siguen sumando porque el closer VE esas tarjetas en su Pipeline: si Inicio las ignorara,
+   * las dos vistas volverían a contradecirse, que es justo lo que §44 vino a arreglar.
+   */
+  const ganadoSemillaMonto = useMemo(
+    () =>
+      Object.values(contacts)
+        .filter((c) => c.stage === "ganado" && !c.ghlContactId)
+        .reduce((sum, c) => sum + (c.monto ?? 0), 0),
+    [contacts]
+  );
+
+  /** Mismo criterio que Ganado, para la etapa Cierre en curso: semilla local + real de GHL. */
+  const cierreSemillaMonto = useMemo(
+    () =>
+      Object.values(contacts)
+        .filter((c) => c.stage === "cierre" && !c.ghlContactId)
+        .reduce((sum, c) => sum + (c.monto ?? 0), 0),
+    [contacts]
+  );
+
+  const cashCollected = ganadoSemillaMonto + cockpitReal.ganado;
+  const cierreEnCursoMonto = cierreSemillaMonto + cockpitReal.cierre;
+
+  /**
+   * Bases reales de los porcentajes del cockpit, derivadas del tab Llamada de cada contacto —
+   * la misma fuente que ya alimenta los íconos 📹/📞 (§27, §35). Nunca un campo suelto.
+   *
+   * `atendieron` = contactos con ≥1 `sales_call`: una llamada registrada es la prueba de que la
+   * cita se atendió, y es el denominador que §6.A pide para la Tasa de Cierre. Antes ese
+   * denominador era el literal `40`, escrito en la vista, sin relación con ningún dato.
+   */
+  const { salesCalls, atendieron, noShow } = useMemo(() => {
+    const all = Object.values(contacts);
+    return {
+      salesCalls: all.reduce((s, c) => s + countSalesCalls(c.llamadas), 0),
+      atendieron: all.filter((c) => countSalesCalls(c.llamadas) > 0).length,
+      noShow: all.filter((c) => c.stage === "no_show").length,
+    };
+  }, [contacts]);
+
+  /**
+   * El cockpit de Inicio se DERIVA: de los contactos del store y del dinero real de GHL.
+   *
+   * Antes salía de `COCKPIT_BASE` ($34.000 / 8 ventas / 80 calls), literales sin relación con
+   * ningún contacto: el Pipeline decía $29.800 sobre 5 ventas y Inicio $34.000 sobre 8, a un
+   * clic de distancia y sin forma de explicar la diferencia. Decisión de Fabio (2026-07-30):
+   * un solo número para la misma plata en toda la app.
+   *
+   * `ventas` sigue contando los contactos en Ganado (no las oportunidades `won`) para que el
+   * número coincida con el badge de esa columna del Pipeline. Si GHL tuviera una oportunidad
+   * ganada cuyo contacto perdió el tag, los dos números divergirían — y es preferible que
+   * "Ventas" concuerde con lo que el closer tiene a la vista.
    */
   const cockpit: Cockpit = useMemo(
     () => ({
-      cashCollected: ganadoMonto,
+      cashCollected,
       ventas: ganadoCount,
-      callsMes: COCKPIT_BASE.callsMes,
-      comision: Math.round(ganadoMonto * comisionPct),
+      salesCalls,
+      comision: Math.round(cashCollected * comisionPct),
+      atendieron,
+      noShow,
     }),
-    [ganadoMonto, ganadoCount, comisionPct]
+    [cashCollected, ganadoCount, salesCalls, atendieron, noShow, comisionPct]
+  );
+
+  const cockpitFuente: CockpitFuente = useMemo(
+    () => ({
+      disponible: cockpitReal.disponible,
+      motivo: cockpitReal.motivo,
+      ganadoReal: cockpitReal.ganado,
+      ganadoSemilla: ganadoSemillaMonto,
+      avisos: cockpitReal.avisos,
+    }),
+    [cockpitReal, ganadoSemillaMonto]
   );
 
   const value: ClosurerStoreValue = {
     contacts,
     cockpit,
+    cockpitFuente,
     cierreEnCursoMonto,
-    ganadoMonto,
+    /* El encabezado de la columna Ganado del Pipeline muestra ESTE número, que es el mismo
+       Cash Collected de Inicio (semilla + real de GHL). Derivarlo dos veces es cómo se
+       llega a dos totales distintos para la misma plata a un clic de distancia (§44). */
+    ganadoMonto: cashCollected,
     openContactName,
     openGhlContactId,
     openContact: (name: string, ghlContactId?: string) => {

@@ -311,6 +311,42 @@ export function fetchPipeline(): Promise<PipelineResponse> {
 }
 
 /* ================================================================== */
+/* Cockpit (Inicio) — el dinero real, desde las oportunidades de GHL    */
+/* ================================================================== */
+
+/** Total de una etapa de dinero: cuánto y sobre cuántas oportunidades (§4.9, todo % con su base). */
+export interface CockpitTotal {
+  monto: number;
+  cantidad: number;
+}
+
+export interface CockpitResponse {
+  ok: boolean;
+  ghlModo: string;
+  /**
+   * `false` cuando GHL no se pudo consultar o no se supo QUÉ pipeline leer. Distingue
+   * "no hay ventas" (disponible con monto 0) de "no sabemos" — la vista no debe pintar un
+   * $0 rotundo cuando en realidad no pudo preguntar.
+   */
+  disponible: boolean;
+  /** Por qué no está disponible. Solo viene cuando `disponible` es `false`. */
+  motivo?: string;
+  pipeline?: { id: string; nombre: string; comoSeEligio: string };
+  /** Etapa GANADO del pipeline del closer — el Cash Collected real. */
+  ganado: CockpitTotal;
+  /** Etapas de acuerdo ("Cierre en curso" / "Adelanto/Segna") — seña o promesa sin pago. */
+  cierre: CockpitTotal;
+  cobertura?: { completo: boolean; oportunidadesLeidas?: number };
+  /** Problemas parciales (paginación incompleta, etapa faltante) con datos igualmente válidos. */
+  avisos?: string[];
+}
+
+/** Cash Collected y Acuerdos reales, leídos del pipeline de oportunidades del closer. */
+export function fetchCockpit(): Promise<CockpitResponse> {
+  return pedir<CockpitResponse>(`/api/closer/cockpit`);
+}
+
+/* ================================================================== */
 /* Notas del contacto (tab Notas)                                      */
 /* ================================================================== */
 
