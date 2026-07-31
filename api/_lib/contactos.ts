@@ -12,7 +12,7 @@
  * aparte justamente para que un sync no los borre.
  */
 
-import { TAGS } from "../../src/lib/ghl/contrato.js";
+import { TAGS, TAGS_BOT } from "../../src/lib/ghl/contrato.js";
 import { ghl } from "./ghl/index.js";
 import { ORG_ID, db } from "./repo.js";
 
@@ -31,9 +31,9 @@ function fuenteDesdeTags(tags: readonly string[]): string {
  * tiene bot en absoluto (§11).
  */
 function botDesdeTags(tags: readonly string[]): string | null {
-  if (tags.includes("bot_pausado_fallo")) return "pausado_fallo";
+  if (tags.includes(TAGS_BOT.botPausadoFallo.valor)) return "pausado_fallo";
   if (tags.includes("bot_apagado_manual")) return "apagado_manual";
-  if (tags.includes("bot_desactivado_postcall")) return "muerto_postcall";
+  if (tags.includes(TAGS_BOT.botDesactivadoPostcall.valor)) return "muerto_postcall";
   if (tags.includes("derivado_lt")) return "derivado_lt";
   return null;
 }

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   TAGS,
+  TAGS_BOT,
+  TAG_SEGUIMIENTO_AUTO,
   CAMPOS,
   SITUACIONES,
   TAGS_SEGUIMIENTO_EXCLUYENTES,
@@ -9,6 +11,7 @@ import {
   situacionDesdeGhl,
   situacionPorSlug,
   perteneceAlCloser,
+  estadoBotDesdeTags,
   assertEnviable,
   literalesPendientes,
   LiteralNoConfirmadoError,
@@ -194,5 +197,42 @@ describe("armarPildora — CATEGORÍA · SUBCATEGORÍA en mayúsculas (§12/§39
   it("reproduce exactamente lo que Avanzar produce hoy", () => {
     expect(armarPildora({ stage: "no_show", subcategoria: "Plantón" })).toBe("NO-SHOW · PLANTÓN");
     expect(armarPildora({ stage: "nurture", subcategoria: "Se enfrió" })).toBe("NURTURE · SE ENFRIÓ");
+  });
+});
+
+describe("estadoBotDesdeTags — el ruteo del Buzón depende de esto (doc §2)", () => {
+  it("sin ningún tag de bot → APAGADO (default conservador: el mensaje entra al Buzón)", () => {
+    expect(estadoBotDesdeTags([])).toBe("apagado");
+    expect(estadoBotDesdeTags(["zona_closer", "seguimiento"])).toBe("apagado");
+  });
+
+  it("bot_activado → PRENDIDO (sus mensajes NO van al Buzón, quedan para el auditor)", () => {
+    expect(estadoBotDesdeTags(["zona_closer", "bot_activado"])).toBe("prendido");
+  });
+
+  it("los tags de apagado GANAN sobre bot_activado residual — el orden del doc importa", () => {
+    expect(estadoBotDesdeTags(["bot_activado", "bot_desactivado_postcall"])).toBe("apagado");
+    expect(estadoBotDesdeTags(["bot_activado", "bot_pausado_fallo"])).toBe("apagado");
+  });
+
+  it("normaliza mayúsculas y espacios — GHL no garantiza higiene de tags", () => {
+    expect(estadoBotDesdeTags([" Bot_Activado "])).toBe("prendido");
+  });
+
+  it("un no-show tiene el bot prendido (workflow de recuperación) → no rutea a Buzón", () => {
+    expect(estadoBotDesdeTags(["zona_closer", "noshow", "bot_activado"])).toBe("prendido");
+  });
+
+  it("TAG_SEGUIMIENTO_AUTO apunta a seguimiento_recupero hasta que Francisco confirme", () => {
+    expect(TAG_SEGUIMIENTO_AUTO).toBe(TAGS.seguimientoRecupero.valor);
+  });
+
+  it("los cuatro tags de bot están declarados y confirmados", () => {
+    expect(Object.values(TAGS_BOT).map((t) => t.valor).sort()).toEqual([
+      "bot_activado",
+      "bot_desactivado_postcall",
+      "bot_pausado_fallo",
+      "bot_reactivar",
+    ]);
   });
 });

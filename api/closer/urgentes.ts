@@ -16,12 +16,12 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { perteneceAlCloser, TAGS } from "../../src/lib/ghl/contrato.js";
+import { perteneceAlCloser, TAGS, TAGS_BOT } from "../../src/lib/ghl/contrato.js";
 import { ghl } from "../_lib/ghl/index.js";
 import { contactosConTag, ultimaNotaIa } from "../_lib/ghl/lectura.js";
 
 /** El tag que enciende la cola roja. Lo aplica el analizador, y el workflow de GHL apaga el bot. */
-const TAG_FALLO = "bot_pausado_fallo";
+const TAG_FALLO = TAGS_BOT.botPausadoFallo.valor;
 
 /** Cuando todavía no hay nota del analizador, se dice eso — no se inventa un diagnóstico. */
 const MOTIVO_SIN_NOTA = "requiere intervención — revisar conversación";

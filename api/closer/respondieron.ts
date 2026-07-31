@@ -45,7 +45,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { perteneceAlCloser, TAGS } from "../../src/lib/ghl/contrato.js";
+import { perteneceAlCloser, TAGS, TAGS_BOT } from "../../src/lib/ghl/contrato.js";
 import { ghl } from "../_lib/ghl/index.js";
 import {
   contactosConTag,
@@ -82,13 +82,13 @@ export type EstadoBot = "activo" | "pausado_fallo" | "apagado_manual" | "muerto_
  * derivaciones"). El orden importa: un contacto puede acumular varios y gana el primero.
  * `bot_pausado_fallo` va primero porque es el que decide el ruteo a Urgentes.
  *
- * ⚠️ Duplica el mapa de `botDesdeTags()` en `api/_lib/contactos.ts`, que hoy es privado de ese
- * módulo. Es una duplicación conocida y anotada: son los mismos literales leídos del mismo
- * contrato, y unificarlos exige exportar esa función (archivo de otro frente).
+ * Los literales de bot ahora viven en `TAGS_BOT` (contrato.ts) — acá solo queda el mapeo a
+ * los estados visuales del front, que este endpoint conserva hasta su reemplazo (Fase 7 de
+ * CONTEXTO-CLOSER-Conexiones-Polling.md).
  */
 const TAGS_BOT_APAGADO: ReadonlyArray<readonly [string, EstadoBot]> = [
-  ["bot_pausado_fallo", "pausado_fallo"],
-  ["bot_desactivado_postcall", "muerto_postcall"],
+  [TAGS_BOT.botPausadoFallo.valor, "pausado_fallo"],
+  [TAGS_BOT.botDesactivadoPostcall.valor, "muerto_postcall"],
   ["bot_apagado_manual", "apagado_manual"],
   ["derivado_lt", "derivado_lt"],
 ];

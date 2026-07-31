@@ -215,6 +215,80 @@ export function perteneceAlCloser(tags: readonly string[], exigirZonaCloser = fa
 }
 
 /* ================================================================== */
+/* TAGS DE BOT — CONTEXTO-CLOSER-Conexiones-Polling.md §2             */
+/* ================================================================== */
+
+/**
+ * Los interruptores del chatbot de GHL. Antes de esta sección vivían como strings sueltos
+ * repetidos en cuatro archivos (`respondieron.ts`, `contactos.ts`, `urgentes.ts`,
+ * `analizador.ts`) — la duplicación estaba anotada como deuda en `respondieron.ts`.
+ *
+ * `bot_activado` es el único que este tool nunca vio en la subcuenta: lo declara el doc de
+ * la tarea y lo tiene que aplicar Francisco en sus workflows cuando el chatbot atiende
+ * (pedido registrado en `docs/WEBHOOKS-GHL-para-Francisco.md`). Va `confirmado` igual porque
+ * este tool solo lo LEE — leer un tag que no existe todavía es un no-op, no un riesgo.
+ */
+export const TAGS_BOT = {
+  botActivado: {
+    valor: "bot_activado",
+    confianza: "confirmado",
+    fuente: "CONTEXTO-CLOSER-Conexiones-Polling.md §2 — lo aplica el workflow de Francisco",
+    uso: "El chatbot de GHL está atendiendo al contacto. Solo lectura.",
+  },
+  botReactivar: {
+    valor: "bot_reactivar",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §9",
+    uso: "Orden de reactivar el bot (el flujo de intervenciones al resolver). No decide estado.",
+  },
+  botDesactivadoPostcall: {
+    valor: "bot_desactivado_postcall",
+    confianza: "confirmado",
+    fuente: "CONTEXTO-CLOSER-Conexiones-Polling.md §2/§8.6",
+    uso: "Ya tuvo la sales call. Lo aplican las 5 salidas de Avanzar (todas menos No-show).",
+  },
+  botPausadoFallo: {
+    valor: "bot_pausado_fallo",
+    confianza: "confirmado",
+    fuente: "api/_lib/analizador.ts (el auditor de Kevin lo aplica)",
+    uso: "El auditor IA apagó el bot por fallo grave. Solo lectura — es de Kevin.",
+  },
+} as const satisfies Record<string, Literal>;
+
+/**
+ * El tag que dispara el workflow de seguimiento AUTOMÁTICO post-call en GHL.
+ *
+ * PENDIENTE confirmar con Francisco cuál de la familia `seguimiento_*` es el correcto —
+ * mientras tanto es `seguimiento_recupero`, que es lo que el código ya mandaba antes de
+ * esta tarea. Cambiar el valor acá NO debe tocar ninguna lógica (doc §2).
+ */
+export const TAG_SEGUIMIENTO_AUTO = TAGS.seguimientoRecupero.valor;
+
+/** El bot, reducido a lo único que decide el ruteo de mensajes: ¿está atendiendo o no? */
+export type EstadoBot = "prendido" | "apagado";
+
+/**
+ * Deriva el estado del bot desde los tags crudos, en el orden EXACTO del doc §2:
+ *
+ *   tiene bot_desactivado_postcall → APAGADO (ya tuvo reunión)
+ *   tiene bot_pausado_fallo        → APAGADO (lo apagó el auditor)
+ *   tiene bot_activado             → PRENDIDO
+ *   ninguno                        → APAGADO (default conservador)
+ *
+ * El default APAGADO es decisión de Fabio (2026-07-31) e INVIERTE lo que el código asumía
+ * antes ("prendido salvo tag de apagado"): un mensaje sin bot detectable entra al Buzón —
+ * peor caso, el closer ve mensajes de más; nunca se pierde uno. El orden importa: un
+ * contacto puede tener `bot_activado` residual junto a un tag de apagado, y el apagado gana.
+ */
+export function estadoBotDesdeTags(tags: readonly string[]): EstadoBot {
+  const t = tags.map((x) => x.trim().toLowerCase());
+  if (t.includes(TAGS_BOT.botDesactivadoPostcall.valor)) return "apagado";
+  if (t.includes(TAGS_BOT.botPausadoFallo.valor)) return "apagado";
+  if (t.includes(TAGS_BOT.botActivado.valor)) return "prendido";
+  return "apagado";
+}
+
+/* ================================================================== */
 /* CUSTOM FIELDS — CONTRATO-GHL.md §4                                 */
 /* ================================================================== */
 
