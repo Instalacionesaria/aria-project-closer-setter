@@ -30,9 +30,16 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ORG_ID, db } from "../_lib/repo.js";
+import { db } from "../_lib/repo.js";
 import { analizarYMarcar } from "../_lib/analizador.js";
 import { sincronizarContacto } from "../_lib/contactos.js";
+import {
+  asegurarContacto,
+  efectosDeEntrante,
+  guardarMensajes,
+  idDeMensaje,
+  registrarEventoSistema,
+} from "../_lib/ingesta.js";
 
 /** Eventos que este endpoint entiende. Cualquier otro se guarda sin interpretar. */
 export type EventoGhl =
@@ -66,17 +73,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // El endpoint es público: sin esto, cualquiera que descubra la URL puede inyectar
   // contactos y eventos falsos. Los workflows de GHL permiten headers personalizados, así
   // que un secreto compartido es la protección proporcionada al riesgo.
+  // Sin secreto configurado el endpoint se RECHAZA a sí mismo (antes solo avisaba por
+  // consola y aceptaba todo). Cambio del 2026-07-31: este endpoint dispara el analizador de
+  // Kevin (~$0,02 por inferencia) y escribe contactos — abierto, cualquiera que descubra la
+  // URL puede inyectar eventos falsos y generar gasto. 503 y no 401 porque el problema es
+  // configuración nuestra, no la credencial del que llama.
   const secretoEsperado = process.env.WEBHOOK_SECRET;
-  if (secretoEsperado) {
-    const recibido = req.headers["x-webhook-secret"];
-    if (recibido !== secretoEsperado) {
-      return res.status(401).json({ ok: false, error: "Secreto inválido." });
-    }
+  if (!secretoEsperado) {
+    console.error("[webhook] WEBHOOK_SECRET sin configurar: se rechaza todo hasta que exista.");
+    return res.status(503).json({ ok: false, error: "WEBHOOK_SECRET sin configurar en el servidor." });
   }
-  // Sin `WEBHOOK_SECRET` configurado se acepta todo — necesario para poder probar antes de
-  // que Francisco ponga el header en los workflows. Se avisa en cada request para que no
-  // pase inadvertido si queda así en producción.
-  else console.warn("[webhook] WEBHOOK_SECRET sin configurar: el endpoint acepta cualquier origen.");
+  if (req.headers["x-webhook-secret"] !== secretoEsperado) {
+    return res.status(401).json({ ok: false, error: "Secreto inválido." });
+  }
 
   const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
   if (!cuerpo) return res.status(400).json({ ok: false, error: "Cuerpo JSON inválido." });
@@ -157,7 +166,7 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
       // historial de alguien que no está en el sistema: imposible de ver en ninguna ficha
       // y contaminando la tabla.
       if (ok && evento === "contacto.zona_closer") {
-        await registrarEvento(contactId, "entro_zona_closer", "Entró a territorio del closer");
+        await registrarEventoSistema(contactId, "entro_zona_closer", "Entró a territorio del closer");
       }
 
       return ok
@@ -172,29 +181,35 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
      */
     case "mensaje.entrante": {
       const texto = String(cuerpo.mensaje ?? cuerpo.body ?? "").slice(0, 500);
+      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? "") || ahora;
+
+      // Red de seguridad del alta (decisión de Fabio, 2026-07-31): si el contacto no está
+      // en la caché —el webhook de mensaje llegó antes que el de cita, o ese se perdió—
+      // se crea acá mismo con 1 llamada a GHL, en vez de ignorar a alguien del territorio.
+      const contacto = await asegurarContacto(contactId);
+      if (!contacto) return { ignorado: "GHL no devolvió ese contacto" };
+
+      // El mensaje al caché de conversaciones. El id de GHL deduplica contra la
+      // reconciliación; si el workflow no lo manda, el determinístico cumple el mismo rol.
+      await guardarMensajes([
+        {
+          id: String(cuerpo.messageId ?? "") || idDeMensaje(String(cuerpo.conversationId ?? "") || null, timestampGhl, texto),
+          ghlContactId: contactId,
+          conversationId: String(cuerpo.conversationId ?? "") || null,
+          direccion: "inbound",
+          body: texto,
+          timestampGhl,
+        },
+      ]);
 
       await db()
         .from("closer_contactos")
-        .update({ ultimo_entrante_el: ahora, ultimo_entrante_texto: texto || null })
+        .update({ last_message_ghl_at: timestampGhl })
         .eq("ghl_contact_id", contactId);
 
-      await registrarEvento(contactId, "mensaje_entrante", texto ? `Escribió: "${texto.slice(0, 120)}"` : "El contacto escribió");
-
-      // Si el contacto responde, la serie muere: perseguir a alguien que ya contestó es
-      // exactamente lo que la regla de cancelación evita.
-      await db()
-        .from("closer_seguimientos")
-        .update({ estado: "cancelado", motivo_cierre: "respondio", cerrado_el: ahora })
-        .eq("ghl_contact_id", contactId)
-        .eq("estado", "pendiente")
-        .eq("modo", "automatico");
-
-      // Volver a escribir reabre la tarea del día (§40.D: el `reviveTask` que hasta ahora
-      // solo existía como botón de demo).
-      await db()
-        .from("closer_contacto_tarea")
-        .update({ completada_dia: null, actualizado_el: ahora })
-        .eq("ghl_contact_id", contactId);
+      // Efectos compartidos con la reconciliación: ultimo_entrante_*, evento, cancelación
+      // de serie, reapertura de tarea. Un solo lugar para que las dos vías no diverjan.
+      await efectosDeEntrante(contactId, texto, timestampGhl);
 
       // El contacto escribió: se audita cómo viene atendiendo el agente. Ver nota abajo.
       const analisis = await analizarYMarcar(contactId);
@@ -213,35 +228,95 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
      * o si ya está marcado, así que la mayoría de los eventos no cuestan una inferencia.
      */
     case "mensaje.saliente": {
-      await db().from("closer_contactos").update({ ultimo_saliente_el: ahora }).eq("ghl_contact_id", contactId);
+      const texto = String(cuerpo.mensaje ?? cuerpo.body ?? "").slice(0, 500);
+      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? "") || ahora;
+
+      const contacto = await asegurarContacto(contactId);
+      if (!contacto) return { ignorado: "GHL no devolvió ese contacto" };
+
+      await guardarMensajes([
+        {
+          id: String(cuerpo.messageId ?? "") || idDeMensaje(String(cuerpo.conversationId ?? "") || null, timestampGhl, texto),
+          ghlContactId: contactId,
+          conversationId: String(cuerpo.conversationId ?? "") || null,
+          direccion: "outbound",
+          body: texto,
+          timestampGhl,
+        },
+      ]);
+
+      await db()
+        .from("closer_contactos")
+        .update({ ultimo_saliente_el: timestampGhl, last_message_ghl_at: timestampGhl })
+        .eq("ghl_contact_id", contactId);
 
       const analisis = await analizarYMarcar(contactId);
 
       return { registrado: true, analisis };
     }
 
-    /** Puebla la Agenda de Hoy. */
+    /**
+     * Puebla la Agenda. La cita es LA vía de alta de contactos nuevos (decisión de Fabio,
+     * 2026-07-31: `zona_closer` se aplica DESPUÉS de agendar, así que todo contacto nuevo
+     * llega con una cita) — por eso el `asegurarContacto` va acá primero.
+     */
     case "cita.agendada": {
+      const contacto = await asegurarContacto(contactId);
+      if (!contacto) return { ignorado: "GHL no devolvió ese contacto" };
+
       const cuando = String(cuerpo.citaEl ?? cuerpo.startTime ?? "");
+      const meetUrl = String(cuerpo.meetUrl ?? cuerpo.address ?? "") || null;
+      const appointmentId = String(cuerpo.appointmentId ?? cuerpo.appointment_id ?? "");
+
+      // El caché real de la Agenda es `closer_citas` (un contacto puede tener más de una
+      // cita en el rango visible). Sin appointmentId no hay pk — queda solo en el contacto
+      // y el respaldo de :25/:55 completa la fila con el id real.
+      if (appointmentId && cuando) {
+        const { error } = await db()
+          .from("closer_citas")
+          .upsert(
+            {
+              ghl_appointment_id: appointmentId,
+              ghl_contact_id: contactId,
+              fecha_hora: cuando,
+              estado_ghl: String(cuerpo.estado ?? "confirmed"),
+              meet_url: meetUrl,
+              titulo: String(cuerpo.titulo ?? cuerpo.title ?? "") || null,
+              actualizado_el: ahora,
+            },
+            { onConflict: "ghl_appointment_id" },
+          );
+        if (error) throw new Error(`closer_citas: ${error.message}`);
+      }
+
+      // Las columnas del contacto se mantienen como resumen "próxima cita" (las usan los
+      // íconos 📅/📹 de las filas sin joinear).
       await db()
         .from("closer_contactos")
         .update({
           cita_el: cuando || null,
-          cita_meet_url: String(cuerpo.meetUrl ?? cuerpo.address ?? "") || null,
+          cita_meet_url: meetUrl,
           cita_estado: String(cuerpo.estado ?? "confirmada"),
         })
         .eq("ghl_contact_id", contactId);
 
-      await registrarEvento(contactId, "cita_agendada", cuando ? `Cita agendada para ${cuando}` : "Cita agendada");
-      return { cita: cuando };
+      await registrarEventoSistema(contactId, "cita_agendada", cuando ? `Cita agendada para ${cuando}` : "Cita agendada");
+      return { cita: cuando, sinAppointmentId: !appointmentId || undefined };
     }
 
     case "cita.cancelada": {
+      const appointmentId = String(cuerpo.appointmentId ?? cuerpo.appointment_id ?? "");
+      if (appointmentId) {
+        await db()
+          .from("closer_citas")
+          .update({ estado_ghl: "cancelled", actualizado_el: ahora })
+          .eq("ghl_appointment_id", appointmentId);
+      }
       await db()
         .from("closer_contactos")
         .update({ cita_el: null, cita_meet_url: null, cita_estado: "cancelada" })
         .eq("ghl_contact_id", contactId);
-      await registrarEvento(contactId, "cita_cancelada", "Se canceló la cita");
+      await registrarEventoSistema(contactId, "cita_cancelada", "Se canceló la cita");
       return { cancelada: true };
     }
 
@@ -255,7 +330,7 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
         .eq("estado", "pendiente")
         .maybeSingle();
 
-      await registrarEvento(
+      await registrarEventoSistema(
         contactId,
         "serie_toque_enviado",
         n && seg?.serie_toques ? `Toque ${n} de ${seg.serie_toques} enviado` : "Toque de la serie enviado",
@@ -279,31 +354,14 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
         .select("id")
         .maybeSingle();
 
-      await registrarEvento(contactId, "serie_agotada", "Serie completada sin respuesta — revisar", data?.id);
+      await registrarEventoSistema(contactId, "serie_agotada", "Serie completada sin respuesta — revisar", data?.id);
       return { agotada: true };
     }
   }
 }
 
-/** Todo evento automático lleva autor `Sistema` y jamás pasa por Avanzar (§2). */
-async function registrarEvento(
-  contactId: string,
-  tipo: string,
-  texto: string,
-  seguimientoId?: string,
-  payload: Record<string, unknown> = {},
-) {
-  await db().from("closer_contacto_eventos").insert({
-    org_id: ORG_ID,
-    ghl_contact_id: contactId,
-    seguimiento_id: seguimientoId ?? null,
-    tipo,
-    texto,
-    autor_tipo: "sistema",
-    autor_nombre: "Sistema",
-    payload,
-  });
-}
+/* `registrarEvento` (privado) se movió a `api/_lib/ingesta.ts` como `registrarEventoSistema`
+   para que la reconciliación escriba eventos idénticos a los del webhook. */
 
 function safeJson(s: string): unknown {
   try {

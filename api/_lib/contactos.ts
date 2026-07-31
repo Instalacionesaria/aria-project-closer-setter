@@ -58,6 +58,10 @@ export async function sincronizarContacto(ghlContactId: string): Promise<boolean
         tags: contacto.tags ?? [],
         fuente: fuenteDesdeTags(contacto.tags ?? []),
         bot_estado: botDesdeTags(contacto.tags ?? []),
+        /* Congelado = perdió `zona_closer` (§7 del doc de conexiones): sigue visible y movible
+           por el pipeline, pero no se gasta NI UNA llamada de GHL más en él. Si el tag
+           reaparece en un refresco futuro, esto mismo lo descongela. */
+        congelado: !(contacto.tags ?? []).includes(TAGS.zonaCloser.valor),
 
         // Subcategorías de Avanzar. Se leen todas: la píldora usará la del stage actual,
         // pero las demás quedan disponibles para Gerencia (regla de acumulación, §4).
