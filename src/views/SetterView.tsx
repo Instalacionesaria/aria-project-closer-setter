@@ -41,9 +41,7 @@ import {
   type Canal,
 } from "../lib/setterStore";
 import { useAgentAudit } from "../lib/agentAuditStore";
-
-/** Mismo intervalo que Closer AI: las colas reales se re-consultan mientras la vista está abierta. */
-const AGENDA_POLL_MS = 10_000;
+import { CADENCIA, registrarReloj } from "../lib/polling";
 
 type Tab = "inicio" | "midia" | "pipeline";
 const TAB_LABEL: Record<Tab, string> = { inicio: "Inicio", midia: "Mi Día", pipeline: "Pipeline" };
@@ -580,48 +578,50 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
   /**
    * Urgentes REALES: contactos con `bot_pausado_fallo` + `zona_setter` en GHL, detectados
    * por el analizador de conversaciones. Se muestran junto a los EJEMPLO, en el mismo
-   * formato — igual que en Closer AI. Polling cada AGENDA_POLL_MS.
+   * formato — igual que en Closer AI.
+   *
+   * ÚNICO cambio al Setter de la tarea de conexiones (decisión de Fabio, 2026-07-31): el
+   * intervalo pasó de 10s a 60s y se pausa con la pestaña oculta, vía el módulo único de
+   * polling. Misma funcionalidad, ~6× menos costo — el resto del Setter no se toca.
    */
   const [realUrgentes, setRealUrgentes] = useState<SetterContact[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      fetchUrgentesSetter()
-        .then((res) => {
-          if (!alive) return;
-          setRealUrgentes(
-            res.urgentes.map((u) => ({
-              name: u.name.toUpperCase(),
-              phone: "",
-              // Sin score: el motor todavía no calificó a este lead (§4.7).
-              grade: undefined,
-              fuente: u.source,
-              // El canal no viaja en la respuesta; WhatsApp es el único con bot (§11), y si
-              // el bot falló es porque lo había. Instagram nunca llegaría a esta cola.
-              canal: "whatsapp" as const,
-              stage: "en_calificacion" as SetterStageKey,
-              situacion: "IA PAUSADA · FALLO",
-              situacionTone: "rose" as SetterTagTone,
-              subtitle: "",
-              botEstado: "pausado_fallo" as BotEstado,
-              ghlContactId: u.contactId,
-              urgente: { detail: u.fallo },
-              historial: [],
-              notas: [],
-            })),
-          );
-        })
-        .catch(() => {
-          /* si el backend no responde, se quedan solo los EJEMPLO */
-        });
-    };
-    load();
-    const iv = setInterval(load, AGENDA_POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
+  useEffect(
+    () =>
+      registrarReloj(
+        "setter:urgentes",
+        () => {
+          fetchUrgentesSetter()
+            .then((res) => {
+              setRealUrgentes(
+                res.urgentes.map((u) => ({
+                  name: u.name.toUpperCase(),
+                  phone: "",
+                  // Sin score: el motor todavía no calificó a este lead (§4.7).
+                  grade: undefined,
+                  fuente: u.source,
+                  // El canal no viaja en la respuesta; WhatsApp es el único con bot (§11), y si
+                  // el bot falló es porque lo había. Instagram nunca llegaría a esta cola.
+                  canal: "whatsapp" as const,
+                  stage: "en_calificacion" as SetterStageKey,
+                  situacion: "IA PAUSADA · FALLO",
+                  situacionTone: "rose" as SetterTagTone,
+                  subtitle: "",
+                  botEstado: "pausado_fallo" as BotEstado,
+                  ghlContactId: u.contactId,
+                  urgente: { detail: u.fallo },
+                  historial: [],
+                  notas: [],
+                })),
+              );
+            })
+            .catch(() => {
+              /* si el backend no responde, se quedan solo los EJEMPLO */
+            });
+        },
+        CADENCIA.setterUrgentes,
+      ),
+    [],
+  );
   /** EJEMPLO + reales en una sola cola, igual que en Closer AI. */
   const urgentesTodos = [...urgentes, ...realUrgentes];
   // Pineados primero — § correcciones toast/pin v2 (2026-07-11): tarea de conversación cubre Buzón, Oportunidad LT, Seguimientos Y Estancadas.

@@ -128,11 +128,13 @@ export function fetchAgendaHoy(opts?: {
 /** Citas de hoy hasta hoy+days — alimenta el tab Agenda y "Próximos Días". */
 export function fetchAgendaRange(
   days = 6,
-  opts?: { calendarId?: string; includeCancelled?: boolean },
+  opts?: { calendarId?: string; includeCancelled?: boolean; refrescar?: boolean },
 ): Promise<AgendaRangeResponse> {
   const params = new URLSearchParams({ days: String(days) });
   if (opts?.calendarId) params.set("calendarId", opts.calendarId);
   if (opts?.includeCancelled) params.set("includeCancelled", "true");
+  /** El botón "Refrescar" de la Agenda: 1 llamada a GHL por acción explícita (doc §8.5). */
+  if (opts?.refrescar) params.set("refrescar", "1");
   return pedir<AgendaRangeResponse>(`/api/closer/agenda?${params.toString()}`);
 }
 
@@ -218,9 +220,103 @@ export interface ConversationResponse {
   messages: ConversationMessage[];
 }
 
-/** La conversación real de un contacto, por su `contactId` de GHL. */
+/**
+ * La conversación del contacto, desde la CACHÉ (`/api/closer/chat`, cero GHL).
+ * Hasta el 2026-07-31 apuntaba a `/api/closer/conversacion`, que costaba 2 llamadas a GHL
+ * por request con la ficha abierta cada 10s. El shape de la respuesta es idéntico.
+ */
 export function fetchConversation(contactId: string): Promise<ConversationResponse> {
-  return pedir<ConversationResponse>(`/api/closer/conversacion?contactId=${encodeURIComponent(contactId)}`);
+  return pedir<ConversationResponse>(`/api/closer/chat?contactId=${encodeURIComponent(contactId)}`);
+}
+
+/** Envío real: el closer escribe y sale por WhatsApp vía GHL (1 llamada por mensaje). */
+export function enviarMensaje(contactId: string, message: string): Promise<{ ok: boolean; enviado: boolean; messageId?: string }> {
+  return pedir(`/api/closer/mensajes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contactId, message }),
+  });
+}
+
+/** "Marcar como resuelto" del Buzón General: mueve la marca y el contacto sale de la cola. */
+export function resolverBuzon(contactId: string): Promise<{ ok: boolean; resueltoEl: string }> {
+  return pedir(`/api/closer/buzon-resolver`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contactId }),
+  });
+}
+
+/**
+ * El disparador del reloj de reconciliación (doc §4.2). El candado vive en el backend:
+ * pingear más seguido o desde N pestañas no genera más llamadas a GHL. Fire-and-forget.
+ */
+export function pingReconciliar(): void {
+  fetch(`/api/closer/reconciliar`, { method: "POST" }).catch(() => {
+    /* backend caído: el próximo tick reintenta */
+  });
+}
+
+/* ================================================================== */
+/* Inicio — métricas del mes por query (closer_avances + closer_citas) */
+/* ================================================================== */
+
+export interface InicioResponse {
+  ok: boolean;
+  /** Nombre del mes en curso ("julio") — visible en el dashboard (doc §8.1). */
+  mes: string;
+  ghlModo: string;
+  cashCollected: number;
+  ventas: number;
+  /** Señas/promesas de "Acordó comprar" — sobre la mesa, no cobrado. */
+  sobreLaMesa: number;
+  acuerdos: number;
+  llamadas: { ocurridas: number; agendadas: number; pasadas: number };
+  /** null cuando no hay citas pasadas que medir — la vista pinta "—", no un 0 inventado. */
+  showRate: number | null;
+}
+
+export function fetchInicio(): Promise<InicioResponse> {
+  return pedir<InicioResponse>(`/api/closer/inicio`);
+}
+
+/* ================================================================== */
+/* Mi Día completo — todas las colas en una respuesta                  */
+/* ================================================================== */
+
+export interface MiDiaContacto {
+  ghlContactId: string;
+  nombre: string | null;
+  telefono: string | null;
+  fuente: string;
+  tags: string[];
+  etapa: string;
+  congelado: boolean;
+}
+
+export interface MiDiaResponse {
+  ok: boolean;
+  hoy: string;
+  ghlModo: string;
+  citasHoy: {
+    id: string;
+    ghlContactId: string;
+    nombre: string | null;
+    fechaHora: string;
+    estado: string | null;
+    meetUrl: string | null;
+    vencida: boolean;
+  }[];
+  urgentes: (MiDiaContacto & { fallo: string })[];
+  buzon: (MiDiaContacto & { ultimoEntranteEl: string | null; snippet: string | null })[];
+  completadasHoy: (MiDiaContacto & { motivo: string; cuando: string })[];
+  /** La cola de seguimientos de siempre — el shape lo consume `filaAContacto()`. */
+  seguimientosHoy: unknown[];
+  resumen: { citas: number; urgentes: number; buzon: number; seguimientos: number; completadas: number };
+}
+
+export function fetchMiDiaCompleto(): Promise<MiDiaResponse> {
+  return pedir<MiDiaResponse>(`/api/closer/mi-dia`);
 }
 
 /* ================================================================== */
@@ -262,6 +358,12 @@ export interface PipelineContacto {
    * que abrir GHL.
    */
   tagDesenlace: string | null;
+  /** Solo con dinero real detrás (etapa Ganado, lo escribió Avanzar). Ausente/null = sin dato. */
+  monto?: number | null;
+  /** Subcategoría cacheada por etapa (forma de pago, situación, razón...) — para la píldora rica. */
+  subcategorias?: Record<string, string | null>;
+  /** Perdió `zona_closer` (§7): visible y movible, pero inerte hacia GHL. */
+  congelado?: boolean;
 }
 
 /**

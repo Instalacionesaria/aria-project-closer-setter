@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -33,11 +33,13 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { fetchAgendaHoy, fetchAgendaRange, fetchRespondieron, type AgendaAppointment } from "../lib/api";
+import { fetchInicio, type AgendaAppointment, type InicioResponse } from "../lib/api";
+import { CADENCIA, usePolling } from "../lib/polling";
 import ContactDrawer from "./ContactDrawer";
 
-/** Cada cuánto se re-consulta la agenda a GHL mientras la vista está abierta (polling, hasta tener tiempo real). */
-const AGENDA_POLL_MS = 10_000;
+/* `AGENDA_POLL_MS` y los fetchers directos a la agenda/respondieron se eliminaron el
+   2026-07-31: los relojes de esta vista viven ahora en el store (reloj único de Mi Día +
+   agenda por evento) — ver `src/lib/polling.ts`. */
 import {
   useClosurer,
   STAGE_META,
@@ -57,26 +59,9 @@ import { useAgentAudit } from "../lib/agentAuditStore";
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
 
-/** Desenlace de "Avanzar" (tag GHL) → píldora del Buzón: color (vía stage) + texto + estado del bot.
- *
- * Este mapa deriva la píldora SOLO del tag, que es el único dato que trae hoy
- * `/api/closer/respondieron`. Por eso una venta real de GHL se lee `VENTA` a secas, sin la
- * forma de pago ni el monto que sí muestra una venta registrada desde el tool.
- *
- * No es el mismo bug que tenía el modal de Avanzar (que capturaba la forma de pago y la
- * tiraba): acá el dato sencillamente no llegó al browser. `api/_lib/contactos.ts` ya lee el
- * custom field `forma_de_pago_venta` al sincronizar, pero el endpoint del buzón no lo
- * devuelve todavía. Cuando lo haga, esto pasa a llamar `armarPildora()` con los tres campos
- * y queda un solo productor de píldoras. Mientras tanto se muestra la categoría sola en vez
- * de inventar el resto (§4.10). */
-const OUTCOME_TO_PILL: Record<string, { stage: StageKey; situacion: string; bot: BotEstado }> = {
-  venta_ganada: { stage: "ganado", situacion: "VENTA", bot: "muerto_postcall" },
-  adelanto_ganado: { stage: "cierre", situacion: "ACORDÓ COMPRAR", bot: "muerto_postcall" },
-  seguimiento: { stage: "seguimiento", situacion: "SEGUIMIENTO", bot: "muerto_postcall" },
-  noshow: { stage: "no_show", situacion: "NO-SHOW", bot: "activo" }, // no-show reactiva la IA (workflow de recuperación)
-  nurture_appflow: { stage: "nurture", situacion: "NURTURE", bot: "muerto_postcall" },
-  descalificado: { stage: "descalificado", situacion: "DESCALIFICADO", bot: "muerto_postcall" },
-};
+/* `OUTCOME_TO_PILL` se eliminó el 2026-07-31 junto con el reloj de `fetchRespondieron`: los
+   contactos del Buzón entran ahora por el store (reloj de Mi Día) con su etapa ya resuelta
+   por el backend, y la píldora la compone `armarPildora()` — un solo productor. */
 
 /* ------------------------------------------------------------------ */
 /* Types                                                               */
@@ -437,57 +422,72 @@ const CHART_HIST = [
 ];
 
 function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
-  const { cockpit, cockpitFuente, cierreEnCursoMonto, contacts } = useClosurer();
+  const { contacts } = useClosurer();
   const { miCuenta } = useSettings();
-  /* El MONTO de Acuerdos viene del store (semilla + real de GHL), no se recalcula acá: esta
-     vista lo sumaba por su cuenta desde los montos del store, así que ignoraba el dinero real
-     de GHL y mostraba una cifra distinta a la del encabezado del Pipeline (§44). */
-  const cierreEnCurso = Object.values(contacts).filter((c) => c.stage === "cierre");
   const tareas = pendingTasksBreakdown(contacts);
+
   /**
-   * Tasa de Cierre = ventas ÷ citas ATENDIDAS (§6.A). El denominador es real: contactos con al
-   * menos una `sales_call` registrada. Antes era `ventas / 40` — un 40 escrito a mano en esta
-   * línea, que hacía que la tasa bajara al agregar una venta si el divisor no acompañaba.
+   * El dashboard es 100% REAL desde el 2026-07-31 (decisión de Fabio): todo sale de
+   * `/api/closer/inicio` — queries del mes calendario sobre `closer_avances` + `closer_citas`.
+   * Las semillas EJEMPLO siguen visibles en Pipeline/Mi Día pero NO suman acá: el mes
+   * arranca en $0 hasta el primer Avanzar real, y eso se dice con el nombre del mes visible.
    */
-  const closeRate = cockpit.atendieron > 0 ? ((cockpit.ventas / cockpit.atendieron) * 100).toFixed(1) : null;
-  /**
-   * Show rate = se presentaron ÷ (se presentaron + no-show). Antes era el literal "60%" con
-   * "meta 70%" al lado; la meta no existe en Ajustes, así que en su lugar va la base (§4.9).
-   */
-  const showBase = cockpit.atendieron + cockpit.noShow;
-  const showRate = showBase > 0 ? Math.round((cockpit.atendieron / showBase) * 100) : null;
-  const falta = miCuenta.metaComision - cockpit.comision;
-  const avgComision = cockpit.ventas > 0 ? cockpit.comision / cockpit.ventas : 0;
+  const [inicio, setInicio] = useState<InicioResponse | null>(null);
+  const [inicioError, setInicioError] = useState(false);
+  const cargarInicio = useCallback(() => {
+    fetchInicio()
+      .then((r) => {
+        setInicio(r);
+        setInicioError(false);
+      })
+      .catch(() => setInicioError(true));
+  }, []);
+  usePolling("closer:inicio", cargarInicio, CADENCIA.inicio);
+
+  const cashCollected = inicio?.cashCollected ?? 0;
+  const ventas = inicio?.ventas ?? 0;
+  /** Comisión = cash real × el % del closer en Ajustes > Administración (§30). */
+  const { comisiones } = useSettings();
+  const pct = (comisiones["Diego M."] ?? 10) / 100;
+  const comisionReal = Math.round(cashCollected * pct);
+
+  /** Tasa de Cierre = ventas ÷ llamadas ocurridas (§6.A), con su base (§4.9). */
+  const ocurridas = inicio?.llamadas.ocurridas ?? 0;
+  const closeRate = ocurridas > 0 ? ((ventas / ocurridas) * 100).toFixed(1) : null;
+  const showRate = inicio?.showRate ?? null;
+
+  const falta = miCuenta.metaComision - comisionReal;
+  const avgComision = ventas > 0 ? comisionReal / ventas : 0;
   const ventasFaltantes = falta > 0 && avgComision > 0 ? Math.ceil(falta / avgComision) : 0;
-  // § auditoría v2 (2026-07-11): "Meta superada" nunca debe mostrarse con comisión $0 — evita el caso
-  // contradictorio (meta mal configurada en $0/negativa + comisión $0 celebrando una meta "superada").
-  const metaSuperada = falta <= 0 && cockpit.comision > 0;
-  // Anillo dorado (§ 2026-07-11): % real hacia la meta, capado a 100 solo para el SVG — el texto puede superar el 100%.
-  const ringPercentage = miCuenta.metaComision > 0 ? Math.min((cockpit.comision / miCuenta.metaComision) * 100, 100) : 0;
-  /**
-   * Cada tarjeta lleva su base real, y las que no tienen dato muestran "—" en vez de un número
-   * inventado (§4.10). Antes las cuatro tenían literales: "tasa X%" sobre un divisor 40,
-   * "20 semanales", "meta 70%" — ninguno salía de ningún lado.
-   */
+  // § auditoría v2 (2026-07-11): "Meta superada" nunca se muestra con comisión $0.
+  const metaSuperada = falta <= 0 && comisionReal > 0;
+  const ringPercentage = miCuenta.metaComision > 0 ? Math.min((comisionReal / miCuenta.metaComision) * 100, 100) : 0;
+
+  /** Cada tarjeta con su base real; sin dato → "—", jamás un número inventado (§4.10). */
   const cockpitStats = [
     {
       l: "Ventas",
-      v: String(cockpit.ventas),
-      s: closeRate ? `tasa ${closeRate}% · ${cockpit.ventas} de ${cockpit.atendieron}` : "sin calls atendidas aún",
+      v: String(ventas),
+      s: closeRate ? `tasa ${closeRate}% · ${ventas} de ${ocurridas}` : "sin llamadas este mes",
     },
-    { l: "Acuerdos", v: money(cierreEnCursoMonto), s: `${cierreEnCurso.length} leads` },
     {
-      l: "Sales calls",
-      v: cockpit.salesCalls > 0 ? String(cockpit.salesCalls) : "—",
-      s: cockpit.salesCalls > 0 ? `${cockpit.atendieron} contactos atendidos` : "sin llamadas registradas",
+      l: "Acuerdos",
+      v: inicio && inicio.acuerdos > 0 ? money(inicio.sobreLaMesa) : "—",
+      s: inicio && inicio.acuerdos > 0 ? `${inicio.acuerdos} sobre la mesa` : "sin acuerdos este mes",
+    },
+    {
+      l: "Llamadas",
+      v: inicio && inicio.llamadas.agendadas > 0 ? String(ocurridas) : "—",
+      s: inicio && inicio.llamadas.agendadas > 0 ? `de ${inicio.llamadas.agendadas} agendadas` : "sin citas este mes",
     },
     {
       l: "Show rate",
       v: showRate !== null ? `${showRate}%` : "—",
-      s: showRate !== null ? `${cockpit.atendieron} de ${showBase}` : "sin citas registradas",
+      s: showRate !== null && inicio ? `${ocurridas} de ${inicio.llamadas.pasadas}` : "sin citas pasadas",
     },
   ];
-  const chart = [...CHART_HIST, { mes: "Jul", valor: cockpit.cashCollected }];
+  const mesLabel = (inicio?.mes ?? "JULIO").toUpperCase();
+  const chart = [...CHART_HIST, { mes: mesLabel.slice(0, 3), valor: cashCollected }];
   const max = Math.max(...chart.map((c) => c.valor));
   const yTicks = [max, max * 0.75, max * 0.5, max * 0.25, 0].map((v) => (v === 0 ? "$0" : `$${(v / 1000).toFixed(1).replace(".0", "")}k`));
   return (
@@ -503,56 +503,33 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
           <div className="flex-1">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-white/10 bg-white/5 text-[#D4AF37] text-[10px] font-medium tracking-widest uppercase mb-6 backdrop-blur-md">
               <Zap className="w-3 h-3" />
-              Cash Collected · JULIO
+              Cash Collected · {mesLabel}
             </div>
             <div
               className="text-6xl sm:text-[90px] font-light tracking-tighter mb-6 leading-[0.9] text-transparent bg-clip-text bg-gradient-to-br from-white via-[#F5D78D] to-[#C99738]"
               style={{ filter: "drop-shadow(0 0 24px rgba(212,175,55,0.35))" }}
             >
-              <AnimatedNumber value={cockpit.cashCollected} format={money} />
+              <AnimatedNumber value={cashCollected} format={money} />
             </div>
-            {/* El delta "▲ $5,100" se eliminó el 2026-07-31: comparaba contra un mes pasado que
-                no existe en ningún dato (§4.10). En su lugar, de dónde salió esta cifra — que en
-                un número de dinero conectado a GHL vale más que una flecha verde inventada. */}
+            {/* Desde el 2026-07-31 este número es 100% real: suma de las ventas registradas en
+                Avanzar este mes (query sobre closer_avances). Las semillas EJEMPLO no suman —
+                por eso el mes puede arrancar en $0, y la línea de abajo lo dice en vez de
+                disimularlo con un dato inventado (§4.10). */}
             <div className="flex flex-col gap-3 text-sm text-white/60 font-light mb-10">
               <p className="flex items-center gap-2 flex-wrap">
                 <span
-                  className={`w-1.5 h-1.5 rounded-full ${cockpitFuente.disponible ? "bg-green-500/80 animate-pulse" : "bg-amber-400/80"}`}
+                  className={`w-1.5 h-1.5 rounded-full ${inicio && !inicioError ? "bg-green-500/80 animate-pulse" : "bg-amber-400/80"}`}
                 />
                 Cobrado real, no prometido
-                {cockpitFuente.disponible ? (
-                  <>
-                    {cockpitFuente.ganadoSemilla > 0 && (
-                      <>
-                        <span className="text-white/20">|</span>
-                        <span className="text-white/40 text-xs">
-                          {money(cockpitFuente.ganadoReal)} de GHL + {money(cockpitFuente.ganadoSemilla)} de ejemplos
-                        </span>
-                      </>
-                    )}
-                    {/* Plata en la etapa GANADO de GHL que no se cuenta porque su contacto no está
-                        en el territorio del closer. Se avisa en vez de sumarla (daría un total que
-                        ninguna otra vista explica) y en vez de ignorarla (es una discrepancia real
-                        del CRM que alguien debería ir a mirar). */}
-                    {cockpitFuente.huerfanoGanado > 0 && (
-                      <>
-                        <span className="text-white/20">|</span>
-                        <span
-                          className="text-amber-300/80 text-xs"
-                          title="Oportunidades en la etapa GANADO de GHL cuyo contacto no tiene el tag zona_closer, así que no aparecen en el Pipeline ni cuentan como venta."
-                        >
-                          {money(cockpitFuente.huerfanoGanado)} en GHL sin contacto del closer
-                        </span>
-                      </>
-                    )}
-                  </>
+                <span className="text-white/20">|</span>
+                {inicioError ? (
+                  <span className="text-amber-300/90 text-xs">no se pudo leer el backend — reintentando</span>
                 ) : (
-                  <>
-                    <span className="text-white/20">|</span>
-                    <span className="text-amber-300/90 text-xs" title={cockpitFuente.motivo}>
-                      solo ejemplos — no se pudo leer GHL
-                    </span>
-                  </>
+                  <span className="text-white/40 text-xs">
+                    {ventas > 0
+                      ? `${ventas} venta${ventas === 1 ? "" : "s"} registrada${ventas === 1 ? "" : "s"} en ${mesLabel.toLowerCase()}`
+                      : `sin ventas registradas aún en ${mesLabel.toLowerCase()} — los ejemplos no suman acá`}
+                  </span>
                 )}
               </p>
             </div>
@@ -576,7 +553,7 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
               <GoldRing percentage={ringPercentage} />
               <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
                 <span className="text-3xl font-light text-white tracking-tight">
-                  <AnimatedNumber value={cockpit.comision} format={money} />
+                  <AnimatedNumber value={comisionReal} format={money} />
                 </span>
                 <span className="text-[9px] uppercase tracking-widest text-white/40 mt-1">Comisión</span>
               </div>
@@ -717,52 +694,11 @@ function MiDiaTab() {
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
 
-  /* Los urgentes REALES de GHL ya no se piden acá: los trae
-     `polling-closer-intervenciones-urgentes` en `closerStore.tsx` y entran al store como
-     contactos de verdad, así que el filtro de arriba los incluye solo. Movido el 2026-07-30:
-     mientras vivió en esta vista, una urgencia existía únicamente con Mi Día abierto — no
-     aparecía en el Pipeline y su ficha abría sin historial ni notas. */
-
-  // Respondieron REALES: contactos con zona_closer + desenlace de Avanzar que volvieron a escribir
-  // (último mensaje entrante sin responder). Se muestran junto a los EJEMPLO. Polling cada AGENDA_POLL_MS.
-  const [realRespondieron, setRealRespondieron] = useState<ClosurerContact[]>([]);
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      fetchRespondieron()
-        .then((res) => {
-          if (!alive) return;
-          setRealRespondieron(
-            res.contactos.map((r) => {
-              const m = OUTCOME_TO_PILL[r.outcome] ?? { stage: "seguimiento" as StageKey, situacion: r.outcome.toUpperCase(), bot: "muerto_postcall" as BotEstado };
-              return {
-                name: r.name.toUpperCase(),
-                grade: undefined,
-                stage: m.stage,
-                situacion: m.situacion,
-                when: r.when,
-                activity: r.snippet,
-                fuente: r.source,
-                botEstado: m.bot,
-                ghlContactId: r.contactId,
-                respondido: { microtext: `${r.when} · sin responder` },
-                historial: [],
-                notas: [],
-              } as ClosurerContact;
-            }),
-          );
-        })
-        .catch(() => {
-          /* si el backend no responde, se quedan solo los EJEMPLO */
-        });
-    };
-    load();
-    const iv = setInterval(load, AGENDA_POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
+  /* Los urgentes Y el buzón REALES ya no se piden acá: los trae el reloj único de Mi Día en
+     `closerStore.tsx` (contra NUESTRO backend, cero GHL) y entran al store como contactos de
+     verdad con sus marcadores `urgente`/`respondido` — así el filtro de arriba y el de abajo
+     los incluyen solos, aparecen también en el Pipeline, y su ficha abre con datos. El reloj
+     viejo de `fetchRespondieron` (fan-out 1+2×N contra GHL cada 10s) se eliminó el 2026-07-31. */
   // Pineados ("mantener") primero — § ciclo de vida de tareas, 2026-07-11.
   const respondieron = all
     .filter((c) => c.respondido && !c.completedToday)
@@ -775,61 +711,32 @@ function MiDiaTab() {
   const seguimientosPinnedCount = seguimientosHoy.filter((c) => c.pinned).length;
   const completadas = all.filter((c) => c.completedToday);
 
-  // Agenda de Hoy: datos REALES de GHL vía el backend (antes salía del store demo).
-  const [agendaHoy, setAgendaHoy] = useState<AgendaWidgetItem[]>([]);
-  const [agendaLoading, setAgendaLoading] = useState(true);
-  const [agendaError, setAgendaError] = useState<string | null>(null);
-  const [expandedAgenda, setExpandedAgenda] = useState<Set<string>>(new Set());
-  const lastAgendaSigRef = useRef("");
   /**
-   * La primera cita del día ya ordenada por hora. Alimenta la tarjeta "Calls Hoy".
-   * Sale de la agenda REAL de GHL, no del store demo — el backend ya la devuelve ordenada.
+   * Agenda de Hoy: viene del reloj único de Mi Día del store (`citasHoy`, caché del
+   * backend). Este componente ya no tiene reloj propio — antes pedía la agenda a GHL cada
+   * 10s por su cuenta. Se mapea al shape del widget acá porque es presentación.
    */
+  const { citasHoy } = useClosurer();
+  const [expandedAgenda, setExpandedAgenda] = useState<Set<string>>(new Set());
+  const agendaHoy: AgendaWidgetItem[] = citasHoy.map((c) => ({
+    name: (c.nombre ?? "SIN NOMBRE").toUpperCase(),
+    contactId: c.ghlContactId || undefined,
+    // Sin score: el motor todavía no calificó esta cita. Avatar lo pinta como "—" (§4.7).
+    grade: undefined,
+    agenda: {
+      time: new Date(c.fechaHora).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Lima" }),
+      meetUrl: c.meetUrl ?? undefined,
+      // Cita vencida sin Avanzar: microtexto/tinte, jamás desaparece (doc §8.2).
+      badge: c.vencida ? "vencida" : undefined,
+    },
+    llamadas: [],
+    botEstado: undefined,
+    seguimientoAutomaticoActivo: false,
+  }));
+  const agendaLoading = false;
+  const agendaError: string | null = null;
+  /** La primera cita del día ya ordenada por hora. Alimenta la tarjeta "Calls Hoy". */
   const proximaCall = agendaHoy[0]?.agenda?.time;
-
-  // Polling cada AGENDA_POLL_MS mientras Mi Día está abierto.
-  useEffect(() => {
-    let alive = true;
-    const load = (first: boolean) => {
-      if (first) {
-        setAgendaLoading(true);
-        setAgendaError(null);
-      }
-      fetchAgendaHoy()
-        .then((res) => {
-          if (!alive) return;
-          const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.time}`).join("|");
-          if (sig !== lastAgendaSigRef.current) {
-            lastAgendaSigRef.current = sig;
-            setAgendaHoy(
-              res.appointments.map((a) => ({
-                name: a.name,
-                contactId: a.contactId ?? undefined,
-                // Sin score: el motor todavía no calificó esta cita. Avatar lo pinta como "—" (§4.7).
-                grade: undefined,
-                agenda: { time: a.time, meetUrl: a.meetUrl ?? undefined },
-                llamadas: [],
-                botEstado: undefined,
-                seguimientoAutomaticoActivo: false,
-              })),
-            );
-          }
-          if (first) setAgendaError(null);
-        })
-        .catch((e) => {
-          if (alive && first) setAgendaError(e?.message ?? "No se pudo conectar con el backend");
-        })
-        .finally(() => {
-          if (alive && first) setAgendaLoading(false);
-        });
-    };
-    load(true);
-    const iv = setInterval(() => load(false), AGENDA_POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
   const toggleAgendaExpanded = (name: string) =>
     setExpandedAgenda((prev) => {
       const next = new Set(prev);
@@ -1139,12 +1046,14 @@ function MiDiaTab() {
             Respondieron · Buzón general
           </h3>
           <span className="bg-purple-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm">
-            {respondieron.length + realRespondieron.length}
+            {respondieron.length}
           </span>
         </div>
         <div className="divide-y divide-border">
+          {/* Semillas EJEMPLO y contactos reales del Buzón conviven acá: el reloj de Mi Día
+              del store ya fundió los reales (marcador `respondido`) en el mismo Record. */}
           {respondieron.map((c, i) => (
-            <div key={c.name}>
+            <div key={c.ghlContactId ?? c.name}>
               {i === respondieronPinnedCount && respondieronPinnedCount > 0 && (
                 <div className="px-6 py-1.5 bg-muted/30 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground border-y border-border/60">
                   Sin atender
@@ -1152,10 +1061,6 @@ function MiDiaTab() {
               )}
               <MiDiaRow c={c} onOpen={openContact} microtext={c.respondido!.microtext} />
             </div>
-          ))}
-          {/* Reales de GHL: zona_closer + desenlace + volvieron a escribir sin respuesta */}
-          {realRespondieron.map((c) => (
-            <MiDiaRow key={c.ghlContactId ?? c.name} c={c} onOpen={openContact} microtext={c.respondido!.microtext} />
           ))}
         </div>
       </div>
@@ -1283,61 +1188,26 @@ function PipelineTab() {
   const contactosVivos = Object.values(contacts).filter(
     (c) => c.stage === "agendado" || c.stage === "seguimiento" || c.stage === "cierre",
   ).length;
-  // Agenda REAL de GHL para la columna "Agendado" (hoy + próximos días), deduplicada por contacto.
-  const [agendaRange, setAgendaRange] = useState<AgendaAppointment[]>([]);
-  const [agendaTodayStr, setAgendaTodayStr] = useState<string>("");
-  const [agendaLoading, setAgendaLoading] = useState(true);
-  const [agendaError, setAgendaError] = useState<string | null>(null);
+  /**
+   * Agenda para la columna "Agendado": del store (`agendaProximos`, caché del backend, una
+   * sola fuente para las tres vitrinas). Este tab ya no tiene reloj propio — antes pedía el
+   * rango a GHL cada 10s por su cuenta. "Sincronizar CRM" = `refrescarAgenda(true)` →
+   * exactamente 1 llamada a GHL, por acción explícita (doc §8.5) + refetch del territorio.
+   */
+  const { agendaProximos, refrescarAgenda, refrescarPipeline } = useClosurer();
   const [refreshing, setRefreshing] = useState(false);
-  const lastPipeAgendaSigRef = useRef("");
+  const agendaRange = agendaProximos;
+  const agendaTodayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+  const agendaLoading = false;
+  const agendaError: string | null = null;
 
-  // "Sincronizar CRM" — refresco manual inmediato (además del polling automático de 10s).
   const refreshFromCrm = () => {
     if (refreshing) return;
     setRefreshing(true);
-    fetchAgendaRange(15)
-      .then((res) => {
-        const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.date}:${a.time}`).join("|");
-        lastPipeAgendaSigRef.current = sig;
-        setAgendaRange(res.appointments);
-        setAgendaTodayStr(res.date);
-        setAgendaError(null);
-      })
-      .catch((e) => setAgendaError(e?.message ?? "No se pudo conectar con el backend"))
-      .finally(() => setTimeout(() => setRefreshing(false), 600)); // spinner visible ~600ms
+    refrescarAgenda(true);
+    refrescarPipeline();
+    setTimeout(() => setRefreshing(false), 600); // spinner visible ~600ms
   };
-
-  useEffect(() => {
-    let alive = true;
-    const load = (first: boolean) => {
-      if (first) {
-        setAgendaLoading(true);
-        setAgendaError(null);
-      }
-      fetchAgendaRange(15)
-        .then((res) => {
-          if (!alive) return;
-          const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.date}:${a.time}`).join("|");
-          if (sig !== lastPipeAgendaSigRef.current) {
-            lastPipeAgendaSigRef.current = sig;
-            setAgendaRange(res.appointments);
-          }
-          setAgendaTodayStr(res.date);
-        })
-        .catch((e) => {
-          if (alive && first) setAgendaError(e?.message ?? "No se pudo conectar con el backend");
-        })
-        .finally(() => {
-          if (alive && first) setAgendaLoading(false);
-        });
-    };
-    load(true);
-    const iv = setInterval(() => load(false), AGENDA_POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
 
   // Dedup por contacto: la próxima cita de cada agendado (el rango ya viene ordenado asc por hora).
   const agendaByContact = new Map<string, AgendaAppointment>();
@@ -1857,49 +1727,18 @@ function relDayLabel(dateStr: string, today: string): string {
 }
 
 function AgendaTab() {
-  const { openContact } = useClosurer();
-  const [range, setRange] = useState<AgendaAppointment[]>([]);
-  const [todayStr, setTodayStr] = useState<string>("");
-  const [selectedDate, setSelectedDate] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * El rango viene del store (`agendaProximos`, caché del backend) — este tab ya no tiene
+   * reloj propio (antes pedía el rango a GHL cada 10s). El botón "Refrescar" de abajo llama
+   * `refrescarAgenda(true)`: exactamente 1 llamada a GHL, por acción explícita (doc §8.5).
+   */
+  const { openContact, agendaProximos, refrescarAgenda } = useClosurer();
+  const range = agendaProximos;
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+  const [selectedDate, setSelectedDate] = useState<string>(todayStr);
+  const loading = false;
+  const error: string | null = null;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const lastRangeSigRef = useRef("");
-
-  // Trae hoy + 15 días (para "Próximos Días", el mini-calendario y ver cualquier día). Polling cada AGENDA_POLL_MS.
-  useEffect(() => {
-    let alive = true;
-    const load = (first: boolean) => {
-      if (first) {
-        setLoading(true);
-        setError(null);
-      }
-      fetchAgendaRange(15)
-        .then((res) => {
-          if (!alive) return;
-          const sig = res.appointments.map((a) => `${a.id}:${a.status}:${a.date}:${a.time}`).join("|");
-          if (sig !== lastRangeSigRef.current) {
-            lastRangeSigRef.current = sig;
-            setRange(res.appointments);
-          }
-          setTodayStr(res.date);
-          setSelectedDate((cur) => cur || res.date); // por defecto, hoy
-          if (first) setError(null);
-        })
-        .catch((e) => {
-          if (alive && first) setError(e?.message ?? "No se pudo conectar con el backend");
-        })
-        .finally(() => {
-          if (alive && first) setLoading(false);
-        });
-    };
-    load(true);
-    const iv = setInterval(() => load(false), AGENDA_POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
-  }, []);
 
   // Agrupar por día + agenda del día seleccionado
   const byDate = new Map<string, AgendaAppointment[]>();
@@ -1940,6 +1779,13 @@ function AgendaTab() {
           <p className="text-sm">Sincronizado con tu Google Calendar</p>
         </div>
         <div className="flex items-center gap-3">
+          {/* 1 llamada a GHL por clic (doc §8.5) — el único camino manual para refrescar citas. */}
+          <button
+            onClick={() => refrescarAgenda(true)}
+            className="inline-flex items-center justify-center gap-2 whitespace-nowrap ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 px-4 py-2 rounded-full h-9 text-xs font-medium border border-border/60 bg-background hover:bg-muted/30"
+          >
+            Refrescar
+          </button>
           <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 px-4 py-2 rounded-full h-9 text-xs font-medium bg-foreground text-background hover:bg-foreground/90">
             <Plus className="w-4 h-4 mr-2" />
             Nueva Cita

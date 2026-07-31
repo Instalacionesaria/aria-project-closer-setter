@@ -11,24 +11,21 @@ import type { ModoSeguimiento } from "./seguimientos/dominio";
 import type { SituacionSeguimiento } from "./ghl/contrato";
 import { etapaDesdeTags } from "./ghl/etapas";
 import { armarPildora } from "./pildora";
-import { fetchCockpit, fetchPipeline, fetchUrgentes } from "./api";
+import {
+  fetchAgendaRange,
+  fetchMiDiaCompleto,
+  fetchPipeline,
+  pingReconciliar,
+  type AgendaAppointment,
+  type MiDiaResponse,
+} from "./api";
+import { CADENCIA, registrarReloj } from "./polling";
 
-/**
- * `polling-closer-intervenciones-urgentes` — cada cuánto se re-consulta la cola roja.
- *
- * Se mantiene el valor que tenía en la vista (10s) para no cambiar dos cosas a la vez. Vale
- * revisarlo: una intervención urgente se mide en minutos, y el analizador que aplica el tag
- * corre cuando entra un mensaje, no continuamente.
- */
-const POLLING_URGENTES_MS = 10_000;
-
-/**
- * `polling-closer-pipeline` — cada cuánto se re-barre el territorio completo (`zona_closer`).
- *
- * Más espaciado que los demás a propósito: es el único que puede pedir varias páginas a GHL,
- * y un contacto nuevo apareciendo dentro de los 30 segundos es más que suficiente.
- */
-const POLLING_PIPELINE_MS = 30_000;
+/* Los pollers `polling-closer-intervenciones-urgentes` (10s) y `polling-closer-pipeline`
+   (30s) se eliminaron el 2026-07-31: sus datos ahora llegan de NUESTRO backend (Supabase,
+   cero GHL por request) vía el reloj único de Mi Día, y el Pipeline se refresca por evento
+   (montaje, foco, después de un Avanzar). El único reloj que "toca" GHL es el disparador de
+   /api/closer/reconciliar — y su candado vive en el backend. Ver `src/lib/polling.ts`. */
 
 /* El dinero real del cockpit NO tiene polling propio (corrección de Fabio, 2026-07-31): se lee
    una vez al cargar y se relee solo cuando `polling-closer-pipeline` — que ya existe — detecta
@@ -623,47 +620,24 @@ export interface Cockpit {
   noShow: number;
 }
 
-/**
- * Lo que el cockpit sabe del dinero REAL de GHL, además de lo que deriva del store.
- *
- * Viaja separado del `Cockpit` a propósito: la vista necesita distinguir "no hay ventas" de
- * "no se pudo consultar GHL" para no pintar un $0 rotundo cuando en realidad no preguntó.
- */
-export interface CockpitFuente {
-  /** `false` mientras la primera consulta no volvió, o si GHL no se pudo leer. */
-  disponible: boolean;
-  /** Por qué no está disponible, en palabras del servidor. */
-  motivo?: string;
-  /** Dinero de GHL atribuido a contactos que esta app muestra en la etapa Ganado. */
-  ganadoReal: number;
-  /** Dinero de las semillas EJEMPLO — no existe en GHL, pero sí en el Pipeline que el closer ve. */
-  ganadoSemilla: number;
-  /**
-   * Plata parada en la etapa GANADO de GHL que el tool NO cuenta, porque su contacto no está en
-   * el territorio del closer (sin `zona_closer`) o no existe. No es un error del cockpit: es una
-   * discrepancia real del CRM, y se expone para que se pueda ir a mirar.
-   */
-  huerfanoGanado: number;
-  avisos?: string[];
-}
-
-/** Estado crudo de la lectura de dinero (`/api/closer/cockpit`), indexado por contacto para cruzarlo. */
-interface CockpitRealState {
-  ganadoPorContacto: Record<string, number>;
-  cierrePorContacto: Record<string, number>;
-  /** Total de la etapa en GHL, incluidos los tratos que el tool no muestra. */
-  ganadoTotalEtapa: number;
-  cierreTotalEtapa: number;
-  disponible: boolean;
-  motivo?: string;
-  avisos?: string[];
-}
+/* `CockpitFuente`/`CockpitRealState` (la lectura de Opportunity Value contra GHL) se
+   eliminaron el 2026-07-31: el dinero del dashboard sale de `/api/closer/inicio` (queries
+   sobre closer_avances) y el de los encabezados del Pipeline, de los propios contactos.
+   El Opportunity Value solo se ESCRIBE al registrar la venta — nunca se lee de vuelta. */
 
 interface ClosurerStoreValue {
   contacts: Record<string, ClosurerContact>;
   cockpit: Cockpit;
-  /** De dónde salió el dinero del cockpit y qué no se pudo leer — para que Inicio sea honesto. */
-  cockpitFuente: CockpitFuente;
+  /** Citas de hoy (reales, de la caché del backend) — el widget "Agenda de Hoy". */
+  citasHoy: MiDiaResponse["citasHoy"];
+  /** Completadas de hoy REALES (avances + buzón resuelto), derivadas por query en el backend. */
+  completadasReales: MiDiaResponse["completadasHoy"];
+  /** Citas de los próximos 15 días — una sola fuente para el tab Agenda y la franja del Pipeline. */
+  agendaProximos: AgendaAppointment[];
+  /** `true` fuerza 1 llamada a GHL (el botón "Refrescar" de la Agenda, §8.5). */
+  refrescarAgenda: (forzar?: boolean) => void;
+  /** Refetch del territorio por evento (montaje/foco/Avanzar) — el Pipeline ya no tiene reloj. */
+  refrescarPipeline: () => void;
   cierreEnCursoMonto: number;
   /** Suma de los montos de la etapa Ganado — el mismo dinero que el Cash Collected de Inicio. */
   ganadoMonto: number;
@@ -755,169 +729,216 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   /**
-   * ── polling-closer-intervenciones-urgentes ──
+   * ── El reloj de reconciliación (el ÚNICO que toca GHL) ──
    *
-   * Trae los contactos con el bot caído (`bot_pausado_fallo` + `zona_closer`) y los mete en
-   * el store como contactos de verdad.
-   *
-   * **Por qué vive acá y no en Mi Día.** Antes era un `useState` local dentro de `MiDiaTab`,
-   * así que una urgencia existía únicamente mientras esa pestaña estuviera abierta: no
-   * aparecía en el Pipeline, la ficha se abría sin historial ni notas, y el contacto se
-   * evaporaba al cambiar de vista. Acá es un contacto más, con las mismas reglas que el
-   * resto (§4.4: ninguna vista tiene estado propio).
-   *
-   * **La etapa se deriva, no se inventa.** La versión anterior escribía
-   * `stage: "descalificado"` — no porque el contacto lo estuviera, sino porque ese stage
-   * pinta la píldora de rojo. Al mover esto al store, ese invento habría metido a cada
-   * urgencia en la columna Descalificado del Pipeline. La urgencia es un MARCADOR (`urgente`),
-   * no una etapa: el contacto sigue donde su historia lo dejó, y eso lo dicen sus tags.
-   *
-   * **Merge, no reemplazo.** Si el contacto ya está en el store (por la cola de seguimientos
-   * o por un Avanzar registrado en esta sesión), se le agrega la urgencia y se respeta lo que
-   * ya sabíamos de él. Solo se crea desde cero cuando no existía.
+   * Pinga POST /api/closer/reconciliar cada 10s SOLO con la pestaña visible (el módulo de
+   * polling pausa todo con `visibilitychange`). El candado vive en el backend: dos pestañas
+   * o dos closers no duplican llamadas. Es lo que ingiere mensajes cuando el webhook de
+   * Francisco no existe o se cayó.
    */
-  useEffect(() => {
-    let vigente = true;
+  useEffect(() => registrarReloj("closer:reconciliar", pingReconciliar, CADENCIA.reconciliar), []);
 
-    const traerUrgentes = () => {
-      fetchUrgentes()
-        .then((res) => {
-          if (!vigente) return;
-          setContacts((prev) => {
-            const siguiente = { ...prev };
-            const conUrgenciaAhora = new Set<string>();
-
-            for (const u of res.urgentes) {
-              conUrgenciaAhora.add(u.contactId);
-              const previo = siguiente[u.contactId];
-              const urgente: UrgenteInfo = {
-                pill: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
-                detail: u.fallo,
-                highlighted: true,
-              };
-              const etapa = etapaDesdeTags(u.tags);
-
-              siguiente[u.contactId] = previo
-                ? { ...previo, urgente, botEstado: "pausado_fallo", stage: etapa }
-                : {
-                    name: u.name.toUpperCase(),
-                    // Sin calificación no se inventa una letra: la fila muestra "—" (§4.7).
-                    grade: undefined,
-                    stage: etapa,
-                    situacion: armarPildora({ stage: etapa }),
-                    when: "hoy",
-                    activity: "",
-                    fuente: u.source,
-                    botEstado: "pausado_fallo",
-                    ghlContactId: u.contactId,
-                    urgente,
-                    historial: [],
-                    notas: [],
-                  };
-            }
-
-            /**
-             * Si una urgencia se resolvió en GHL (le quitaron el tag), tiene que apagarse acá
-             * también. Sin esto la cola roja solo crecería: se limpia únicamente lo que este
-             * mismo polling puso, nunca la semilla ni una urgencia resuelta desde la ficha.
-             */
-            for (const [clave, c] of Object.entries(siguiente)) {
-              if (c.urgente && c.ghlContactId && !conUrgenciaAhora.has(c.ghlContactId)) {
-                siguiente[clave] = { ...c, urgente: undefined };
-              }
-            }
-
-            return siguiente;
-          });
-        })
-        .catch(() => {
-          /* Backend caído: se queda lo que ya había. Nunca una pantalla vacía. */
-        });
-    };
-
-    traerUrgentes();
-    const iv = setInterval(traerUrgentes, POLLING_URGENTES_MS);
-    return () => {
-      vigente = false;
-      clearInterval(iv);
-    };
-  }, []);
+  /** Citas de hoy (widget Agenda de Hoy) y completadas reales — vienen de Mi Día. */
+  const [citasHoy, setCitasHoy] = useState<MiDiaResponse["citasHoy"]>([]);
+  const [completadasReales, setCompletadasReales] = useState<MiDiaResponse["completadasHoy"]>([]);
 
   /**
-   * ── polling-closer-pipeline ──
+   * ── El reloj de Mi Día (contra NUESTRO backend — Supabase, cero GHL) ──
    *
-   * El territorio completo: TODOS los contactos con `zona_closer`, cada uno en la etapa que
-   * dicen sus tags. Es lo que hace que un contacto recién etiquetado en GHL aparezca en el
-   * Pipeline sin que nadie lo cargue a mano.
+   * Una respuesta trae TODAS las colas: urgentes, buzón, citas de hoy, completadas. Antes
+   * eran tres relojes separados (urgentes en el store, respondieron y agenda en la vista),
+   * cada uno con su propio fan-out contra GHL cada 10s.
    *
-   * **La etapa la manda GHL, no el front.** El stage lo mueve un workflow disparado por el
-   * tag, así que la verdad está en los tags y este polling la trae de vuelta. Registrar un
-   * Avanzar cambia el stage local al instante (optimista) y aplica el tag en GHL; el
-   * siguiente ciclo confirma. Si la escritura hubiera fallado, este mismo ciclo lo corrige —
-   * la pantalla nunca se queda mostrando algo que GHL no tiene.
-   *
-   * **Por qué existe `recienTocados`.** Ese ida y vuelta tiene una ventana: entre que se
-   * registra el Avanzar y que GHL termina de procesar el tag pueden pasar unos segundos, y
-   * un ciclo que cayera justo ahí devolvería la etapa VIEJA y revertiría la píldora en
-   * pantalla. Se vería como "registré la venta y se deshizo sola". Por eso un contacto tocado
-   * a mano hace menos de `GRACIA_MS` conserva su etapa local: se le da tiempo a GHL a ponerse
-   * al día antes de dejar que el servidor mande.
+   * **Merge, no reemplazo** (regla de siempre): los contactos reales se funden con la
+   * semilla EJEMPLO en el mismo Record. La etapa se deriva de los tags SOLO si el backend no
+   * la manda; la urgencia y el "respondió" son MARCADORES, nunca etapas inventadas.
    */
-  useEffect(() => {
-    let vigente = true;
+  useEffect(
+    () =>
+      registrarReloj(
+        "closer:mi-dia",
+        () => {
+          fetchMiDiaCompleto()
+            .then((res) => {
+              if (!res?.ok) return;
+              setCitasHoy(res.citasHoy ?? []);
+              setCompletadasReales(res.completadasHoy ?? []);
 
-    const traerPipeline = () => {
-      fetchPipeline()
-        .then((res) => {
-          if (!vigente || !res?.ok) return;
-          setContacts((prev) => {
-            const siguiente = { ...prev };
-            const ahora = Date.now();
+              setContacts((prev) => {
+                const siguiente = { ...prev };
+                const conUrgenciaAhora = new Set<string>();
+                const enBuzonAhora = new Set<string>();
 
-            for (const c of res.contactos) {
-              const previo = siguiente[c.ghlContactId];
-              const tocadoReciente = (recienTocados.current[c.ghlContactId] ?? 0) > ahora - GRACIA_MS;
-              const etapa = (tocadoReciente && previo ? previo.stage : c.etapa) as StageKey;
-
-              siguiente[c.ghlContactId] = previo
-                ? {
-                    ...previo,
-                    stage: etapa,
-                    // La píldora se recompone solo si la etapa la manda el servidor: si el
-                    // contacto está en gracia, se respeta la que armó el Avanzar (que además
-                    // trae monto y forma de pago, datos que el Pipeline no conoce).
-                    situacion: tocadoReciente ? previo.situacion : armarPildora({ stage: etapa }),
-                    fuente: previo.fuente ?? c.fuente,
-                  }
-                : {
-                    // `nombre` puede venir null: GHL no siempre tiene uno. No se inventa (§4.10).
-                    name: (c.nombre ?? "SIN NOMBRE").toUpperCase(),
-                    grade: undefined,
-                    stage: etapa,
-                    situacion: armarPildora({ stage: etapa }),
-                    when: "",
-                    activity: "",
-                    fuente: c.fuente,
-                    ghlContactId: c.ghlContactId,
-                    historial: [],
-                    notas: [],
+                for (const u of res.urgentes ?? []) {
+                  conUrgenciaAhora.add(u.ghlContactId);
+                  const previo = siguiente[u.ghlContactId];
+                  const urgente: UrgenteInfo = {
+                    pill: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
+                    detail: u.fallo,
+                    highlighted: true,
                   };
-            }
-            return siguiente;
-          });
-        })
-        .catch(() => {
-          /* Backend caído: se queda lo que ya había. */
-        });
-    };
+                  const etapa = (u.etapa as StageKey) ?? etapaDesdeTags(u.tags);
 
-    traerPipeline();
-    const iv = setInterval(traerPipeline, POLLING_PIPELINE_MS);
-    return () => {
-      vigente = false;
-      clearInterval(iv);
-    };
+                  siguiente[u.ghlContactId] = previo
+                    ? { ...previo, urgente, botEstado: "pausado_fallo", stage: etapa }
+                    : {
+                        name: (u.nombre ?? "SIN NOMBRE").toUpperCase(),
+                        // Sin calificación no se inventa una letra: la fila muestra "—" (§4.7).
+                        grade: undefined,
+                        stage: etapa,
+                        situacion: armarPildora({ stage: etapa }),
+                        when: "hoy",
+                        activity: "",
+                        fuente: u.fuente,
+                        botEstado: "pausado_fallo",
+                        ghlContactId: u.ghlContactId,
+                        urgente,
+                        historial: [],
+                        notas: [],
+                      };
+                }
+
+                for (const b of res.buzon ?? []) {
+                  enBuzonAhora.add(b.ghlContactId);
+                  const previo = siguiente[b.ghlContactId];
+                  const respondido = { microtext: b.snippet ? `escribió: "${b.snippet}"` : "escribió · sin responder" };
+                  const etapa = (b.etapa as StageKey) ?? etapaDesdeTags(b.tags);
+
+                  siguiente[b.ghlContactId] = previo
+                    ? { ...previo, respondido, stage: etapa }
+                    : {
+                        name: (b.nombre ?? "SIN NOMBRE").toUpperCase(),
+                        grade: undefined,
+                        stage: etapa,
+                        situacion: armarPildora({ stage: etapa }),
+                        when: "hoy",
+                        activity: b.snippet ?? "",
+                        fuente: b.fuente,
+                        ghlContactId: b.ghlContactId,
+                        respondido,
+                        historial: [],
+                        notas: [],
+                      };
+                }
+
+                /**
+                 * Lo que el backend ya no reporta se apaga acá también — solo sobre contactos
+                 * reales (con ghlContactId): la semilla EJEMPLO conserva sus marcadores, que
+                 * es exactamente lo que Fabio pidió de ella (vuelve sola al refrescar).
+                 */
+                for (const [clave, c] of Object.entries(siguiente)) {
+                  if (!c.ghlContactId) continue;
+                  if (c.urgente && !conUrgenciaAhora.has(c.ghlContactId)) {
+                    siguiente[clave] = { ...siguiente[clave], urgente: undefined };
+                  }
+                  if (c.respondido && !enBuzonAhora.has(c.ghlContactId)) {
+                    siguiente[clave] = { ...siguiente[clave], respondido: undefined };
+                  }
+                }
+
+                return siguiente;
+              });
+            })
+            .catch(() => {
+              /* Backend caído: se queda lo que ya había. Nunca una pantalla vacía. */
+            });
+        },
+        CADENCIA.miDia,
+      ),
+    [],
+  );
+
+  /**
+   * ── El Pipeline: por EVENTO, sin intervalo (doc §10) ──
+   *
+   * Se trae el territorio completo al montar, al recuperar el foco de la pestaña, y después
+   * de cada Avanzar propio. Ya no hay reloj de 30s: la etapa vive en Supabase (la escribe
+   * Avanzar vía `proyectarAvance`) y el endpoint es una query a la caché — pedirlo entre
+   * eventos solo redibujaría lo mismo.
+   *
+   * `recienTocados`/GRACIA_MS se conservan achicados: cubren la ventana entre el Avanzar
+   * optimista y el refetch que él mismo dispara, para que la píldora rica (monto, forma de
+   * pago) no sea pisada por la recompuesta del servidor.
+   */
+  const traerPipeline = useCallback(() => {
+    fetchPipeline()
+      .then((res) => {
+        if (!res?.ok) return;
+        setContacts((prev) => {
+          const siguiente = { ...prev };
+          const ahora = Date.now();
+
+          for (const c of res.contactos) {
+            const previo = siguiente[c.ghlContactId];
+            const tocadoReciente = (recienTocados.current[c.ghlContactId] ?? 0) > ahora - GRACIA_MS;
+            const etapa = (tocadoReciente && previo ? previo.stage : c.etapa) as StageKey;
+            // Píldora RICA: el backend cachea la subcategoría y el monto que escribió Avanzar
+            // (proyectarAvance), así que la venta real se lee "VENTA · CONTADO · $5.000" —
+            // ya no la categoría pelada de antes.
+            const subcategoria = c.subcategorias?.[etapa] ?? undefined;
+            const monto = etapa === "ganado" ? (c.monto ?? undefined) : undefined;
+
+            siguiente[c.ghlContactId] = previo
+              ? {
+                  ...previo,
+                  stage: etapa,
+                  situacion: tocadoReciente ? previo.situacion : armarPildora({ stage: etapa, subcategoria, monto }),
+                  monto: monto ?? previo.monto,
+                  fuente: previo.fuente ?? c.fuente,
+                }
+              : {
+                  // `nombre` puede venir null: GHL no siempre tiene uno. No se inventa (§4.10).
+                  name: (c.nombre ?? "SIN NOMBRE").toUpperCase(),
+                  grade: undefined,
+                  stage: etapa,
+                  situacion: armarPildora({ stage: etapa, subcategoria, monto }),
+                  when: "",
+                  activity: "",
+                  fuente: c.fuente,
+                  ghlContactId: c.ghlContactId,
+                  monto,
+                  historial: [],
+                  notas: [],
+                };
+          }
+          return siguiente;
+        });
+      })
+      .catch(() => {
+        /* Backend caído: se queda lo que ya había. */
+      });
   }, []);
+
+  useEffect(() => {
+    traerPipeline();
+    const alVolver = () => {
+      if (document.visibilityState === "visible") traerPipeline();
+    };
+    document.addEventListener("visibilitychange", alVolver);
+    return () => document.removeEventListener("visibilitychange", alVolver);
+  }, [traerPipeline]);
+
+  /**
+   * ── Agenda de próximos días: al montar + botón Refrescar, sin reloj ──
+   *
+   * Antes TRES vistas (widget de Mi Día, franja del Pipeline, tab Agenda) pedían el rango
+   * cada 10s cada una. Ahora el store lo trae una vez (de la caché del backend) y las tres
+   * consumen lo mismo; `refrescarAgenda(true)` es el botón manual (1 llamada a GHL, §8.5).
+   */
+  const [agendaProximos, setAgendaProximos] = useState<AgendaAppointment[]>([]);
+  const refrescarAgenda = useCallback((forzar = false) => {
+    fetchAgendaRange(15, forzar ? { refrescar: true } : undefined)
+      .then((res) => {
+        if (res) setAgendaProximos(res.appointments ?? []);
+      })
+      .catch(() => {
+        /* sin backend, sin citas reales — la vista muestra su estado vacío */
+      });
+  }, []);
+
+  useEffect(() => {
+    refrescarAgenda();
+  }, [refrescarAgenda]);
 
   const advance = useCallback((name: string, input: AdvanceInput) => {
     setContacts((prev) => {
@@ -976,11 +997,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
             }).then(avisar);
           }
         }
+
+        // El Pipeline se refresca por EVENTO (ya no hay reloj de 30s): tras el Avanzar, un
+        // refetch confirma contra el backend lo que la UI ya mostró optimista. El delay le
+        // da tiempo a `proyectarAvance` a escribir el stage antes de releer.
+        setTimeout(traerPipeline, 1_500);
       }
 
       return { ...prev, [name]: applyAdvance(c, input) };
     });
-  }, []);
+  }, [traerPipeline]);
 
   const addNota = useCallback((name: string, texto: string) => {
     setContacts((prev) => {
@@ -1085,142 +1111,35 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   );
 
   /**
-   * ── dinero real del cockpit (lectura por evento, NO polling) ──
+   * ── El dinero de los encabezados del Pipeline (2026-07-31, doc §1) ──
    *
-   * Las oportunidades del pipeline del closer, vía `/api/closer/cockpit`. Hace falta porque
-   * `polling-closer-pipeline` lee `POST /contacts/search`, que devuelve tags y NO montos: un
-   * contacto real con `venta_ganada` entra a la etapa Ganado y suma +1 a "Ventas", pero con
-   * `monto` indefinido — o sea, aportando $0 al Cash Collected. El cockpit contaba las ventas
-   * reales y cobraba solo las de la semilla.
+   * Se lee de los mismos contactos que se pintan: las semillas traen su `monto` de la
+   * seed, y los contactos REALES lo traen del propio `/api/closer/pipeline` — que ahora
+   * devuelve `monto` (lo escribe `proyectarAvance` al registrar la Venta en Supabase).
+   * La lectura de Opportunity Value contra GHL (`/api/closer/cockpit`) se ELIMINÓ:
+   * "mandamos opportunity value a GHL al registrar venta; nunca lo leemos de vuelta".
    *
-   * Se lee una vez al cargar y se relee SOLO cuando `claveDinero` (abajo) cambia — es decir,
-   * cuando el polling de pipeline que ya existe detecta que un contacto real entró o salió de
-   * Ganado/Cierre. Sin movimiento en esas etapas, cero llamadas extra a GHL.
+   * El dashboard de Inicio NO usa estos números: sus métricas del mes salen 100% de
+   * `/api/closer/inicio` (queries sobre closer_avances). Estos totales son de los
+   * encabezados de columna del Pipeline, que sí incluyen las semillas visibles ahí.
    */
-  const [cockpitReal, setCockpitReal] = useState<CockpitRealState>({
-    ganadoPorContacto: {},
-    cierrePorContacto: {},
-    ganadoTotalEtapa: 0,
-    cierreTotalEtapa: 0,
-    disponible: false,
-    motivo: "Consultando GHL…",
-  });
-
-  /**
-   * Disparador de la lectura de montos — NO es un polling propio (corrección de Fabio,
-   * 2026-07-31: "solo tenías que leer si el contacto pasó a ganado y cuánto es el monto").
-   *
-   * Esta clave cambia únicamente cuando un contacto REAL entra o sale de Ganado/Cierre — y
-   * quien la hace cambiar es `polling-closer-pipeline`, que ya existe y ya trae las etapas.
-   * El efecto de abajo depende de ella: una lectura al cargar la app, y una más cada vez que
-   * el conjunto se mueve. Sin movimiento, cero llamadas extra a GHL.
-   */
-  const claveDinero = useMemo(
+  const ganadoMonto = useMemo(
     () =>
       Object.values(contacts)
-        .filter((c) => c.ghlContactId && (c.stage === "ganado" || c.stage === "cierre"))
-        .map((c) => `${c.ghlContactId}:${c.stage}`)
-        .sort()
-        .join("|"),
-    [contacts]
-  );
-
-  useEffect(() => {
-    let vivo = true;
-    const cargar = () => {
-      fetchCockpit()
-        .then((r) => {
-          if (!vivo) return;
-          const indexar = (xs?: { contactId: string; monto: number }[]) => {
-            const m: Record<string, number> = {};
-            for (const x of xs ?? []) m[x.contactId] = (m[x.contactId] ?? 0) + x.monto;
-            return m;
-          };
-          setCockpitReal({
-            ganadoPorContacto: indexar(r.ganado?.porContacto),
-            cierrePorContacto: indexar(r.cierre?.porContacto),
-            ganadoTotalEtapa: r.ganado?.monto ?? 0,
-            cierreTotalEtapa: r.cierre?.monto ?? 0,
-            disponible: Boolean(r.disponible),
-            motivo: r.motivo,
-            avisos: r.avisos,
-          });
-        })
-        .catch((e) => {
-          if (!vivo) return;
-          // Sin backend la app sigue con la semilla (§50.7). Se registra el motivo para que
-          // Inicio pueda decir "no se pudo leer GHL" en vez de afirmar un $0 que no verificó.
-          setCockpitReal({
-            ganadoPorContacto: {},
-            cierrePorContacto: {},
-            ganadoTotalEtapa: 0,
-            cierreTotalEtapa: 0,
-            disponible: false,
-            motivo: `No se pudo leer GHL: ${(e as Error).message}`,
-          });
-        });
-    };
-    cargar();
-    return () => {
-      vivo = false;
-    };
-    // `claveDinero` es el disparador deliberado: se relee GHL solo cuando un contacto real
-    // cambia de/hacia Ganado o Cierre. No hay setInterval — este fetch no es un polling.
-  }, [claveDinero]);
-
-  /**
-   * Monto de las semillas EJEMPLO en Ganado, contado aparte del real.
-   *
-   * El filtro es `!c.ghlContactId`: los contactos reales de GHL no traen `monto` (su plata sale
-   * del endpoint de oportunidades), y las semillas no existen en GHL. Separarlos así es lo que
-   * evita contar dos veces la misma venta el día que el pipeline empiece a devolver montos —
-   * un Cash Collected duplicado se celebra en vez de notarse.
-   *
-   * Se siguen sumando porque el closer VE esas tarjetas en su Pipeline: si Inicio las ignorara,
-   * las dos vistas volverían a contradecirse, que es justo lo que §44 vino a arreglar.
-   */
-  const ganadoSemillaMonto = useMemo(
-    () =>
-      Object.values(contacts)
-        .filter((c) => c.stage === "ganado" && !c.ghlContactId)
+        .filter((c) => c.stage === "ganado")
         .reduce((sum, c) => sum + (c.monto ?? 0), 0),
     [contacts]
   );
 
-  /** Mismo criterio que Ganado, para la etapa Cierre en curso: semilla local + real de GHL. */
-  const cierreSemillaMonto = useMemo(
+  const cierreEnCursoMonto = useMemo(
     () =>
       Object.values(contacts)
-        .filter((c) => c.stage === "cierre" && !c.ghlContactId)
+        .filter((c) => c.stage === "cierre")
         .reduce((sum, c) => sum + (c.monto ?? 0), 0),
     [contacts]
   );
 
-  /**
-   * Del dinero real de GHL se suma SOLO el de los contactos que esta app muestra en esa etapa.
-   *
-   * Encontrado en la cuenta el 2026-07-31: hay un trato de $1.000 parado en la etapa GANADO cuyo
-   * contacto tiene únicamente el tag `no calificado` — sin `zona_closer` no entra al Pipeline, y
-   * sin `venta_ganada` no cuenta como venta. Sumar el total de la etapa habría puesto $1.000 en
-   * el Cash Collected que ninguna otra vista podía explicar, y encima sobre una venta que el
-   * negocio no reconoce como tal.
-   *
-   * El excedente no se descarta callado: `huerfanoGanado` lo expone para que Inicio pueda
-   * decir que existe. Plata que el CRM tiene y el tool no cuenta es un dato, no un residuo.
-   */
-  const { realGanado, realCierre } = useMemo(() => {
-    let g = 0;
-    let c = 0;
-    for (const ct of Object.values(contacts)) {
-      if (!ct.ghlContactId) continue;
-      if (ct.stage === "ganado") g += cockpitReal.ganadoPorContacto[ct.ghlContactId] ?? 0;
-      if (ct.stage === "cierre") c += cockpitReal.cierrePorContacto[ct.ghlContactId] ?? 0;
-    }
-    return { realGanado: g, realCierre: c };
-  }, [contacts, cockpitReal]);
-
-  const cashCollected = ganadoSemillaMonto + realGanado;
-  const cierreEnCursoMonto = cierreSemillaMonto + realCierre;
+  const cashCollected = ganadoMonto;
 
   /**
    * Bases reales de los porcentajes del cockpit, derivadas del tab Llamada de cada contacto —
@@ -1264,27 +1183,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     [cashCollected, ganadoCount, salesCalls, atendieron, noShow, comisionPct]
   );
 
-  const cockpitFuente: CockpitFuente = useMemo(
-    () => ({
-      disponible: cockpitReal.disponible,
-      motivo: cockpitReal.motivo,
-      ganadoReal: realGanado,
-      ganadoSemilla: ganadoSemillaMonto,
-      huerfanoGanado: Math.max(cockpitReal.ganadoTotalEtapa - realGanado, 0),
-      avisos: cockpitReal.avisos,
-    }),
-    [cockpitReal, ganadoSemillaMonto, realGanado]
-  );
-
   const value: ClosurerStoreValue = {
     contacts,
     cockpit,
-    cockpitFuente,
+    citasHoy,
+    completadasReales,
+    agendaProximos,
+    refrescarAgenda,
+    refrescarPipeline: traerPipeline,
     cierreEnCursoMonto,
-    /* El encabezado de la columna Ganado del Pipeline muestra ESTE número, que es el mismo
-       Cash Collected de Inicio (semilla + real de GHL). Derivarlo dos veces es cómo se
-       llega a dos totales distintos para la misma plata a un clic de distancia (§44). */
-    ganadoMonto: cashCollected,
+    ganadoMonto,
     openContactName,
     openGhlContactId,
     openContact: (name: string, ghlContactId?: string) => {

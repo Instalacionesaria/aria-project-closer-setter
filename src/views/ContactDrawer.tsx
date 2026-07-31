@@ -50,7 +50,8 @@ import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, call
 import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTagTone, type SetterAdvanceInput } from "../lib/setterStore";
 import { useSettings } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
-import { fetchConversation } from "../lib/api";
+import { enviarMensaje, fetchConversation } from "../lib/api";
+import { CADENCIA, registrarReloj } from "../lib/polling";
 
 /** Mapa salida de Avanzar (closer) → tag real de GHL (contrato Frank §9). Aplicarlo dispara el workflow de GHL. */
 type DrawerTab = "chat" | "llamada" | "perfil" | "historial" | "notas";
@@ -1459,8 +1460,8 @@ interface ChatMessage {
   outgoing: boolean;
 }
 
-/** Cada cuánto se re-consulta a GHL mientras la vista está abierta (polling — mientras no haya tiempo real por webhooks). */
-const POLL_MS = 10_000;
+/* El reloj del chat vive en `src/lib/polling.ts` (CADENCIA.chat, 5s, pausa con pestaña
+   oculta) — el `POLL_MS` local de 10s se eliminó el 2026-07-31. */
 
 const SEED_MESSAGES: ChatMessage[] = [
   { id: 1, text: "Hola, quiero más info", time: "10:00 AM", outgoing: false },
@@ -1600,17 +1601,16 @@ function ChatTab({
     }
   }, []);
 
-  // Conversación REAL desde GHL cuando la ficha se abrió con un contactId (ej. una cita real).
-  // Sin contactId, se conserva el demo de Frank (SEED_MESSAGES).
-  // Polling cada POLL_MS mientras la ficha está abierta (hasta tener tiempo real por webhooks).
+  // Conversación REAL desde la CACHÉ del backend (closer_mensajes — cero GHL por request).
+  // Sin contactId, se conserva el demo de Frank (SEED_MESSAGES). El reloj vive en el módulo
+  // único de polling: 5s con la ficha abierta, y se pausa con la pestaña oculta (doc §10).
   useEffect(() => {
     if (!ghlContactId) return;
-    let alive = true;
-    const load = (first: boolean) => {
+    let first = true;
+    const load = () => {
       if (first) setConvLoading(true);
       fetchConversation(ghlContactId)
         .then((res) => {
-          if (!alive) return;
           const sig = res.messages.map((m) => `${m.id}:${m.text}`).join("|");
           if (sig !== lastConvSigRef.current) {
             lastConvSigRef.current = sig;
@@ -1621,15 +1621,13 @@ function ChatTab({
           /* si falla, dejamos lo que había (no inventamos mensajes) */
         })
         .finally(() => {
-          if (alive && first) setConvLoading(false);
+          if (first) {
+            setConvLoading(false);
+            first = false;
+          }
         });
     };
-    load(true);
-    const iv = setInterval(() => load(false), POLL_MS);
-    return () => {
-      alive = false;
-      clearInterval(iv);
-    };
+    return registrarReloj(`chat:${ghlContactId}`, load, CADENCIA.chat);
   }, [ghlContactId]);
 
   const isUrgente = botEstado === "pausado_fallo";
@@ -1679,8 +1677,25 @@ function ChatTab({
     const text = message.trim();
     if (!text) return;
     const time = new Date().toLocaleTimeString("es-AR", { hour: "numeric", minute: "2-digit" });
-    setMessages((prev) => [...prev, { id: Date.now(), text, time, outgoing: true }]);
+    // Pintado optimista: el mensaje aparece ya. Si el envío real falla, se marca — un
+    // mensaje que el contacto nunca recibió no puede quedar como si hubiera salido.
+    const idOptimista = Date.now();
+    setMessages((prev) => [...prev, { id: idOptimista, text, time, outgoing: true }]);
     setMessage("");
+
+    /**
+     * El envío REAL (2026-07-31 — era EL hueco del chat: antes esto era solo estado local
+     * del navegador). Solo para contactos reales; la semilla EJEMPLO sigue siendo demo.
+     * 1 llamada a GHL por mensaje (doc §4.4/§9).
+     */
+    if (ghlContactId) {
+      enviarMensaje(ghlContactId, text).catch(() => {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === idOptimista ? { ...m, text: `${m.text}\n⚠ No se pudo enviar` } : m)),
+        );
+      });
+    }
+
     if (isUrgente) {
       setHasSentManual(true);
     } else if (botEstado === "activo" && hasBot) {
