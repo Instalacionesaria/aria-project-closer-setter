@@ -568,9 +568,14 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
                   Meta superada por <span className="text-white font-medium">{money(-falta)}</span>
                 </p>
               )}
-              <p className="text-sm font-medium text-[#D4AF37]">
-                {!metaSuperada ? `≈ ${ventasFaltantes} ventas más` : "🎉 ¡Meta superada!"}
-              </p>
+              {/* Con 0 ventas no hay promedio para estimar cuántas faltan — "≈ 0 ventas más"
+                  junto a "Faltan $3.000" era una contradicción inventada (§4.10). Sin dato,
+                  la línea no se pinta. */}
+              {(metaSuperada || ventasFaltantes > 0) && (
+                <p className="text-sm font-medium text-[#D4AF37]">
+                  {!metaSuperada ? `≈ ${ventasFaltantes} ventas más` : "🎉 ¡Meta superada!"}
+                </p>
+              )}
             </div>
           </div>
         </div>
