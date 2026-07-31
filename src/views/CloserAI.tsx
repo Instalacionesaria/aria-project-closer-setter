@@ -1692,30 +1692,6 @@ const SCHEDULE: ScheduleSlot[] = [
     videoPre: { visto: true, pct: 87 },
     meetUrl: "https://meet.google.com/juan-perez-1100",
   },
-  {
-    time: "1:00", ampm: "PM", name: "EJEMPLO MARTA PEREZ", grade: "B", duration: "45 min",
-    hint: "1:00 PM tu hora · 1:30 PM hora del contacto", estadoCita: "reprogramada",
-    meetUrl: "https://meet.google.com/marta-perez-1300",
-  },
-  {
-    time: "3:00", ampm: "PM", name: "EJEMPLO LUIS GOMEZ", grade: "D", duration: "45 min",
-    hint: "3:00 PM tu hora · 3:30 PM hora del contacto", estadoCita: "pendiente",
-    briefing: "Sin calificación previa registrada. Primera toma de contacto por voz.",
-    videoPre: { visto: false },
-    meetUrl: "https://meet.google.com/luis-gomez-1500",
-  },
-  {
-    time: "5:00", ampm: "PM", name: "EJEMPLO SOFIA SANCHEZ", grade: "B", duration: "45 min",
-    hint: "5:00 PM tu hora · 5:30 PM hora del contacto", estadoCita: "confirmada",
-    briefing: "Viene de un webinar. Le preocupa el tiempo de implementación más que el precio.",
-    videoPre: { visto: true, pct: 64 },
-    meetUrl: "https://meet.google.com/sofia-sanchez-1700",
-  },
-  {
-    time: "7:00", ampm: "PM", name: "EJEMPLO CARMEN GOMEZ", grade: "A", duration: "45 min",
-    hint: "7:00 PM tu hora · 7:30 PM hora del contacto", estadoCita: "confirmada",
-    meetUrl: "https://meet.google.com/carmen-gomez-1900",
-  },
 ];
 
 /* --- Helpers: mapean una cita real de GHL al formato del timeline --- */
