@@ -60,7 +60,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
     if (error) throw new Error(`closer_contactos: ${error.message}`);
 
-    const filas = (data ?? []) as FilaContacto[];
+    // El select multilínea rompe la inferencia de supabase-js (devuelve su tipo de error
+    // genérico), así que el shape se declara a mano — las columnas están una línea arriba.
+    const filas = (data ?? []) as unknown as FilaContacto[];
 
     const contactos = filas
       .map((f) => {

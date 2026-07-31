@@ -85,7 +85,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "buzon_resuelto_el, ultimo_entrante_el, ultimo_entrante_texto",
       );
     if (errContactos) throw new Error(`closer_contactos: ${errContactos.message}`);
-    const contactos = (contactosData ?? []) as FilaContacto[];
+    // El select multilínea rompe la inferencia de supabase-js — shape declarado a mano.
+    const contactos = (contactosData ?? []) as unknown as FilaContacto[];
     const porId = new Map(contactos.map((c) => [c.ghl_contact_id, c]));
 
     /* ── Urgentes: bot_pausado_fallo en tags cacheados ───────────────────── */
@@ -147,7 +148,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return {
         id: c.ghl_appointment_id,
         ghlContactId: c.ghl_contact_id,
-        nombre: contacto?.nombre ?? (c.titulo ?? "").replace(/^.*?-\s*/, "").trim() || null,
+        nombre: contacto?.nombre ?? ((c.titulo ?? "").replace(/^.*?-\s*/, "").trim() || null),
         fechaHora: c.fecha_hora,
         estado: c.estado_ghl,
         meetUrl: c.meet_url,
