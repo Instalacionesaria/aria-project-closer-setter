@@ -212,6 +212,8 @@ interface OportunidadLeida {
   monto: number;
   etapaId: string | null;
   status: string;
+  /** Necesario para que el front pueda cruzar el dinero con los contactos que SÍ muestra. */
+  contactId: string | null;
 }
 
 /**
@@ -264,6 +266,7 @@ async function leerOportunidades(
         monto: Number.isFinite(monto) && monto > 0 ? monto : 0,
         etapaId: o.pipelineStageId ?? o.pipeline_stage_id ?? null,
         status: String(o.status ?? "open").toLowerCase(),
+        contactId: o.contactId ?? o.contact_id ?? o.contact?.id ?? null,
       });
     }
 
@@ -292,8 +295,8 @@ function sinDatos(ghlModo: string, motivo: string) {
     ghlModo,
     disponible: false,
     motivo,
-    ganado: { monto: 0, cantidad: 0 },
-    cierre: { monto: 0, cantidad: 0 },
+    ganado: { monto: 0, cantidad: 0, porContacto: [], montoSinContacto: 0 },
+    cierre: { monto: 0, cantidad: 0, porContacto: [], montoSinContacto: 0 },
   };
 }
 
@@ -325,6 +328,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const ganadas = enEtapas([ETAPA_GANADO]);
     const acuerdos = enEtapas(ETAPAS_ACUERDO);
     const sumar = (ops: OportunidadLeida[]) => ops.reduce((s, o) => s + o.monto, 0);
+
+    /**
+     * El desglose por contacto es lo que permite al front sumar SOLO el dinero de los contactos
+     * que de hecho muestra, y es una necesidad real, no una comodidad.
+     *
+     * Encontrado en la cuenta el 2026-07-31: hay un trato de $1.000 parado en GANADO cuyo
+     * contacto tiene únicamente el tag `no calificado` — sin `zona_closer`, así que no aparece
+     * en el Pipeline, y sin `venta_ganada`, así que tampoco cuenta como venta. Sumar el total
+     * de la etapa a ciegas habría puesto $1.000 en el Cash Collected que ninguna vista podía
+     * explicar: exactamente el "dos números para la misma plata" que §44 vino a erradicar.
+     *
+     * Los tratos huérfanos como ese no se descartan en silencio ni se suman en silencio: viajan
+     * identificados para que el front los excluya del total y pueda decir que existen.
+     */
+    const desglose = (ops: OportunidadLeida[]) =>
+      ops
+        .filter((o) => o.contactId)
+        .map((o) => ({ contactId: o.contactId as string, monto: o.monto }));
+
+    /** Dinero en la etapa sin contacto asociado — no se puede atribuir a nadie. */
+    const sinContacto = (ops: OportunidadLeida[]) => sumar(ops.filter((o) => !o.contactId));
 
     const etapasPresentes = new Set(pipeline.etapas.values());
     const avisos: string[] = [];
@@ -359,8 +383,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ghlModo: "real",
       disponible: true,
       pipeline: { id: pipeline.id, nombre: pipeline.nombre, comoSeEligio },
-      ganado: { monto: sumar(ganadas), cantidad: ganadas.length },
-      cierre: { monto: sumar(acuerdos), cantidad: acuerdos.length },
+      ganado: {
+        monto: sumar(ganadas),
+        cantidad: ganadas.length,
+        porContacto: desglose(ganadas),
+        montoSinContacto: sinContacto(ganadas),
+      },
+      cierre: {
+        monto: sumar(acuerdos),
+        cantidad: acuerdos.length,
+        porContacto: desglose(acuerdos),
+        montoSinContacto: sinContacto(acuerdos),
+      },
       cobertura: { completo: leidas.completo, oportunidadesLeidas: leidas.oportunidades.length },
       ...(avisos.length > 0 ? { avisos } : {}),
     });

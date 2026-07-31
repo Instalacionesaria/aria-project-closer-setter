@@ -521,14 +521,31 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
                 />
                 Cobrado real, no prometido
                 {cockpitFuente.disponible ? (
-                  cockpitFuente.ganadoSemilla > 0 && (
-                    <>
-                      <span className="text-white/20">|</span>
-                      <span className="text-white/40 text-xs">
-                        {money(cockpitFuente.ganadoReal)} de GHL + {money(cockpitFuente.ganadoSemilla)} de ejemplos
-                      </span>
-                    </>
-                  )
+                  <>
+                    {cockpitFuente.ganadoSemilla > 0 && (
+                      <>
+                        <span className="text-white/20">|</span>
+                        <span className="text-white/40 text-xs">
+                          {money(cockpitFuente.ganadoReal)} de GHL + {money(cockpitFuente.ganadoSemilla)} de ejemplos
+                        </span>
+                      </>
+                    )}
+                    {/* Plata en la etapa GANADO de GHL que no se cuenta porque su contacto no está
+                        en el territorio del closer. Se avisa en vez de sumarla (daría un total que
+                        ninguna otra vista explica) y en vez de ignorarla (es una discrepancia real
+                        del CRM que alguien debería ir a mirar). */}
+                    {cockpitFuente.huerfanoGanado > 0 && (
+                      <>
+                        <span className="text-white/20">|</span>
+                        <span
+                          className="text-amber-300/80 text-xs"
+                          title="Oportunidades en la etapa GANADO de GHL cuyo contacto no tiene el tag zona_closer, así que no aparecen en el Pipeline ni cuentan como venta."
+                        >
+                          {money(cockpitFuente.huerfanoGanado)} en GHL sin contacto del closer
+                        </span>
+                      </>
+                    )}
+                  </>
                 ) : (
                   <>
                     <span className="text-white/20">|</span>

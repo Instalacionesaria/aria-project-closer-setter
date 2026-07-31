@@ -316,8 +316,17 @@ export function fetchPipeline(): Promise<PipelineResponse> {
 
 /** Total de una etapa de dinero: cuánto y sobre cuántas oportunidades (§4.9, todo % con su base). */
 export interface CockpitTotal {
+  /** Todo lo que hay en la etapa, incluidos los tratos que el tool no muestra. */
   monto: number;
   cantidad: number;
+  /**
+   * Quién aporta cada peso. Existe para que la vista sume SOLO los contactos que de hecho
+   * muestra: en la cuenta hay tratos parados en GANADO cuyo contacto perdió el tag
+   * `zona_closer`, y sumarlos daría un Cash Collected que ninguna otra vista puede explicar.
+   */
+  porContacto: { contactId: string; monto: number }[];
+  /** Dinero de la etapa sin contacto asociado — no atribuible a ninguna fila. */
+  montoSinContacto: number;
 }
 
 export interface CockpitResponse {

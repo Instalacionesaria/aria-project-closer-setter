@@ -643,10 +643,28 @@ export interface CockpitFuente {
   disponible: boolean;
   /** Por qué no está disponible, en palabras del servidor. */
   motivo?: string;
-  /** Dinero de oportunidades `won` en el pipeline del closer. */
+  /** Dinero de GHL atribuido a contactos que esta app muestra en la etapa Ganado. */
   ganadoReal: number;
   /** Dinero de las semillas EJEMPLO — no existe en GHL, pero sí en el Pipeline que el closer ve. */
   ganadoSemilla: number;
+  /**
+   * Plata parada en la etapa GANADO de GHL que el tool NO cuenta, porque su contacto no está en
+   * el territorio del closer (sin `zona_closer`) o no existe. No es un error del cockpit: es una
+   * discrepancia real del CRM, y se expone para que se pueda ir a mirar.
+   */
+  huerfanoGanado: number;
+  avisos?: string[];
+}
+
+/** Estado crudo de `polling-closer-cockpit`, indexado por contacto para poder cruzarlo. */
+interface CockpitRealState {
+  ganadoPorContacto: Record<string, number>;
+  cierrePorContacto: Record<string, number>;
+  /** Total de la etapa en GHL, incluidos los tratos que el tool no muestra. */
+  ganadoTotalEtapa: number;
+  cierreTotalEtapa: number;
+  disponible: boolean;
+  motivo?: string;
   avisos?: string[];
 }
 
@@ -1092,13 +1110,14 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * Una venta registrada acá se ve al instante igual, porque `advance()` mueve el contacto en
    * el store sin esperar a GHL.
    */
-  const [cockpitReal, setCockpitReal] = useState<{
-    ganado: number;
-    cierre: number;
-    disponible: boolean;
-    motivo?: string;
-    avisos?: string[];
-  }>({ ganado: 0, cierre: 0, disponible: false, motivo: "Consultando GHL…" });
+  const [cockpitReal, setCockpitReal] = useState<CockpitRealState>({
+    ganadoPorContacto: {},
+    cierrePorContacto: {},
+    ganadoTotalEtapa: 0,
+    cierreTotalEtapa: 0,
+    disponible: false,
+    motivo: "Consultando GHL…",
+  });
 
   useEffect(() => {
     let vivo = true;
@@ -1106,9 +1125,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       fetchCockpit()
         .then((r) => {
           if (!vivo) return;
+          const indexar = (xs?: { contactId: string; monto: number }[]) => {
+            const m: Record<string, number> = {};
+            for (const x of xs ?? []) m[x.contactId] = (m[x.contactId] ?? 0) + x.monto;
+            return m;
+          };
           setCockpitReal({
-            ganado: r.ganado?.monto ?? 0,
-            cierre: r.cierre?.monto ?? 0,
+            ganadoPorContacto: indexar(r.ganado?.porContacto),
+            cierrePorContacto: indexar(r.cierre?.porContacto),
+            ganadoTotalEtapa: r.ganado?.monto ?? 0,
+            cierreTotalEtapa: r.cierre?.monto ?? 0,
             disponible: Boolean(r.disponible),
             motivo: r.motivo,
             avisos: r.avisos,
@@ -1118,7 +1144,14 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
           if (!vivo) return;
           // Sin backend la app sigue con la semilla (§50.7). Se registra el motivo para que
           // Inicio pueda decir "no se pudo leer GHL" en vez de afirmar un $0 que no verificó.
-          setCockpitReal({ ganado: 0, cierre: 0, disponible: false, motivo: `No se pudo leer GHL: ${(e as Error).message}` });
+          setCockpitReal({
+            ganadoPorContacto: {},
+            cierrePorContacto: {},
+            ganadoTotalEtapa: 0,
+            cierreTotalEtapa: 0,
+            disponible: false,
+            motivo: `No se pudo leer GHL: ${(e as Error).message}`,
+          });
         });
     };
     cargar();
@@ -1157,8 +1190,31 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     [contacts]
   );
 
-  const cashCollected = ganadoSemillaMonto + cockpitReal.ganado;
-  const cierreEnCursoMonto = cierreSemillaMonto + cockpitReal.cierre;
+  /**
+   * Del dinero real de GHL se suma SOLO el de los contactos que esta app muestra en esa etapa.
+   *
+   * Encontrado en la cuenta el 2026-07-31: hay un trato de $1.000 parado en la etapa GANADO cuyo
+   * contacto tiene únicamente el tag `no calificado` — sin `zona_closer` no entra al Pipeline, y
+   * sin `venta_ganada` no cuenta como venta. Sumar el total de la etapa habría puesto $1.000 en
+   * el Cash Collected que ninguna otra vista podía explicar, y encima sobre una venta que el
+   * negocio no reconoce como tal.
+   *
+   * El excedente no se descarta callado: `huerfanoGanado` lo expone para que Inicio pueda
+   * decir que existe. Plata que el CRM tiene y el tool no cuenta es un dato, no un residuo.
+   */
+  const { realGanado, realCierre } = useMemo(() => {
+    let g = 0;
+    let c = 0;
+    for (const ct of Object.values(contacts)) {
+      if (!ct.ghlContactId) continue;
+      if (ct.stage === "ganado") g += cockpitReal.ganadoPorContacto[ct.ghlContactId] ?? 0;
+      if (ct.stage === "cierre") c += cockpitReal.cierrePorContacto[ct.ghlContactId] ?? 0;
+    }
+    return { realGanado: g, realCierre: c };
+  }, [contacts, cockpitReal]);
+
+  const cashCollected = ganadoSemillaMonto + realGanado;
+  const cierreEnCursoMonto = cierreSemillaMonto + realCierre;
 
   /**
    * Bases reales de los porcentajes del cockpit, derivadas del tab Llamada de cada contacto —
@@ -1206,11 +1262,12 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     () => ({
       disponible: cockpitReal.disponible,
       motivo: cockpitReal.motivo,
-      ganadoReal: cockpitReal.ganado,
+      ganadoReal: realGanado,
       ganadoSemilla: ganadoSemillaMonto,
+      huerfanoGanado: Math.max(cockpitReal.ganadoTotalEtapa - realGanado, 0),
       avisos: cockpitReal.avisos,
     }),
-    [cockpitReal, ganadoSemillaMonto]
+    [cockpitReal, ganadoSemillaMonto, realGanado]
   );
 
   const value: ClosurerStoreValue = {
