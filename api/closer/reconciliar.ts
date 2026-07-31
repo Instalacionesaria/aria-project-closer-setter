@@ -76,23 +76,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({ ok: true, corrio: false, motivo: "Modo stub: no hay GHL que reconciliar." });
   }
 
-  /* ── 1. El candado ─────────────────────────────────────────────────── */
-  const corte = new Date(Date.now() - VENTANA_MS).toISOString();
-  const { data: claim, error: errClaim } = await db()
-    .from("closer_org_config")
-    .update({ ultima_reconciliacion: new Date().toISOString() })
-    .eq("org_id", ORG_ID)
-    .or(`ultima_reconciliacion.is.null,ultima_reconciliacion.lt.${corte}`)
-    .select("reconciliacion_marca_agua");
+  /* ── 1. El candado (RPC — migración 012) ───────────────────────────── */
+  // Era un `.update().or(...)` de PostgREST y falló en producción con 42703 "column does
+  // not exist" pese a que la columna existe y el SELECT funciona (réplica con schema cache
+  // viejo tras el ALTER de 011). La RPC esquiva el camino de filtros por completo y deja el
+  // claim en UNA sentencia atómica del lado de Postgres.
+  const { data: claim, error: errClaim } = await db().rpc("closer_reconciliar_claim", {
+    p_org_id: ORG_ID,
+    p_ventana_segundos: Math.round(VENTANA_MS / 1000),
+  });
 
   if (errClaim) return res.status(500).json({ ok: false, error: `candado: ${errClaim.message}` });
-  if (!claim || claim.length === 0) {
+  const fila = Array.isArray(claim) ? claim[0] : claim;
+  if (!fila?.gano) {
     // Otro request (otra pestaña, otro usuario) corrió hace menos de 10s. Es el camino
     // feliz de la concurrencia, no un error: N pestañas = el mismo costo que una.
     return res.status(200).json({ ok: true, corrio: false, motivo: "Ya corrió hace <10s." });
   }
 
-  const marcaAgua = claim[0].reconciliacion_marca_agua ? new Date(claim[0].reconciliacion_marca_agua).getTime() : 0;
+  const marcaAgua = fila.marca_agua ? new Date(fila.marca_agua).getTime() : 0;
 
   try {
     /* ── 2. Los contactos del territorio, desde la caché (0 llamadas) ──── */
@@ -175,12 +177,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    /* ── 5. Avanzar la marca de agua ───────────────────────────────────── */
+    /* ── 5. Avanzar la marca de agua (RPC, misma razón que el candado) ──── */
     if (marcaNueva > marcaAgua) {
-      await db()
-        .from("closer_org_config")
-        .update({ reconciliacion_marca_agua: new Date(marcaNueva).toISOString() })
-        .eq("org_id", ORG_ID);
+      await db().rpc("closer_reconciliar_marca", {
+        p_org_id: ORG_ID,
+        p_marca: new Date(marcaNueva).toISOString(),
+      });
     }
 
     return res.status(200).json({
