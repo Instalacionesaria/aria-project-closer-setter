@@ -30,18 +30,9 @@ const POLLING_URGENTES_MS = 10_000;
  */
 const POLLING_PIPELINE_MS = 30_000;
 
-/**
- * `polling-closer-cockpit` — cada cuánto se relee el dinero real (oportunidades de GHL).
- *
- * 5 minutos, el más espaciado de todos, por dos razones que apuntan al mismo lado: el Cash
- * Collected del mes no cambia entre parpadeos, y cada ciclo son 3 llamadas a GHL (pipelines +
- * won + open). A 10s serían ~26.000 llamadas diarias para redibujar el mismo número, contra
- * ~860 así — y el límite de GHL es el techo real del sistema (`docs/COSTOS-Y-POLLING.md`).
- *
- * No se pierde reactividad donde importa: registrar una Venta mueve el contacto en el store al
- * instante, sin esperar a este ciclo.
- */
-const POLLING_COCKPIT_MS = 300_000;
+/* El dinero real del cockpit NO tiene polling propio (corrección de Fabio, 2026-07-31): se lee
+   una vez al cargar y se relee solo cuando `polling-closer-pipeline` — que ya existe — detecta
+   que un contacto real entró o salió de Ganado/Cierre. Ver `claveDinero` en el provider. */
 
 /**
  * Cuánto tiempo un contacto tocado a mano conserva su etapa local frente a lo que diga GHL.
@@ -656,7 +647,7 @@ export interface CockpitFuente {
   avisos?: string[];
 }
 
-/** Estado crudo de `polling-closer-cockpit`, indexado por contacto para poder cruzarlo. */
+/** Estado crudo de la lectura de dinero (`/api/closer/cockpit`), indexado por contacto para cruzarlo. */
 interface CockpitRealState {
   ganadoPorContacto: Record<string, number>;
   cierrePorContacto: Record<string, number>;
@@ -1085,7 +1076,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * cuánta estás mirando. Filtrar la vista no debería mover un total de dinero.
    */
   /* `cierreEnCursoMonto` se calcula más abajo, junto al resto del dinero: necesita el monto real
-     de GHL, que llega por `polling-closer-cockpit`. Antes salía solo de los montos del store,
+     de GHL, que llega por la lectura de `/api/closer/cockpit`. Antes salía solo de los montos del store,
      que en un contacto real de GHL viene indefinido — el mismo agujero que tenía Ganado. */
 
   const ganadoCount = useMemo(
@@ -1094,21 +1085,17 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   );
 
   /**
-   * ── polling-closer-cockpit ──
+   * ── dinero real del cockpit (lectura por evento, NO polling) ──
    *
-   * El dinero real: oportunidades `won` del pipeline del closer, vía `/api/closer/cockpit`.
+   * Las oportunidades del pipeline del closer, vía `/api/closer/cockpit`. Hace falta porque
+   * `polling-closer-pipeline` lee `POST /contacts/search`, que devuelve tags y NO montos: un
+   * contacto real con `venta_ganada` entra a la etapa Ganado y suma +1 a "Ventas", pero con
+   * `monto` indefinido — o sea, aportando $0 al Cash Collected. El cockpit contaba las ventas
+   * reales y cobraba solo las de la semilla.
    *
-   * Hace falta porque `polling-closer-pipeline` lee `POST /contacts/search`, que devuelve tags
-   * y NO montos: un contacto real con `venta_ganada` entra a la etapa Ganado y suma +1 a
-   * "Ventas", pero con `monto` indefinido — o sea, aportando $0 al Cash Collected. El cockpit
-   * contaba las ventas reales y cobraba solo las de la semilla.
-   *
-   * Intervalo largo (5 min) a propósito, y no los 10-30s del resto: el Cash Collected del mes
-   * no cambia entre parpadeos, y este endpoint son 3 llamadas a GHL por ciclo (pipelines + won
-   * + open). A 10s serían ~26.000 llamadas diarias solo para redibujar el mismo número —
-   * exactamente el gasto que `docs/COSTOS-Y-POLLING.md` identifica como el techo del sistema.
-   * Una venta registrada acá se ve al instante igual, porque `advance()` mueve el contacto en
-   * el store sin esperar a GHL.
+   * Se lee una vez al cargar y se relee SOLO cuando `claveDinero` (abajo) cambia — es decir,
+   * cuando el polling de pipeline que ya existe detecta que un contacto real entró o salió de
+   * Ganado/Cierre. Sin movimiento en esas etapas, cero llamadas extra a GHL.
    */
   const [cockpitReal, setCockpitReal] = useState<CockpitRealState>({
     ganadoPorContacto: {},
@@ -1118,6 +1105,25 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     disponible: false,
     motivo: "Consultando GHL…",
   });
+
+  /**
+   * Disparador de la lectura de montos — NO es un polling propio (corrección de Fabio,
+   * 2026-07-31: "solo tenías que leer si el contacto pasó a ganado y cuánto es el monto").
+   *
+   * Esta clave cambia únicamente cuando un contacto REAL entra o sale de Ganado/Cierre — y
+   * quien la hace cambiar es `polling-closer-pipeline`, que ya existe y ya trae las etapas.
+   * El efecto de abajo depende de ella: una lectura al cargar la app, y una más cada vez que
+   * el conjunto se mueve. Sin movimiento, cero llamadas extra a GHL.
+   */
+  const claveDinero = useMemo(
+    () =>
+      Object.values(contacts)
+        .filter((c) => c.ghlContactId && (c.stage === "ganado" || c.stage === "cierre"))
+        .map((c) => `${c.ghlContactId}:${c.stage}`)
+        .sort()
+        .join("|"),
+    [contacts]
+  );
 
   useEffect(() => {
     let vivo = true;
@@ -1155,12 +1161,12 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
         });
     };
     cargar();
-    const iv = setInterval(cargar, POLLING_COCKPIT_MS);
     return () => {
       vivo = false;
-      clearInterval(iv);
     };
-  }, []);
+    // `claveDinero` es el disparador deliberado: se relee GHL solo cuando un contacto real
+    // cambia de/hacia Ganado o Cierre. No hay setInterval — este fetch no es un polling.
+  }, [claveDinero]);
 
   /**
    * Monto de las semillas EJEMPLO en Ganado, contado aparte del real.
