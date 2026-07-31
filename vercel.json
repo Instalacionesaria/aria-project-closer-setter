@@ -4,8 +4,12 @@
   "outputDirectory": "dist",
   "functions": {
     "api/webhooks/ghl.ts": { "maxDuration": 60 },
-    "api/closer/analizar.ts": { "maxDuration": 60 }
+    "api/closer/analizar.ts": { "maxDuration": 60 },
+    "api/closer/citas-respaldo.ts": { "maxDuration": 60 }
   },
+  "crons": [
+    { "path": "/api/closer/citas-respaldo", "schedule": "25,55 * * * *" }
+  ],
   "rewrites": [
     {
       "source": "/((?!api/).*)",

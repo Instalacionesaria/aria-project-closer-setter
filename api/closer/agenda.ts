@@ -1,69 +1,67 @@
 /**
- * `GET /api/closer/agenda` — las citas reales del calendario de la subcuenta.
+ * `GET /api/closer/agenda` — las citas, desde la CACHÉ (`closer_citas`). Cero GHL.
  *
  *   ?days=0   (default) solo HOY  → widget "Agenda de Hoy" de Mi Día
  *   ?days=N   hoy .. hoy+N        → tab Agenda y "Próximos Días"
- *   ?calendarId=...               → default: GHL_DEFAULT_CALENDAR_ID
+ *   ?refrescar=1                  → 1 llamada a GHL para ese rango ANTES de leer la caché
  *   ?includeCancelled=true        → default: se ocultan las canceladas
  *
- * Un solo handler para los dos casos: "hoy" es el rango de 0 días. Dos funciones separadas
- * eran el mismo código dos veces, y en Hobby cada archivo de `api/` gasta uno de los 12
- * slots de funciones que tiene el proyecto.
+ * Hasta el 2026-07-31 este endpoint llamaba a GHL en cada request — y el frontend lo
+ * pedía cada 10s desde TRES vistas a la vez. Ahora la caché la mantienen el webhook de
+ * cita y el cron de :25/:55 (`citas-respaldo.ts`), y esto es una query a Supabase.
  *
- * Devuelve SOLO lo que GHL sabe. El score (A/B/C/D) y el Briefing IA no salen de acá: los
- * pinta el motor cuando exista, y hasta entonces la UI muestra "—" en vez de inventarlos
- * (§4.7 / §4.10).
+ * `refrescar=1` es el escape para el clic en un día no cacheado y el botón "Refrescar"
+ * de la Agenda (doc §8.5): exactamente 1 llamada a GHL, por acción explícita del usuario.
+ * Red de seguridad adicional: si el rango pedido está VACÍO en caché y hay credenciales,
+ * se refresca solo una vez — cubre la primera carga después del deploy, cuando el cron
+ * todavía no corrió.
+ *
+ * El shape de la respuesta es el MISMO que tenía (appointments normalizados): el frontend
+ * no distingue de dónde salieron.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { hoyISO, sumarDias, ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { offsetOrg, sincronizarCitas } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
 import { ghl } from "../_lib/ghl/index.js";
-import { eventosDeCalendario, type EventoCalendario } from "../_lib/ghl/lectura.js";
+import { db } from "../_lib/repo.js";
 
-/**
- * Rango epoch-ms que cubre desde el arranque de hoy hasta el final del día `hoy + dias`,
- * en la zona de la organización. El offset sale del propio `Intl` en vez de hardcodearse,
- * así el día no se corre si la subcuenta cambia de zona o entra en horario de verano.
- */
-function rangoEnMs(dias: number): { desdeMs: number; hastaMs: number; hoy: string; ultimo: string } {
-  const hoy = hoyISO();
-  const ultimo = sumarDias(hoy, dias);
-  const desdeMs = new Date(`${hoy}T00:00:00${offsetOrg(hoy)}`).getTime();
-  const hastaMs = new Date(`${ultimo}T23:59:59${offsetOrg(ultimo)}`).getTime();
-  return { desdeMs, hastaMs, hoy, ultimo };
+interface FilaCita {
+  ghl_appointment_id: string;
+  ghl_contact_id: string;
+  fecha_hora: string;
+  estado_ghl: string | null;
+  titulo: string | null;
+  meet_url: string | null;
 }
 
-/** Offset (`-05:00`) de la zona de la organización para una fecha dada. */
-function offsetOrg(iso: string): string {
-  const partes = new Intl.DateTimeFormat("en-US", {
+/** Normaliza una fila de la caché al shape que el frontend ya consume. */
+function normalizar(c: FilaCita) {
+  // `fecha_hora` es timestamptz (UTC en el wire); la hora local se reconstruye en la zona
+  // de la organización — igual que hacía la versión GHL-directa con el offset del evento.
+  const d = new Date(c.fecha_hora);
+  const fecha = new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA_ORG }).format(d);
+  const hora = new Intl.DateTimeFormat("es-PE", {
     timeZone: ZONA_HORARIA_ORG,
-    timeZoneName: "longOffset",
-  }).formatToParts(new Date(`${iso}T12:00:00Z`));
-  const nombre = partes.find((p) => p.type === "timeZoneName")?.value ?? "GMT-05:00";
-  return nombre.replace("GMT", "") || "-05:00";
-}
-
-/** Normaliza un evento de GHL al shape que consume el frontend. */
-function normalizar(e: EventoCalendario) {
-  // `startTime` viene como "2026-07-27T11:00:00-05:00": la hora local son las posiciones 11-16.
-  const hora = typeof e.startTime === "string" ? e.startTime.slice(11, 16) : "";
-  const fecha = typeof e.startTime === "string" ? e.startTime.slice(0, 10) : "";
-  // El título suele ser "Discovery Call - Nombre"; nos quedamos con el nombre.
-  const titulo = e.title ?? "";
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(d);
+  const titulo = c.titulo ?? "";
   const nombre = titulo.replace(/^.*?-\s*/, "").trim() || titulo || "Sin nombre";
 
   return {
-    id: e.id,
+    id: c.ghl_appointment_id,
     name: nombre,
     title: titulo,
     date: fecha,
     time: hora,
-    startTime: e.startTime,
-    endTime: e.endTime ?? null,
-    status: e.appointmentStatus ?? "unknown",
-    meetUrl: e.address ?? null,
-    contactId: e.contactId ?? null,
+    startTime: c.fecha_hora,
+    endTime: null,
+    status: c.estado_ghl ?? "unknown",
+    meetUrl: c.meet_url,
+    contactId: c.ghl_contact_id || null,
   };
 }
 
@@ -74,31 +72,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const calendarId = (req.query.calendarId as string) || env.ghlCalendarioPorDefecto();
     const dias = Math.min(Math.max(parseInt(String(req.query.days ?? "0"), 10) || 0, 0), 31);
     const incluirCanceladas = req.query.includeCancelled === "true";
-    const { desdeMs, hastaMs, hoy, ultimo } = rangoEnMs(dias);
+    const hoy = hoyISO();
+    const ultimo = sumarDias(hoy, dias);
+    const desdeIso = `${hoy}T00:00:00${offsetOrg(hoy)}`;
+    const hastaIso = `${ultimo}T23:59:59${offsetOrg(ultimo)}`;
 
-    // Sin calendario configurado no hay nada que consultar. No es un error del cliente: es
-    // configuración que falta, y la UI tiene que poder decirlo sin pintar una pantalla rota.
-    if (!calendarId) {
-      return res.status(200).json({
-        ok: true,
-        date: hoy,
-        hasta: ultimo,
-        days: dias,
-        calendarId: null,
-        ghlModo: ghl().modo,
-        count: 0,
-        appointments: [],
-        aviso: "Falta GHL_DEFAULT_CALENDAR_ID (o el parámetro calendarId).",
-      });
+    const leer = async (): Promise<FilaCita[]> => {
+      const { data, error } = await db()
+        .from("closer_citas")
+        .select("ghl_appointment_id, ghl_contact_id, fecha_hora, estado_ghl, titulo, meet_url")
+        .gte("fecha_hora", desdeIso)
+        .lte("fecha_hora", hastaIso)
+        .order("fecha_hora", { ascending: true });
+      if (error) throw new Error(`closer_citas: ${error.message}`);
+      return (data ?? []) as FilaCita[];
+    };
+
+    let refresco = false;
+    let filas = req.query.refrescar === "1" ? [] : await leer();
+
+    /**
+     * Refresco automático SOLO si el rango está vacío Y nadie sincronizó nada en los
+     * últimos 35 min (la cadencia del cron). Sin la segunda condición, un día genuinamente
+     * sin citas dispararía 1 llamada a GHL por cada poll del widget — el patrón exacto que
+     * esta arquitectura vino a matar. Con ella, el peor caso queda acotado a ~2/hora,
+     * igual que el cron.
+     */
+    const necesitaAuto = async (): Promise<boolean> => {
+      if (filas.length > 0) return false;
+      const { data } = await db()
+        .from("closer_citas")
+        .select("actualizado_el")
+        .order("actualizado_el", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const ultimoSync = data?.actualizado_el ? new Date(data.actualizado_el).getTime() : 0;
+      return Date.now() - ultimoSync > 35 * 60_000;
+    };
+
+    if (env.tieneCredencialesGhl() && (req.query.refrescar === "1" || (await necesitaAuto()))) {
+      await sincronizarCitas(hoy, ultimo);
+      refresco = true;
+      filas = await leer();
     }
 
-    const eventos = await eventosDeCalendario({ calendarId, desdeMs, hastaMs });
-    let citas = eventos
-      .map(normalizar)
-      .sort((a, b) => (a.startTime || "").localeCompare(b.startTime || ""));
+    let citas = filas.map(normalizar);
     if (!incluirCanceladas) citas = citas.filter((c) => c.status !== "cancelled");
 
     return res.status(200).json({
@@ -106,9 +126,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       date: hoy,
       hasta: ultimo,
       days: dias,
-      calendarId,
+      calendarId: env.ghlCalendarioPorDefecto() ?? null,
       zonaHoraria: ZONA_HORARIA_ORG,
       ghlModo: ghl().modo,
+      fuente: refresco ? "ghl+cache" : "cache",
       count: citas.length,
       appointments: citas,
     });
