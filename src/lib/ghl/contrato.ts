@@ -225,7 +225,7 @@ export function perteneceAlCloser(tags: readonly string[], exigirZonaCloser = fa
  *
  * `bot_activado` es el único que este tool nunca vio en la subcuenta: lo declara el doc de
  * la tarea y lo tiene que aplicar Francisco en sus workflows cuando el chatbot atiende
- * (pedido registrado en `docs/WEBHOOKS-GHL-para-Francisco.md`). Va `confirmado` igual porque
+ * (pedido registrado en `docs/WEBHOOKS-APIS-Y-POLLING.md`). Va `confirmado` igual porque
  * este tool solo lo LEE — leer un tag que no existe todavía es un no-op, no un riesgo.
  */
 export const TAGS_BOT = {

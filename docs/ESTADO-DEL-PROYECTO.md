@@ -6,7 +6,7 @@ y qué no existe. Se actualiza en cada sesión de trabajo.
 > Para el **porqué** de las decisiones: `CLAUDE.md` §50 y
 > `docs/CONTEXTO-Seguimiento-Closer-Backend.md`.
 > Para el **esquema de la base**: `docs/db/README.md`.
-> Para **armar los webhooks en GHL**: `docs/WEBHOOKS-GHL-para-Francisco.md`.
+> Para **armar los webhooks en GHL**: `docs/WEBHOOKS-APIS-Y-POLLING.md`.
 
 ---
 
@@ -107,7 +107,7 @@ mantener. Los tres endpoints de Mi Día ya funcionan así.
 El webhook **no se borró**: `/api/webhooks/ghl` sigue construido y desplegado, entiende 8
 eventos y guarda todo crudo antes de interpretarlo. Queda como el camino de baja latencia
 para cuando se quiera (la ficha de cada uno sigue en
-`docs/WEBHOOKS-GHL-para-Francisco.md`). Lo que cambia es que **ya no bloquea nada**.
+`docs/WEBHOOKS-APIS-Y-POLLING.md`). Lo que cambia es que **ya no bloquea nada**.
 
 Lo que sí queda pendiente de resolver con polling: **cada request pega contra GHL**, así que
 hay que mirar los rate limits y decidir si conviene una caché corta. Sin resolver.
