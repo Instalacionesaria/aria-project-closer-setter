@@ -1643,28 +1643,8 @@ const ESTADO_CITA_PILL: Record<ScheduleSlot["estadoCita"], { label: string; cls:
   pendiente: { label: "Pendiente", cls: "bg-muted text-muted-foreground" },
 };
 
-const SCHEDULE: ScheduleSlot[] = [
-  {
-    time: "9:00",
-    ampm: "AM",
-    name: "EJEMPLO VALENTINA GOMEZ",
-    grade: "A",
-    duration: "45 min",
-    tag: "Masterclass",
-    hint: "9:00 AM tu hora · 9:30 AM hora del contacto",
-    estadoCita: "confirmada",
-    briefing: "venta low-ticket cerrada exitosamente",
-    videoPre: { visto: true, pct: 100 },
-    meetUrl: "https://meet.google.com/valentina-gomez-0900",
-  },
-  {
-    time: "11:00", ampm: "AM", name: "EJEMPLO JUAN PEREZ", grade: "C", duration: "45 min",
-    hint: "11:00 AM tu hora · 11:30 AM hora del contacto", estadoCita: "confirmada",
-    briefing: "Lead calificado vía Meta Ads. Busca escalar a $10k/mes pero tiene cuello de botella en prospección. Tiene capital disponible.",
-    videoPre: { visto: true, pct: 87 },
-    meetUrl: "https://meet.google.com/juan-perez-1100",
-  },
-];
+/* Las citas EJEMPLO del `SCHEDULE` se eliminaron el 2026-08-01 (pedido de Fabio, junto con
+   todas las semillas del closer): la Agenda vive de `agendaProximos` (caché real del backend). */
 
 /* --- Helpers: mapean una cita real de GHL al formato del timeline --- */
 function to12h(time24: string): { time: string; ampm: string } {

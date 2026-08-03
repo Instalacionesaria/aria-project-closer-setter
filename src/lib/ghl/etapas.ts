@@ -28,10 +28,18 @@ import { RESULTADOS, type ResultadoAvanzar } from "./resultados.js";
  * importarlo. Este módulo es el hogar isomorfo del tipo; `etapas.test.ts` verifica contra el
  * `STAGE_ORDER` real del store que las dos listas no se separen.
  */
-export type StageKey = "agendado" | "seguimiento" | "cierre" | "ganado" | "no_show" | "nurture" | "descalificado";
+/**
+ * ⚠️ TEMPORAL — `"limbo"` (pedido de Fabio, 2026-08-01): etapa de PRUEBAS sin lógica de
+ * negocio. Ahí caen los contactos reales con `zona_closer` que todavía no recibieron ningún
+ * Avanzar, para poder pasearlos a mano por todas las etapas y verificar que GHL se actualice.
+ * Se elimina cuando terminen las pruebas: quitar el literal de acá, de `ETAPAS_ORDEN`, de
+ * `STAGE_ORDER`/`STAGE_META` (closerStore) y el fallback en `api/closer/pipeline.ts`/`mi-dia.ts`.
+ */
+export type StageKey = "limbo" | "agendado" | "seguimiento" | "cierre" | "ganado" | "no_show" | "nurture" | "descalificado";
 
 /** Orden de recorrido del Pipeline, de la entrada al desenlace. Igual que `STAGE_ORDER`. */
 export const ETAPAS_ORDEN: readonly StageKey[] = [
+  "limbo", // TEMPORAL — pruebas
   "agendado",
   "seguimiento",
   "cierre",

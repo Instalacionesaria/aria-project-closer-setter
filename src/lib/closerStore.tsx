@@ -44,7 +44,8 @@ const GRACIA_MS = 20_000;
  */
 
 export type Grade = "A" | "B" | "C" | "D";
-export type StageKey = "agendado" | "seguimiento" | "cierre" | "ganado" | "no_show" | "nurture" | "descalificado";
+/** "limbo" es TEMPORAL (etapa de pruebas, Fabio 2026-08-01) — espejo de `etapas.ts`, ver la nota ahí. */
+export type StageKey = "limbo" | "agendado" | "seguimiento" | "cierre" | "ganado" | "no_show" | "nurture" | "descalificado";
 
 /** Origen del Nurture (closer) — decide el sub-texto de la píldora "NURTURE · X". */
 export type NurtureOrigen = "no_show" | "pidio_tiempo" | "se_enfrio";
@@ -338,6 +339,19 @@ export const STAGE_META: Record<
   StageKey,
   { label: string; dot: string; headerBg: string; labelColor: string; pill: string }
 > = {
+  /**
+   * ⚠️ TEMPORAL — etapa de PRUEBAS (Fabio, 2026-08-01): acá caen los contactos reales con
+   * `zona_closer` que todavía no recibieron ningún Avanzar, para pasearlos a mano por el
+   * pipeline y verificar que GHL se actualice. Sin lógica de negocio. Se elimina junto con
+   * el literal "limbo" de `etapas.ts` al terminar las pruebas.
+   */
+  limbo: {
+    label: "Limbo (pruebas)",
+    dot: "bg-zinc-400",
+    headerBg: "bg-muted/20",
+    labelColor: "text-muted-foreground",
+    pill: "bg-zinc-100 text-zinc-600 border-zinc-200/60 dark:bg-zinc-500/20 dark:text-zinc-300 dark:border-zinc-500/30",
+  },
   agendado: {
     label: "Agendado",
     dot: "bg-indigo-500",
@@ -389,140 +403,16 @@ export const STAGE_META: Record<
   },
 };
 
-export const STAGE_ORDER: StageKey[] = ["agendado", "seguimiento", "cierre", "ganado", "no_show", "nurture", "descalificado"];
+export const STAGE_ORDER: StageKey[] = ["limbo", "agendado", "seguimiento", "cierre", "ganado", "no_show", "nurture", "descalificado"];
 
-const seedHist = (): HistorialItem[] => [{ fecha: "27 Jun", texto: "Interacción inicial con IA", autor: "Sistema" }];
-
-const URGENTE_ROJO: UrgenteInfo["pill"] =
-  "bg-rose-50 text-rose-700 border-rose-200/60 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/30";
-const URGENTE_NARANJA: UrgenteInfo["pill"] =
-  "bg-orange-50 text-orange-700 border-orange-200/60 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/30";
-
-/* Semillas de demostración: UNA por etapa del pipeline (regla de Francisco, 2026-07-31).
-   Viven solo en memoria — al refrescar la página vuelven a su etapa original a propósito.
-   Los contactos reales de GHL llegan por polling keyeados por ghlContactId y no se mezclan. */
-const SEED: Omit<ClosurerContact, "historial" | "notas">[] = [
-  {
-    name: "EJEMPLO JUAN PEREZ", grade: "C", stage: "agendado", situacion: "Agendado", when: "hace 1 día",
-    activity: "Llamada agendada para hoy. El prospecto está muy interesado en automatizar su agencia.", starred: true,
-    botEstado: "activo",
-    videoPreCall: { visto: true, pct: 87, fecha: "05 Jul" },
-    llamadas: [
-      {
-        id: "jp-1", origin: "sales_call", fecha: "05 Jun", duracion: "45:00", contestada: true,
-        resultado: "Resultado: No interesado", scoreFinal: 88,
-        objeciones: ["Muy caro", "Consultar con socio"],
-        puntosFuertes: ["Buena introducción", "Escucha activa"],
-        aMejorar: ["Faltó urgencia", "No se manejó bien el precio"],
-        audioUrl: "https://example.com/audio/sales-call-jp.mp3",
-      },
-      {
-        id: "jp-2", origin: "app_flow_voz", fecha: "04 Jun", duracion: "02:30", contestada: true,
-        resultado: "Contestó · confirmó", sentimiento: "positivo",
-        resumenIA: "El lead contestó rápidamente. Confirmó su asistencia a la reunión de hoy y mencionó que está buscando una solución para automatizar sus ventas.",
-        audioUrl: "https://example.com/audio/app-flow-jp.mp3",
-      },
-      {
-        id: "jp-3", origin: "lead_flow_voz", fecha: "02 Jun", duracion: "05:45", contestada: true,
-        resultado: "Contestó · agendó", sentimiento: "positivo",
-        resumenIA: "Primer contacto telefónico. El lead calificó con buen presupuesto disponible y agendó la llamada de ventas.",
-        audioUrl: "https://example.com/audio/lead-flow-jp.mp3",
-      },
-    ],
-    perfil: [
-      { label: "Teléfono", value: "+54 911 2233 4455", group: "detalles" },
-      { label: "Correo", value: "juan.perez@agenciaperez.com", group: "detalles" },
-      { label: "Categoría", value: "Segmento A · Prioridad alta", group: "detalles" },
-      { label: "Fuente", value: "Meta Ads", group: "origen" },
-      { label: "Campaña", value: "Escala tu Agencia con IA — Julio", group: "origen" },
-      { label: "Fecha de ingreso", value: "01 Jun", group: "origen" },
-      { label: "Etapa del negocio", value: "Facturando, quiere escalar", group: "calificacion", formulario: "meta" },
-      { label: "Objetivo de facturación", value: "$12,000 - $18,000 USD", group: "calificacion", formulario: "meta" },
-      { label: "Mayor obstáculo", value: "No tiene un sistema de ventas predecible, depende de referidos.", group: "calificacion", formulario: "meta" },
-      { label: "Inversión $4-8k", value: "$6,000 USD", group: "calificacion", formulario: "vsl" },
-      { label: "Tiene equipo", value: "Sí, 2 personas en ventas", group: "calificacion", formulario: "vsl", procedencia: "vía agente IA" },
-    ],
-  },
-  {
-    name: "EJEMPLO RODRIGO SILVA", grade: "C", stage: "seguimiento", situacion: "Seguimiento · Dudando", when: "hoy",
-    activity: "vencido hace 1 día", fuente: "META ADS", botEstado: "muerto_postcall", seguimientoAutomaticoActivo: true,
-    seguimientoPendiente: { microtext: "vencido hace 1 día", vencido: true },
-    videoPreCall: { visto: false, diasSinAbrir: 2 },
-    llamadas: [
-      { id: "rs-3", origin: "sales_call", fecha: "Hace 1 día", duracion: "29:45", contestada: true, resultado: "Resultado: Quiere pensarlo" },
-      { id: "rs-1", origin: "lead_flow_voz", fecha: "Hace 2 días", duracion: "00:00", contestada: false, resultado: "No contestó" },
-      { id: "rs-2", origin: "lead_flow_voz", fecha: "Ayer", duracion: "00:00", contestada: false, resultado: "No contestó" },
-    ],
-  },
-
-  {
-    // Buzón general (Mi Día): escribió y no tiene bot activo (muerto_postcall) → `respondido`.
-    name: "EJEMPLO ELENA ALVAREZ", grade: "B", stage: "cierre", situacion: "Acordó comprar, falta pago · $500", when: "hoy", activity: "respondió hace 45 min", monto: 500,
-    botEstado: "muerto_postcall",
-    respondido: { microtext: "respondió hace 45 min" },
-    llamadas: [{ id: "ea-1", origin: "sales_call", fecha: "24 Jun", duracion: "42:15", contestada: true, resultado: "Resultado: Acordó comprar" }],
-  },
-
-  // No-show: única excepción a "muerto_postcall" — la IA se reactiva para correr el workflow de recuperación automática.
-  {
-    name: "EJEMPLO ALFREDO", grade: "A", stage: "no_show", situacion: "No-show", when: "hace 20 días", activity: "La conversación se ha estancado. El usuario no responde.",
-    botEstado: "activo",
-  },
-
-  // Nurture: maduración post-call — sub-origen decide el texto de la píldora "NURTURE · X".
-  // Además demuestra "Completadas Hoy" (Mi Día): tarea del día ya cerrada, fila atenuada + tachado.
-  {
-    name: "EJEMPLO PATRICIA VEGA", grade: "C", stage: "nurture", nurtureOrigen: "pidio_tiempo",
-    situacion: "NURTURE · PIDIÓ TIEMPO", when: "hoy",
-    activity: "pidió tiempo tras la llamada · re-contacto programado en 30-60 días",
-    completedToday: true,
-    botEstado: "muerto_postcall",
-    llamadas: [{ id: "pv-1", origin: "sales_call", fecha: "18 Jun", duracion: "34:10", contestada: true, resultado: "Resultado: Quiere pensarlo — pidió tiempo" }],
-  },
-
-  {
-    // Intervención urgente (Mi Día): la IA no detectó una solicitud de pago → pausado_fallo + marcador `urgente`.
-    name: "EJEMPLO MIGUEL SANCHEZ", grade: "C", stage: "descalificado", situacion: "No interesado · Precio", when: "hoy",
-    activity: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió. Requiere intervención inmediata para no perder la venta.",
-    fuente: "META ADS", botEstado: "pausado_fallo",
-    urgente: {
-      pill: URGENTE_ROJO,
-      detail: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió. Requiere intervención inmediata para no perder la venta.",
-      detailClass: "text-rose-700 dark:text-rose-400 font-medium",
-      daysBadge: "Abierta hace 40 min",
-      highlighted: true,
-      phone: true,
-    },
-    llamadas: [{ id: "ms-1", origin: "sales_call", fecha: "05 Jul", duracion: "28:40", contestada: true, resultado: "Resultado: No interesado" }],
-  },
-
-  {
-    /* Píldora `ganado` con los tres campos (VENTA · FORMA DE PAGO · MONTO) — ver `armarPildora`. */
-    name: "EJEMPLO VALENTINA GOMEZ", grade: "A", stage: "ganado", situacion: "VENTA · BUY NOW PAY LATER · $5.400", when: "hoy", activity: "venta low-ticket cerrada exitosamente",
-    monto: 5400, formaPagoVenta: "Buy Now Pay Later",
-    fuente: "META ADS", botEstado: "muerto_postcall", atribucionSetter: true,
-    llamadas: [{ id: "vg-1", origin: "sales_call", fecha: "Hoy", duracion: "33:15", contestada: true, resultado: "Resultado: Venta LT cerrada" }],
-    perfil: [
-      { label: "Teléfono", value: "+54 911 9988 7766", group: "detalles" },
-      { label: "Correo", value: "valentina.gomez@agenciagomez.com", group: "detalles" },
-      { label: "Categoría", value: "Segmento B · Convertida a Low-Ticket", group: "detalles" },
-      { label: "Fuente", value: "Meta Ads", group: "origen" },
-      { label: "Campaña", value: "Low-Ticket — Antesala High Ticket", group: "origen" },
-      { label: "Etapa del negocio", value: "Recién arrancando, sin facturación estable", group: "calificacion", formulario: "meta" },
-      { label: "Objetivo de facturación", value: "$0 - $2,000 USD", group: "calificacion", formulario: "meta" },
-      { label: "Mayor obstáculo", value: "No tiene claridad de oferta ni proceso de ventas.", group: "calificacion", formulario: "meta" },
-      { label: "Inversión $4-8k", value: "$300 USD", group: "calificacion", formulario: "vsl" },
-    ],
-  },
-
-];
+/* Las semillas EJEMPLO se ELIMINARON el 2026-08-01 (pedido de Fabio): la app entra en
+   pruebas con contactos reales de GHL y las semillas solo confundirian. `buildSeedContacts`
+   queda devolviendo el Record vacio que los pollings llenan con los contactos reales.
+   URGENTE_ROJO/NARANJA y seedHist se fueron con ellas (eran solo de la semilla). */
 
 function buildSeedContacts(): Record<string, ClosurerContact> {
-  const map: Record<string, ClosurerContact> = {};
-  for (const c of SEED) map[c.name] = { ...c, fuente: c.fuente ?? "DIRECTO", historial: seedHist(), notas: [] };
-  return map;
+  return {};
 }
-
 /* `COCKPIT_BASE` ($34.000 / 8 ventas / 80 calls) se eliminó el 2026-07-31. Era el último
    literal de dinero del cockpit: sobrevivió a la derivación del 2026-07-30 porque nada en el
    store sabía cuántas llamadas hubo. Ahora las sales calls se cuentan del tab Llamada de cada

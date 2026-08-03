@@ -25,6 +25,8 @@ import type { StageKey } from "./closerStore";
 
 /** Etiqueta principal de la píldora, por stage del closer. */
 const CATEGORIA_POR_STAGE: Readonly<Record<StageKey, string>> = {
+  /** ⚠️ TEMPORAL — etapa de pruebas (Fabio, 2026-08-01). Se elimina junto con "limbo" en etapas.ts. */
+  limbo: "LIMBO",
   agendado: "AGENDADO",
   seguimiento: "SEGUIMIENTO",
   cierre: "ACORDÓ COMPRAR",
