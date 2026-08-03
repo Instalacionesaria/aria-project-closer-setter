@@ -187,7 +187,6 @@ describe("contarPorEtapa", () => {
 
   it("sin contactos, todo en cero y ninguna clave de menos", () => {
     expect(contarPorEtapa([])).toEqual({
-      limbo: 0, // TEMPORAL — etapa de pruebas (Fabio, 2026-08-01)
       agendado: 0,
       seguimiento: 0,
       cierre: 0,

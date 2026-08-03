@@ -70,15 +70,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const tags = (f.tags ?? []).map((t) => t.trim().toLowerCase());
         const desenlace = desenlaceDesdeTags(tags);
         /**
-         * Supabase manda: si Avanzar ya escribió `stage_key`, esa es la etapa. Un tag de
-         * desenlace en GHL (venta_ganada, noshow...) también resuelve etapa.
-         *
-         * ⚠️ TEMPORAL (Fabio, 2026-08-01): sin ninguna de las dos → "limbo", la etapa de
-         * PRUEBAS. Todos los zona_closer sin Avanzar caen ahí para pasearlos a mano por el
-         * pipeline. Al terminar las pruebas, esto vuelve a `etapaDesdeTags(tags)` (que da
-         * "agendado", la etapa de entrada real).
+         * Supabase manda: si Avanzar ya escribió `stage_key`, esa es la etapa. Si no, se
+         * deriva de los tags UNA vez — `etapaDesdeTags` cae en `agendado` (etapa de ENTRADA)
+         * cuando el contacto tiene `zona_closer` y todavía ningún desenlace.
          */
-        const etapa = (f.stage_key as ReturnType<typeof etapaDesdeTags> | null) ?? desenlace?.etapa ?? "limbo";
+        const etapa = (f.stage_key as ReturnType<typeof etapaDesdeTags> | null) ?? etapaDesdeTags(tags);
 
         return {
           ghlContactId: f.ghl_contact_id,

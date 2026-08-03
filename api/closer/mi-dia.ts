@@ -25,7 +25,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { estadoBotDesdeTags, perteneceAlCloser, TAGS_BOT } from "../../src/lib/ghl/contrato.js";
-import { desenlaceDesdeTags, type StageKey } from "../../src/lib/ghl/etapas.js";
+import { etapaDesdeTags, type StageKey } from "../../src/lib/ghl/etapas.js";
 import { hoyISO } from "../../src/lib/fechas.js";
 import { derivarFila, type Seguimiento } from "../../src/lib/seguimientos/dominio.js";
 import { offsetOrg } from "../_lib/citas.js";
@@ -61,9 +61,8 @@ const resumenContacto = (c: FilaContacto) => {
     telefono: c.telefono,
     fuente: c.fuente ?? "DIRECTO",
     tags: c.tags ?? [],
-    // ⚠️ TEMPORAL (Fabio, 2026-08-01): sin stage_key ni tag de desenlace → "limbo" (etapa de
-    // pruebas), misma regla que pipeline.ts. Al terminar las pruebas: etapaDesdeTags(tags).
-    etapa: ((c.stage_key as StageKey | null) ?? desenlaceDesdeTags(tags)?.etapa ?? "limbo") as StageKey,
+    // Supabase manda; sin stage_key se deriva de los tags (cae en `agendado`, la entrada).
+    etapa: ((c.stage_key as StageKey | null) ?? etapaDesdeTags(tags)) as StageKey,
     congelado: c.congelado,
   };
 };

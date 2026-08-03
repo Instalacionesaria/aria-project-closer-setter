@@ -12,12 +12,17 @@ import type { SituacionSeguimiento } from "./ghl/contrato";
 import { etapaDesdeTags } from "./ghl/etapas";
 import { armarPildora } from "./pildora";
 import {
+  crearNota,
   fetchAgendaRange,
+  fetchHistorial,
   fetchMiDiaCompleto,
+  fetchNotas,
   fetchPipeline,
   pingReconciliar,
   type AgendaAppointment,
+  type EventoHistorial,
   type MiDiaResponse,
+  type NotaReal,
 } from "./api";
 import { CADENCIA, registrarReloj } from "./polling";
 
@@ -37,6 +42,38 @@ import { CADENCIA, registrarReloj } from "./polling";
  */
 const GRACIA_MS = 20_000;
 
+/** Quién firma lo que se escribe desde la app. Sin auth real, es el closer del demo (§50.7). */
+const AUTOR_ACTIVO = "Diego M.";
+
+/** Fecha corta para la ficha ("3 ago, 17:41") — el servidor manda ISO crudo (CONTRATO §0). */
+const fechaCorta = (iso: string) =>
+  new Date(iso).toLocaleString("es-PE", {
+    timeZone: "America/Lima",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+/** Una nota de la base → la forma que ya consume el tab Notas. */
+const notaRealAItem = (n: NotaReal): NotaItem => ({
+  // El id de la base es uuid y `NotaItem.id` es number (viene de la era demo): se usa el
+  // timestamp como clave de React, que es único por nota dentro de la misma ficha.
+  id: new Date(n.creadoEl).getTime(),
+  contexto: n.contexto,
+  texto: n.texto,
+  autor: n.autor,
+  fecha: fechaCorta(n.creadoEl),
+});
+
+/** Un evento de la base → la forma que ya consume el tab Historial. */
+const eventoAItem = (e: EventoHistorial): HistorialItem => ({
+  fecha: fechaCorta(e.ocurrioEl),
+  texto: e.texto,
+  autor: e.autor,
+});
+
 /**
  * Single source of truth for the Closer module (§4.4 de CLAUDE.md): Avanzar es el
  * único mecanismo que cambia el estado de un contacto. Pipeline, Mi Día e Inicio
@@ -44,8 +81,7 @@ const GRACIA_MS = 20_000;
  */
 
 export type Grade = "A" | "B" | "C" | "D";
-/** "limbo" es TEMPORAL (etapa de pruebas, Fabio 2026-08-01) — espejo de `etapas.ts`, ver la nota ahí. */
-export type StageKey = "limbo" | "agendado" | "seguimiento" | "cierre" | "ganado" | "no_show" | "nurture" | "descalificado";
+export type StageKey = "agendado" | "seguimiento" | "cierre" | "ganado" | "no_show" | "nurture" | "descalificado";
 
 /** Origen del Nurture (closer) — decide el sub-texto de la píldora "NURTURE · X". */
 export type NurtureOrigen = "no_show" | "pidio_tiempo" | "se_enfrio";
@@ -341,19 +377,6 @@ export const STAGE_META: Record<
   StageKey,
   { label: string; dot: string; headerBg: string; labelColor: string; pill: string }
 > = {
-  /**
-   * ⚠️ TEMPORAL — etapa de PRUEBAS (Fabio, 2026-08-01): acá caen los contactos reales con
-   * `zona_closer` que todavía no recibieron ningún Avanzar, para pasearlos a mano por el
-   * pipeline y verificar que GHL se actualice. Sin lógica de negocio. Se elimina junto con
-   * el literal "limbo" de `etapas.ts` al terminar las pruebas.
-   */
-  limbo: {
-    label: "Limbo (pruebas)",
-    dot: "bg-zinc-400",
-    headerBg: "bg-muted/20",
-    labelColor: "text-muted-foreground",
-    pill: "bg-zinc-100 text-zinc-600 border-zinc-200/60 dark:bg-zinc-500/20 dark:text-zinc-300 dark:border-zinc-500/30",
-  },
   agendado: {
     label: "Agendado",
     dot: "bg-indigo-500",
@@ -405,7 +428,7 @@ export const STAGE_META: Record<
   },
 };
 
-export const STAGE_ORDER: StageKey[] = ["limbo", "agendado", "seguimiento", "cierre", "ganado", "no_show", "nurture", "descalificado"];
+export const STAGE_ORDER: StageKey[] = ["agendado", "seguimiento", "cierre", "ganado", "no_show", "nurture", "descalificado"];
 
 /* Las semillas EJEMPLO se ELIMINARON el 2026-08-01 (pedido de Fabio): la app entra en
    pruebas con contactos reales de GHL y las semillas solo confundirian. `buildSeedContacts`
@@ -902,12 +925,59 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     });
   }, [traerPipeline]);
 
+  /**
+   * Agrega una nota. Optimista en pantalla y PERSISTIDA si el contacto es real.
+   *
+   * Hasta el 2026-08-03 esto solo escribía en memoria: la nota aparecía y se perdía al
+   * refrescar (bug reportado por Fabio sobre su contacto de prueba). El endpoint
+   * `/api/closer/notas` ya existía — lo que faltaba era llamarlo.
+   */
   const addNota = useCallback((name: string, texto: string) => {
+    let ghlContactId: string | undefined;
+
     setContacts((prev) => {
       const c = prev[name];
       if (!c) return prev;
-      return { ...prev, [name]: { ...c, notas: [{ id: Date.now(), contexto: null, texto, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas] } };
+      ghlContactId = c.ghlContactId;
+      return {
+        ...prev,
+        [name]: {
+          ...c,
+          notas: [{ id: Date.now(), contexto: null, texto, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas],
+        },
+      };
     });
+
+    if (!ghlContactId) return; // semilla/demo: se queda en memoria, como siempre
+
+    crearNota({ ghlContactId, texto, autor: AUTOR_ACTIVO })
+      .then((r) => {
+        // Se reemplaza la nota optimista por la fila REAL de la base (id y fecha de verdad).
+        setContacts((prev) => {
+          const c = prev[name];
+          if (!c || !r?.nota) return prev;
+          const sinOptimista = c.notas.filter((n) => !(n.texto === texto && n.fecha === "Hoy"));
+          return { ...prev, [name]: { ...c, notas: [notaRealAItem(r.nota), ...sinOptimista] } };
+        });
+      })
+      .catch((e) => {
+        // Falló el guardado: se marca la nota en pantalla en vez de dejarla como si estuviera
+        // guardada. Una nota que el closer cree escrita y no existe es peor que un error visible.
+        console.error("La nota no se guardó:", e);
+        setContacts((prev) => {
+          const c = prev[name];
+          if (!c) return prev;
+          return {
+            ...prev,
+            [name]: {
+              ...c,
+              notas: c.notas.map((n) =>
+                n.texto === texto && n.fecha === "Hoy" ? { ...n, fecha: "⚠ no se guardó" } : n,
+              ),
+            },
+          };
+        });
+      });
   }, []);
 
   const resolveIntervention = useCallback((name: string) => {
@@ -1076,6 +1146,41 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     }),
     [cashCollected, ganadoCount, salesCalls, atendieron, noShow, comisionPct]
   );
+
+  /**
+   * Notas e historial REALES al abrir la ficha de un contacto de GHL.
+   *
+   * Sin esto, el tab Notas mostraba solo lo que se hubiera escrito en esta sesión (y el
+   * Historial, nada): las filas de `closer_notas`/`closer_contacto_eventos` existían pero
+   * nadie las leía. Se pide una vez por apertura — no hay reloj: una nota la escribe el
+   * propio closer y ya la tiene en pantalla; los eventos los agrega Avanzar, que refresca.
+   */
+  useEffect(() => {
+    if (!openGhlContactId) return;
+    const id = openGhlContactId;
+    let vivo = true;
+
+    const aplicar = (cambio: (c: ClosurerContact) => ClosurerContact) => {
+      if (!vivo) return;
+      setContacts((prev) => (prev[id] ? { ...prev, [id]: cambio(prev[id]) } : prev));
+    };
+
+    fetchNotas(id)
+      .then((r) => aplicar((c) => ({ ...c, notas: (r.notas ?? []).map(notaRealAItem) })))
+      .catch(() => {
+        /* backend caído: se conserva lo que hubiera en memoria, no se inventa nada */
+      });
+
+    fetchHistorial(id)
+      .then((r) => aplicar((c) => ({ ...c, historial: (r.eventos ?? []).map(eventoAItem) })))
+      .catch(() => {
+        /* idem */
+      });
+
+    return () => {
+      vivo = false;
+    };
+  }, [openGhlContactId]);
 
   const value: ClosurerStoreValue = {
     contacts,
