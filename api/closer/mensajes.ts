@@ -14,6 +14,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { sincronizarContacto } from "../_lib/contactos.js";
 import { env } from "../_lib/env.js";
 import { guardarMensajes } from "../_lib/ingesta.js";
 import { db } from "../_lib/repo.js";
@@ -39,15 +40,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { data: contacto } = await db()
-      .from("closer_contactos")
-      .select("congelado")
-      .eq("ghl_contact_id", contactId)
-      .maybeSingle();
+    const leerCongelado = async () => {
+      const { data } = await db()
+        .from("closer_contactos")
+        .select("congelado")
+        .eq("ghl_contact_id", contactId)
+        .maybeSingle();
+      return data;
+    };
+    let contacto = await leerCongelado();
+    // La caché puede estar vieja (mismo caso que aplicarEfectosGhl, bug 2026-08-03): antes
+    // de negarle el envío, se verifica contra GHL — si el tag está, se descongela y sigue.
+    if (contacto?.congelado) {
+      const refrescado = await sincronizarContacto(contactId).catch(() => false);
+      if (refrescado) contacto = await leerCongelado();
+    }
     if (contacto?.congelado) {
       return res.status(409).json({
         ok: false,
-        error: "El contacto perdió zona_closer (congelado): no se le envían mensajes desde acá (§7).",
+        error: "El contacto no tiene zona_closer en GHL (verificado recién): no se le envían mensajes desde acá (§7).",
       });
     }
 

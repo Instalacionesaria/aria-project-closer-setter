@@ -41,6 +41,7 @@ import {
   type ModoSeguimiento,
   type PresetManual,
 } from "../../src/lib/seguimientos/dominio.js";
+import { sincronizarContacto } from "./contactos.js";
 import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
 import type { ResultadoGhl } from "./ghl/port.js";
@@ -163,17 +164,35 @@ export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGh
    * es un cuerpo inerte — el Avanzar se registra COMPLETO del lado del tool (Supabase), pero
    * no viaja ni un tag. Se dice en el efecto en vez de omitirse, porque "no se aplicó nada"
    * sin motivo se lee como un fallo.
+   *
+   * ⚠️ La caché puede estar VIEJA (bug de Fabio Malpartida, 2026-08-03): el contacto se dio
+   * de alta por su cita ANTES de que el workflow le aplicara `zona_closer`, quedó
+   * `congelado: true`, y nada lo refrescó — así que su primer Avanzar registró todo en
+   * Supabase y no mandó NI UN tag a GHL, en silencio. Por eso, antes de declarar inerte a
+   * alguien, se le pregunta a GHL (1 llamada, SOLO en este camino excepcional): si el tag
+   * está, el refresco lo descongela y los efectos siguen su curso normal.
    */
-  const { data: fila } = await db()
-    .from("closer_contactos")
-    .select("congelado")
-    .eq("ghl_contact_id", args.ghlContactId)
-    .maybeSingle();
+  const leerCongelado = async () => {
+    const { data } = await db()
+      .from("closer_contactos")
+      .select("congelado")
+      .eq("ghl_contact_id", args.ghlContactId)
+      .maybeSingle();
+    return data;
+  };
+
+  let fila = await leerCongelado();
+  if (fila?.congelado && modoReal) {
+    const refrescado = await sincronizarContacto(args.ghlContactId).catch(() => false);
+    if (refrescado) fila = await leerCongelado();
+  }
   if (fila?.congelado) {
     return [
       {
         operacion: "omitido_congelado",
-        detalle: "El contacto perdió zona_closer: se registró en el tool, sin mandar nada a GHL (§7).",
+        detalle:
+          "El contacto no tiene zona_closer en GHL (verificado recién, no solo caché): se registró " +
+          "en el tool, sin mandar nada a GHL (§7).",
         ok: true,
         aplicado: false,
       },
