@@ -1086,7 +1086,14 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     openContactName,
     openGhlContactId,
     openContact: (name: string, ghlContactId?: string) => {
-      setOpenContactName(name);
+      /**
+       * La CLAVE del Record para un contacto real es su ghlContactId, no el nombre (el
+       * nombre es display). Guardar el nombre acá hacía que `contacts[openContactName]`
+       * fallara para todo contacto real y la ficha cayera al fallback demo — chat,
+       * historial y notas inventados sobre una persona de verdad (bug de Fabio Malpartida,
+       * 2026-08-01). Se guarda la clave que de verdad indexa.
+       */
+      setOpenContactName(ghlContactId ?? name);
       setOpenGhlContactId(ghlContactId ?? null);
     },
     closeContact: () => {

@@ -1058,14 +1058,14 @@ function Toast({ message }: { message: string | null }) {
 type HistorialItem = { fecha: string; texto: string; autor: string };
 type NotaItem = { id: number; contexto: string | null; texto: string; autor: string; fecha: string };
 
-const HISTORIAL_SEED: HistorialItem[] = [
-  { fecha: "27 Jun", texto: "Interacción inicial con IA", autor: "Sistema" },
-  { fecha: "27 Jun", texto: "Agendó llamada de ventas", autor: "Sistema" },
-];
+/**
+ * VACÍOS desde el 2026-08-01 (pedido de Fabio): con contactos reales en la app, un historial
+ * o una nota inventados sobre una persona de verdad son mentira, no demo. El fallback local
+ * (ficha abierta sin store) ahora muestra los estados vacíos reales de cada tab (§4.10).
+ */
+const HISTORIAL_SEED: HistorialItem[] = [];
 
-const NOTAS_SEED: NotaItem[] = [
-  { id: 0, contexto: "Venta LT", texto: "Compró la masterclass para empezar", autor: "Setter", fecha: "8 jul, 02:05" },
-];
+const NOTAS_SEED: NotaItem[] = [];
 
 export default function ContactDrawer({
   name,
@@ -1463,10 +1463,11 @@ interface ChatMessage {
 /* El reloj del chat vive en `src/lib/polling.ts` (CADENCIA.chat, 5s, pausa con pestaña
    oculta) — el `POLL_MS` local de 10s se eliminó el 2026-07-31. */
 
-const SEED_MESSAGES: ChatMessage[] = [
-  { id: 1, text: "Hola, quiero más info", time: "10:00 AM", outgoing: false },
-  { id: 2, text: "¡Claro! ¿Te gustaría agendar una llamada?", time: "10:05 AM", outgoing: true },
-];
+/**
+ * VACÍO desde el 2026-08-01 (pedido de Fabio): un chat inventado sobre un contacto real es
+ * mentira. El chat real llega de `closer_mensajes`; sin mensajes, el tab queda vacío.
+ */
+const SEED_MESSAGES: ChatMessage[] = [];
 
 /**
  * § "Sistema de completar tareas (toast + pin/FIJAR)", 2026-07-11 — reemplaza al viejo toggle

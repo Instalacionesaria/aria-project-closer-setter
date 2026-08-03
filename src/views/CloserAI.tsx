@@ -1520,7 +1520,7 @@ function PipelineTab() {
                             <div className="flex items-center gap-4">
                               <Avatar grade={r.grade} />
                               <span
-                                onClick={() => openContact(r.name)}
+                                onClick={() => openContact(r.name, r.ghlContactId)}
                                 className="w-40 truncate uppercase tracking-wide text-xs cursor-pointer hover:text-primary transition-colors flex items-center gap-1.5"
                               >
                                 {r.name}
