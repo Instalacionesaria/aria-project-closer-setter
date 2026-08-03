@@ -1263,7 +1263,13 @@ export default function ContactDrawer({
                   {name}
                   {isPinned && <Pin className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
                 </h2>
-                <p className="text-xs text-muted-foreground truncate mt-0.5">+54 911 3333 4444</p>
+                {/* Teléfono REAL o nada — el "+54 911 3333 4444" hardcodeado se eliminó el
+                    2026-08-03 (§4.10: sin dato, el elemento no se renderiza). */}
+                {(contact?.telefono ?? setterContact?.phone) && (
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {contact?.telefono ?? setterContact?.phone}
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">

@@ -236,6 +236,8 @@ export interface ClosurerContact {
    * la app: la clave es un string y a las vistas les da igual si es un nombre o un id.
    */
   ghlContactId?: string;
+  /** Teléfono real de GHL. Ausente = no hay dato; el header NO inventa uno (§4.10). */
+  telefono?: string;
   /** Sin calificación todavía → "—" en la UI, nunca una letra inventada (§4.7 / §4.10). */
   grade?: Grade;
   stage: StageKey;
@@ -775,6 +777,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                   situacion: tocadoReciente ? previo.situacion : armarPildora({ stage: etapa, subcategoria, monto }),
                   monto: monto ?? previo.monto,
                   fuente: previo.fuente ?? c.fuente,
+                  telefono: c.telefono ?? previo.telefono,
                 }
               : {
                   // `nombre` puede venir null: GHL no siempre tiene uno. No se inventa (§4.10).
@@ -786,6 +789,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                   activity: "",
                   fuente: c.fuente,
                   ghlContactId: c.ghlContactId,
+                  telefono: c.telefono ?? undefined,
                   monto,
                   historial: [],
                   notas: [],

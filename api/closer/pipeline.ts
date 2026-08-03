@@ -29,6 +29,7 @@ import { db } from "../_lib/repo.js";
 interface FilaContacto {
   ghl_contact_id: string;
   nombre: string | null;
+  telefono: string | null;
   fuente: string | null;
   tags: string[] | null;
   stage_key: string | null;
@@ -54,7 +55,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data, error } = await db()
       .from("closer_contactos")
       .select(
-        "ghl_contact_id, nombre, fuente, tags, stage_key, congelado, monto, " +
+        "ghl_contact_id, nombre, telefono, fuente, tags, stage_key, congelado, monto, " +
           "nivel_interes_seguimiento, motivo_descalificacion, forma_pago_venta, razon_noshow, origen_nurture, " +
           "cita_el, cita_meet_url, ultimo_entrante_el",
       );
@@ -82,6 +83,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return {
           ghlContactId: f.ghl_contact_id,
           nombre: f.nombre,
+          telefono: f.telefono,
           fuente: f.fuente ?? "DIRECTO",
           etapa,
           tagDesenlace: desenlace?.tag ?? null,

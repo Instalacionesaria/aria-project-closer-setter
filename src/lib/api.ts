@@ -318,6 +318,8 @@ export interface PipelineContacto {
    * reventaría en runtime.
    */
   nombre: string | null;
+  /** Teléfono real de GHL, o `null` si la cuenta no lo tiene. */
+  telefono?: string | null;
   /**
    * En cuál de las 7 etapas cayó el contacto según lo que se le dio en Avanzar. Va como
    * `string` y no como unión cerrada a propósito: el clasificador vive en el servidor, y si

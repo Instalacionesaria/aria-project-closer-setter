@@ -2056,7 +2056,10 @@ function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) =>
         </div>
       </div>
       <ContactDrawer
-        name={openContactName}
+        // `openContactName` es la CLAVE del Record (para reales, el ghlContactId) — sirve
+        // para las acciones, no para mostrarse. El header pinta el nombre del contacto
+        // resuelto; la clave cruda solo si de verdad no hay nombre (contacto sin resolver).
+        name={openContact?.name ?? openContactName}
         onClose={closeContact}
         role="closer"
         contact={openContact}
