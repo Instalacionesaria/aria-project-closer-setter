@@ -90,13 +90,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
   if (!cuerpo) return res.status(400).json({ ok: false, error: "Cuerpo JSON inválido." });
 
-  const evento = String(cuerpo.evento ?? "");
-  const contactId = String(cuerpo.contactId ?? cuerpo.contact_id ?? "");
+  /**
+   * El `evento` viaja en la URL (`?evento=cita.agendada`) — cambio del 2026-07-31.
+   *
+   * Motivo: la acción Webhook ESTÁNDAR de GHL (la gratis) no permite editar el cuerpo JSON;
+   * manda su payload nativo tal cual. La URL sí se puede editar, así que cada workflow se
+   * distingue por el query param y el handler lee los campos del payload nativo con
+   * fallbacks (ver `procesar`). El `evento` en el cuerpo sigue funcionando (webhook premium
+   * o pruebas por curl) — la URL gana si vienen los dos.
+   */
+  const evento = String((req.query.evento as string) ?? cuerpo.evento ?? "");
+  const contactId = String(cuerpo.contactId ?? cuerpo.contact_id ?? (cuerpo.contact as Record<string, unknown>)?.id ?? "");
 
   /* ── 1. Guardar crudo, antes de interpretar ──────────────────────────── */
   // `external_id` da idempotencia: GHL reintenta, y el índice único evita procesar dos
-  // veces el mismo evento. Si el workflow no lo manda, se compone uno con lo que hay.
-  const externalId = String(cuerpo.eventId ?? cuerpo.external_id ?? `${evento}:${contactId}:${cuerpo.ocurridoEl ?? ""}`);
+  // veces el mismo evento. Sin id del proveedor, se compone con el dato más específico
+  // disponible. El último recurso es Date.now(): sacrifica la dedupe del inbox ante un
+  // reintento, pero el procesamiento aguas abajo ES idempotente (pk de closer_mensajes,
+  // pk de closer_citas) — la alternativa era peor: el fallback viejo (evento+contacto)
+  // hacía COLISIONAR dos mensajes distintos del mismo contacto y el segundo se descartaba
+  // como "duplicado".
+  const discriminador =
+    cuerpo.messageId ??
+    (cuerpo.message as Record<string, unknown>)?.id ??
+    cuerpo.appointmentId ??
+    (cuerpo.calendar as Record<string, unknown>)?.appointmentId ??
+    (cuerpo.calendar as Record<string, unknown>)?.id ??
+    cuerpo.ocurridoEl ??
+    cuerpo.timestamp ??
+    Date.now();
+  const externalId = String(cuerpo.eventId ?? cuerpo.external_id ?? `${evento}:${contactId}:${discriminador}`);
 
   const { error: errInbox } = await db()
     .from("closer_webhook_inbox")
@@ -180,8 +203,13 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
      * refleja para que la cola no siga mostrándola).
      */
     case "mensaje.entrante": {
-      const texto = String(cuerpo.mensaje ?? cuerpo.body ?? "").slice(0, 500);
-      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? "") || ahora;
+      // Fallbacks al payload NATIVO del webhook estándar de GHL (cuerpo no editable):
+      // `message` puede venir como objeto {id, body} o como string suelto.
+      const msgNativo = cuerpo.message as Record<string, unknown> | string | undefined;
+      const texto = String(
+        cuerpo.mensaje ?? cuerpo.body ?? (typeof msgNativo === "string" ? msgNativo : (msgNativo?.body ?? "")),
+      ).slice(0, 500);
+      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? cuerpo.date_created ?? "") || ahora;
 
       // Red de seguridad del alta (decisión de Fabio, 2026-07-31): si el contacto no está
       // en la caché —el webhook de mensaje llegó antes que el de cita, o ese se perdió—
@@ -191,11 +219,14 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
 
       // El mensaje al caché de conversaciones. El id de GHL deduplica contra la
       // reconciliación; si el workflow no lo manda, el determinístico cumple el mismo rol.
+      const msgObj = typeof msgNativo === "object" ? msgNativo : undefined;
       await guardarMensajes([
         {
-          id: String(cuerpo.messageId ?? "") || idDeMensaje(String(cuerpo.conversationId ?? "") || null, timestampGhl, texto),
+          id:
+            String(cuerpo.messageId ?? msgObj?.id ?? "") ||
+            idDeMensaje(String(cuerpo.conversationId ?? "") || null, timestampGhl, texto),
           ghlContactId: contactId,
-          conversationId: String(cuerpo.conversationId ?? "") || null,
+          conversationId: String(cuerpo.conversationId ?? msgObj?.conversationId ?? "") || null,
           direccion: "inbound",
           body: texto,
           timestampGhl,
@@ -228,17 +259,23 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
      * o si ya está marcado, así que la mayoría de los eventos no cuestan una inferencia.
      */
     case "mensaje.saliente": {
-      const texto = String(cuerpo.mensaje ?? cuerpo.body ?? "").slice(0, 500);
-      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? "") || ahora;
+      const msgNativoOut = cuerpo.message as Record<string, unknown> | string | undefined;
+      const msgObjOut = typeof msgNativoOut === "object" ? msgNativoOut : undefined;
+      const texto = String(
+        cuerpo.mensaje ?? cuerpo.body ?? (typeof msgNativoOut === "string" ? msgNativoOut : (msgObjOut?.body ?? "")),
+      ).slice(0, 500);
+      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? cuerpo.date_created ?? "") || ahora;
 
       const contacto = await asegurarContacto(contactId);
       if (!contacto) return { ignorado: "GHL no devolvió ese contacto" };
 
       await guardarMensajes([
         {
-          id: String(cuerpo.messageId ?? "") || idDeMensaje(String(cuerpo.conversationId ?? "") || null, timestampGhl, texto),
+          id:
+            String(cuerpo.messageId ?? msgObjOut?.id ?? "") ||
+            idDeMensaje(String(cuerpo.conversationId ?? "") || null, timestampGhl, texto),
           ghlContactId: contactId,
-          conversationId: String(cuerpo.conversationId ?? "") || null,
+          conversationId: String(cuerpo.conversationId ?? msgObjOut?.conversationId ?? "") || null,
           direccion: "outbound",
           body: texto,
           timestampGhl,
@@ -264,9 +301,13 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
       const contacto = await asegurarContacto(contactId);
       if (!contacto) return { ignorado: "GHL no devolvió ese contacto" };
 
-      const cuando = String(cuerpo.citaEl ?? cuerpo.startTime ?? "");
-      const meetUrl = String(cuerpo.meetUrl ?? cuerpo.address ?? "") || null;
-      const appointmentId = String(cuerpo.appointmentId ?? cuerpo.appointment_id ?? "");
+      // Fallbacks al payload NATIVO del webhook estándar (trae la cita bajo `calendar`).
+      const cal = (cuerpo.calendar ?? cuerpo.appointment ?? {}) as Record<string, unknown>;
+      const cuando = String(cuerpo.citaEl ?? cuerpo.startTime ?? cal.startTime ?? cal.start_time ?? "");
+      const meetUrl = String(cuerpo.meetUrl ?? cuerpo.address ?? cal.address ?? "") || null;
+      const appointmentId = String(
+        cuerpo.appointmentId ?? cuerpo.appointment_id ?? cal.appointmentId ?? cal.id ?? "",
+      );
 
       // El caché real de la Agenda es `closer_citas` (un contacto puede tener más de una
       // cita en el rango visible). Sin appointmentId no hay pk — queda solo en el contacto
@@ -279,9 +320,9 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
               ghl_appointment_id: appointmentId,
               ghl_contact_id: contactId,
               fecha_hora: cuando,
-              estado_ghl: String(cuerpo.estado ?? "confirmed"),
+              estado_ghl: String(cuerpo.estado ?? cal.status ?? "confirmed"),
               meet_url: meetUrl,
-              titulo: String(cuerpo.titulo ?? cuerpo.title ?? "") || null,
+              titulo: String(cuerpo.titulo ?? cuerpo.title ?? cal.title ?? "") || null,
               actualizado_el: ahora,
             },
             { onConflict: "ghl_appointment_id" },
@@ -305,7 +346,10 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
     }
 
     case "cita.cancelada": {
-      const appointmentId = String(cuerpo.appointmentId ?? cuerpo.appointment_id ?? "");
+      const calCanc = (cuerpo.calendar ?? cuerpo.appointment ?? {}) as Record<string, unknown>;
+      const appointmentId = String(
+        cuerpo.appointmentId ?? cuerpo.appointment_id ?? calCanc.appointmentId ?? calCanc.id ?? "",
+      );
       if (appointmentId) {
         await db()
           .from("closer_citas")

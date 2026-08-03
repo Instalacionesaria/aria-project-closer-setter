@@ -24,24 +24,36 @@ Buzón del closer si el bot está APAGADO. Y sin ningún tag de bot, el sistema 
 
 ## Los workflows (opcionales — dan velocidad, no funcionalidad)
 
-**URL** (la misma en todos): `https://project-closer-setter.vercel.app/api/webhooks/ghl` ·
-**Método**: `POST` · **Header obligatorio**: `X-Webhook-Secret` (pedime el valor por
-privado; sin él, el endpoint rechaza todo).
+**Sirve el webhook ESTÁNDAR de GHL (el gratis, sin editar el cuerpo).** El tipo de evento
+va en la URL, no en el JSON — el sistema lee el payload nativo que GHL mande y lo que no
+entienda queda guardado crudo para ajustar el mapeo después, sin perder nada.
 
-| # | Cuándo dispara | Cuerpo JSON |
+Configuración de cada workflow (solo cambia el final de la URL):
+
+- **Método**: `POST`
+- **Header**: clave `X-Webhook-Secret` · valor: el secreto (sin él se rechaza todo)
+- **URL**: `https://project-closer-setter.vercel.app/api/webhooks/ghl?evento=` + lo de la tabla
+
+**Los 4 esenciales para la prueba:**
+
+| Trigger en GHL | Final de la URL |
+|---|---|
+| ⭐ Cita creada (*Appointment Booked*) | `?evento=cita.agendada` |
+| ⭐ Cliente responde (*Customer Replied*) | `?evento=mensaje.entrante` |
+| Mensaje saliente | `?evento=mensaje.saliente` |
+| Cita cancelada | `?evento=cita.cancelada` |
+
+**Opcionales** (redundantes con lo anterior o para después):
+
+| Trigger | Final de la URL | Por qué es opcional |
 |---|---|---|
-| 1 | Tag `zona_closer` agregado | `{"evento":"contacto.zona_closer","contactId":"{{contact.id}}"}` |
-| 2 | Contacto cambia | igual, con `"evento":"contacto.actualizado"` |
-| 3 ⭐ | Cliente responde | `{"evento":"mensaje.entrante","contactId":"{{contact.id}}","mensaje":"{{message.body}}","messageId":"{{message.id}}","conversationId":"{{message.conversation_id}}"}` |
-| 4 | Mensaje saliente | igual que el 3, con `"evento":"mensaje.saliente"` |
-| 5 ⭐ | Cita creada | `{"evento":"cita.agendada","contactId":"{{contact.id}}","citaEl":"{{appointment.start_time}}","meetUrl":"{{appointment.address}}","appointmentId":"{{appointment.id}}","titulo":"{{appointment.title}}"}` |
-| 6 | Cita cancelada | `{"evento":"cita.cancelada","contactId":"{{contact.id}}","appointmentId":"{{appointment.id}}"}` |
-| 7 | Cada toque de la serie Recupero | `{"evento":"serie.toque","contactId":"{{contact.id}}","toque":1}` |
-| 8 ⭐ | Serie termina sin respuesta | `{"evento":"serie.agotada","contactId":"{{contact.id}}"}` |
+| Tag `zona_closer` agregado | `?evento=contacto.zona_closer` | El alta ya llega por la cita (el tag se pone justo después de agendar) — esto solo la hace más rápida |
+| Contacto cambia / tags de bot | `?evento=contacto.actualizado` | Refresca tags entre reuniones; útil cuando exista `bot_activado` |
+| Fin de la serie Recupero sin respuesta | `?evento=serie.agotada` | Recién importa cuando la serie exista |
 
-Si un merge field no existe, mandá los que haya — todo evento se guarda crudo antes de
-interpretarse y nada se pierde. El endpoint responde 200 casi siempre a propósito (GHL
-desactiva workflows que fallan mucho).
+El endpoint responde 200 casi siempre a propósito (GHL desactiva workflows que fallan
+mucho). Si usás el webhook premium con cuerpo editable, también podés mandar `evento` y los
+campos dentro del JSON — las dos formas funcionan.
 
 ---
 
