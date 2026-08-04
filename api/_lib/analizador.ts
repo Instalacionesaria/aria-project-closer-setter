@@ -7,27 +7,40 @@
  * tag+nota es lo que leen `/api/closer/urgentes` y `/api/setter/urgentes` para pintar la
  * cola roja de cada rol.
  *
- * ## Un analizador, dos territorios
+ * ## Los CUATRO portones (leer antes de tocar nada acá)
  *
- * El territorio se DEDUCE de los tags del contacto, no se pasa por parámetro: `zona_closer`
- * y `zona_setter` son mutuamente excluyentes (el contrato dice que al agendar, el swap
- * reemplaza uno por el otro). Eso importa porque quien llama es el webhook, que solo recibe
- * un `contactId` y no tiene forma de saber el rol — y porque un contacto que cruza de
- * pre-agenda a post-agenda queda automáticamente auditado con el contexto nuevo, sin que
- * nadie tenga que acordarse de cambiar nada.
+ * Cada uno evita una llamada al modelo, y los cuatro existen por una razón distinta. En
+ * orden, de más barato a más caro de evaluar:
  *
- * Un contacto sin ninguno de los dos tags no se analiza. Las urgencias se rutean por etapa
- * (§11) y una que no pertenece a nadie no debería aparecer en ninguna cola.
+ * 1. **Territorio = `zona_closer`.** Hoy este es el auditor de CHAT DEL CLOSER y nada más.
+ *    Los otros tres que faltan —chat del setter, transcripciones de llamadas del closer y
+ *    del setter— van a ser agentes propios, con su rúbrica y su tarjeta. Ver §53.
  *
- * ## Por qué no re-analiza
+ * 2. **El bot tiene que estar ATENDIENDO** (`botAtendiendo`, en `contrato.ts`). Este portón
+ *    no existía y es el que causó el bug del 2026-08-04: el auditor analizaba cualquier
+ *    contacto del territorio, tuviera agente o no. Con el bot apagado la conversación no
+ *    tiene ni un mensaje de la IA, y el criterio 2 de la rúbrica es *"la IA dejó de responder
+ *    o ignoró al usuario"* — **se cumple siempre**. Fabio Malpartida terminó en la cola roja
+ *    con "la IA no respondió a los últimos mensajes" sobre una IA que nunca estuvo prendida.
  *
- * Si el contacto ya tiene `bot_pausado_fallo`, se sale antes de gastar una llamada al
- * modelo: el bot ya está pausado y el caso ya está en la cola. Re-analizarlo no cambiaría
- * nada y duplicaría la nota.
+ * 3. **Ya marcado como fallo.** El bot ya está pausado y el caso ya está en la cola:
+ *    re-analizarlo no cambiaría nada y duplicaría la nota.
+ *
+ * 4. **La conversación tiene que contener al menos un mensaje DE LA IA.** Es el mismo
+ *    chequeo que el portón 2, pero sobre los hechos en vez de sobre los tags — cubre el caso
+ *    de un tag que miente (quedó puesto, el workflow no corrió, alguien lo editó a mano).
+ *    Sin una sola línea "IA:" en el transcript no hay agente que auditar.
+ *
+ * ## Costo
+ *
+ * Cada análisis es UNA llamada a Opus 5 y el webhook la dispara en CADA mensaje, entrante y
+ * saliente. El transcript se re-manda entero cada vez (hasta 40 mensajes), así que el costo
+ * de una conversación crece con el CUADRADO de su longitud. Los portones de arriba son, en
+ * la práctica, el control de gasto de este agente. Ver §53 para los números medidos.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { TAGS } from "../../src/lib/ghl/contrato.js";
+import { botAtendiendo, TAGS } from "../../src/lib/ghl/contrato.js";
 import { ghl } from "./ghl/index.js";
 import { ORG_ID, db } from "./repo.js";
 import {
@@ -283,12 +296,30 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
     if (!contacto) return { analizado: false, motivo: "GHL no devolvió el contacto" };
 
     const tags = contacto.tags ?? [];
+
+    /* ── Portón 1: territorio ─────────────────────────────────────────── */
     const territorio = territorioDe(tags);
     if (!territorio) {
       return { analizado: false, motivo: "sin territorio (ni zona_closer ni zona_setter)" };
     }
+    if (territorio !== "closer") {
+      // El auditor de chat del SETTER va a ser su propio agente (§53). Hasta que exista, este
+      // no lo cubre: auditar pre-agenda con la rúbrica de post-agenda daría veredictos malos
+      // sobre un trabajo distinto, y encima gastando.
+      return { analizado: false, motivo: "el auditor de chat del setter todavía no existe", territorio };
+    }
+
+    /* ── Portón 2: el bot tiene que estar atendiendo ──────────────────── */
+    if (!botAtendiendo(tags)) {
+      return {
+        analizado: false,
+        motivo: "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",
+        territorio,
+      };
+    }
+
+    /* ── Portón 3: ya está en la cola ─────────────────────────────────── */
     if (tags.includes(TAG_FALLO)) {
-      // Ya está en la cola y el bot ya está pausado: no hay nada que decidir de nuevo.
       return { analizado: false, motivo: "ya marcado como fallo", territorio };
     }
 
@@ -296,6 +327,16 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
     if (!conversationId) return { analizado: false, motivo: "sin conversación", territorio };
 
     const transcript = armarTranscript(await mensajesDeConversacion(conversationId));
+
+    /* ── Portón 4: los hechos, no los tags ────────────────────────────── */
+    if (!transcript.includes("IA:")) {
+      return {
+        analizado: false,
+        motivo: "la conversación no tiene ningún mensaje del agente: no hay nada que auditar",
+        territorio,
+      };
+    }
+
     const veredicto = await evaluarConversacion(transcript, territorio);
     if (!veredicto) return { analizado: false, motivo: "sin veredicto del modelo", territorio };
 
@@ -353,17 +394,37 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
 }
 
 /**
- * Pasada manual sobre TODOS los contactos de un territorio. La usa el endpoint de disparo
- * manual; el camino normal es el webhook, que analiza de a un contacto por mensaje nuevo.
+ * Pasada manual sobre los contactos de un territorio. La usa el endpoint de disparo manual;
+ * el camino normal es el webhook, que analiza de a un contacto por mensaje nuevo.
+ *
+ * **Los candidatos se filtran ACÁ, antes de llamar a `analizarYMarcar`.** Esa función vuelve
+ * a pedirle el contacto a GHL para decidir, así que sin este filtro un barrido sobre 200
+ * contactos gastaría 200 llamadas a GHL para descartar a los 190 que no tienen bot. Como
+ * `contactosConTag` ya devuelve los tags, la decisión es gratis.
+ *
+ * En serie y no en paralelo: `Promise.all` sobre cientos de contactos dispara cientos de
+ * llamadas al modelo a la vez. Es un disparo manual — que tarde no molesta a nadie.
  */
 export async function analizarTerritorio(territorio: Territorio): Promise<{
   territorio: Territorio;
+  encontrados: number;
   revisados: number;
+  omitidos: number;
   resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis>;
 }> {
   const contactos = await contactosConTag(TERRITORIOS[territorio].tag);
-  const resultados = await Promise.all(
-    contactos.map(async (c) => ({ contactId: c.id, nombre: c.nombre, ...(await analizarYMarcar(c.id)) })),
-  );
-  return { territorio, revisados: contactos.length, resultados };
+  const candidatos = contactos.filter((c) => botAtendiendo(c.tags) && !c.tags.includes(TAG_FALLO));
+
+  const resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis> = [];
+  for (const c of candidatos) {
+    resultados.push({ contactId: c.id, nombre: c.nombre, ...(await analizarYMarcar(c.id)) });
+  }
+
+  return {
+    territorio,
+    encontrados: contactos.length,
+    revisados: candidatos.length,
+    omitidos: contactos.length - candidatos.length,
+    resultados,
+  };
 }

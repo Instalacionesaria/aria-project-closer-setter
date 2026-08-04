@@ -344,6 +344,29 @@ export function estadoBotDesdeTags(tags: readonly string[]): EstadoBot {
   return botDesdeTags(tags) === "activo" ? "prendido" : "apagado";
 }
 
+/**
+ * ¿El agente de texto de GHL está ATENDIENDO esta conversación ahora mismo?
+ *
+ * Es el portón del auditor de IA, y existe por un bug real (2026-08-04): el auditor analizaba
+ * cualquier contacto del territorio, tuviera bot o no. Con el bot apagado, la conversación no
+ * tiene ni un mensaje del agente — y el criterio 2 de su rúbrica es "la IA dejó de responder
+ * o ignoró al usuario". **Ese criterio se cumple SIEMPRE cuando no hay bot.** No era un falso
+ * positivo ocasional: era uno garantizado, que mandaba contactos sanos a la cola roja y
+ * gastaba una llamada al modelo por cada mensaje.
+ *
+ * Se separa de `estadoBotDesdeTags` en vez de reusarla porque incluye `bot_reactivar`, que el
+ * contrato §9 define como una ORDEN de reactivar y no como un estado. Para el ruteo del Buzón
+ * esa distinción importa (todavía no está prendido); para el auditor no (ya hay un agente que
+ * va a contestar, y su respuesta es auditable). Un tag de apagado sigue ganando sobre los dos.
+ */
+export function botAtendiendo(tags: readonly string[]): boolean {
+  const estado = botDesdeTags(tags);
+  if (estado === "activo") return true;
+  // `bot_reactivar` solo cuenta si NINGÚN tag de apagado lo contradice.
+  if (estado !== null) return false;
+  return tags.map((t) => t.trim().toLowerCase()).includes(TAGS_BOT.botReactivar.valor);
+}
+
 /* ================================================================== */
 /* CUSTOM FIELDS — CONTRATO-GHL.md §4                                 */
 /* ================================================================== */

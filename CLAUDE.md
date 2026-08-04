@@ -1198,6 +1198,101 @@ No existía. La estrenan `StatusIcons.tsx` y `LimiteDeError.tsx`, que comparten 
 - 📹 y 📞 con detalle por llamada (fecha, duración, grabación) siguen sin fuente en GHL. Lo de
   acá son proxies honestos sobre los datos que sí existen.
 
+## 53. El auditor de IA — portones, costo y los 4 agentes que faltan (2026-08-04)
+
+`api/_lib/analizador.ts` venía marcado como intocable ("es de Kevin"). Fabio autorizó
+explícitamente modificarlo. **Coordinarlo con Kevin**: la rúbrica, el esquema y la lógica de
+evaluación no se tocaron — solo los portones de entrada y el barrido manual.
+
+### 53.1 El bug: el auditor juzgaba a una IA que no existe
+
+Fabio Malpartida apareció en Intervenciones Urgentes con *"La IA no respondió a los últimos
+mensajes del contacto"*. Su bot nunca estuvo encendido en esa conversación.
+
+No era un falso positivo ocasional, era uno **garantizado por construcción**: el criterio 2 de
+la rúbrica es *"La IA dejó de responder o ignoró al usuario"*, y con el bot apagado eso se
+cumple siempre. El único portón que había era el territorio (`zona_closer`/`zona_setter`) —
+nada verificaba que hubiera un agente atendiendo.
+
+Datos reales del incidente: **4 llamadas a Opus 5 en 7 minutos** sobre un solo contacto de
+prueba, y la cuarta lo mandó a la cola roja. Se limpió: tag quitado en GHL y las 4 filas de
+`closer_analisis_agente` borradas.
+
+### 53.2 Los cuatro portones
+
+En orden, de más barato a más caro de evaluar. Cada uno evita una llamada al modelo.
+
+| # | Portón | Por qué |
+|---|---|---|
+| 1 | `zona_closer` únicamente | Este es el auditor de CHAT DEL CLOSER. El de setter será su propio agente (53.4) |
+| 2 | **`botAtendiendo(tags)`** | El que faltaba. `bot_activado` o `bot_reactivar`, y ningún tag de apagado |
+| 3 | Ya tiene `bot_pausado_fallo` | Ya está en la cola; re-analizar duplica la nota |
+| 4 | El transcript contiene `"IA:"` | Los HECHOS, no los tags — cubre un tag que quedó mintiendo |
+
+El portón 4 no es redundante con el 2: un tag puede estar mal puesto, un workflow puede no
+haber corrido, alguien puede editar a mano. Sin una sola línea de la IA no hay nada que auditar,
+diga lo que diga el tag.
+
+`botAtendiendo` vive en `contrato.ts` y es **distinta** de `estadoBotDesdeTags` a propósito:
+incluye `bot_reactivar`, que el contrato §9 define como una ORDEN y no como un estado. Para el
+ruteo del Buzón esa diferencia importa (todavía no contesta); para el auditor no (ya hay un
+agente que va a responder, y su respuesta es auditable).
+
+`analizarTerritorio` (el barrido manual) ahora filtra los candidatos ANTES de llamar a
+`analizarYMarcar` — esa función vuelve a pedirle el contacto a GHL para decidir, así que sin el
+filtro previo un barrido sobre 200 contactos gastaba 200 llamadas para descartar 190. Y pasó de
+`Promise.all` a serie: cientos de llamadas al modelo a la vez no son un disparo manual.
+
+### 53.3 El costo, medido
+
+- **Modelo**: `claude-opus-5` (`CLAUDE_MODEL` lo sobreescribe), `max_tokens: 2000`, `effort: "low"`.
+- **Por llamada**: system (contexto + rúbrica) ≈ 550 tokens + transcript (hasta 40 mensajes) +
+  salida corta. Da del orden de **US$0,01 a US$0,02 por análisis** a precio de Opus 5
+  ($5/1M entrada, $25/1M salida).
+- **Frecuencia**: el webhook lo dispara en **CADA mensaje, entrante y saliente**
+  (`api/webhooks/ghl.ts`, los dos handlers).
+- **El multiplicador que importa**: el transcript se re-manda **entero** cada vez, así que el
+  costo de una conversación crece con el **cuadrado** de su longitud. Una conversación de 20
+  mensajes no cuesta 20 análisis baratos: cuesta 20 análisis cada vez más caros.
+
+Estimación a volumen real: 100 leads/mes × ~20 mensajes ≈ 2.000 llamadas ≈ **US$20-40/mes**
+solo para este auditor. Con los cuatro y más volumen, se multiplica.
+
+**Los portones SON el control de gasto.** Antes de este cambio, un contacto sin bot generaba
+una llamada por cada mensaje que se le mandara, para siempre.
+
+Palancas que quedan disponibles y NO se aplicaron (son decisión de producto, no técnica):
+1. **Bajar de modelo.** Es una clasificación contra 5 criterios explícitos con esquema fijo —
+   el caso típico de un modelo más chico. Es la palanca más grande y la más fácil (`CLAUDE_MODEL`).
+2. **Auditar solo en el saliente.** Tiene más sentido evaluar después de que la IA respondió
+   que después de que escribió el contacto. Reduce a la mitad.
+3. **Debounce por contacto**: no re-analizar si ya se analizó hace menos de N minutos.
+
+### 53.4 Faltan 3 de los 4 auditores
+
+Hoy existe **uno solo**: chat del closer.
+
+| Auditor | Estado | Agente en Auditoría de Agentes |
+|---|---|---|
+| Chat · closer | ✅ funcionando | `appointment-flow-ai` |
+| Chat · setter | ❌ no existe | `lead-flow-ai` |
+| Llamadas (transcripciones) · closer | ❌ no existe | `appointment-flow-voz` |
+| Llamadas (transcripciones) · setter | ❌ no existe | `lead-flow-voz` |
+
+Lo que hay que tener en cuenta al construirlos:
+
+- **El código YA tenía soporte de dos territorios** (`TERRITORIOS` en `analizador.ts`, con su
+  contexto por rol) y `/api/setter/urgentes` lee la misma cola. Pero un auditor de setter no es
+  "el mismo con otro contexto": la rúbrica de post-agenda juzga confirmar y acompañar una cita;
+  la de pre-agenda juzga calificar y conseguir que agende. Por eso el portón 1 lo bloquea en vez
+  de dejarlo correr con la rúbrica equivocada. La cola de urgentes del setter va a estar vacía
+  hasta que exista su agente — es correcto, no un bug.
+- **Los dos de voz no tienen fuente**: GHL no expone las llamadas ni sus transcripciones, y no
+  hay evento de webhook (verificado en §52). Antes de escribir esos auditores hay que resolver
+  de dónde sale el audio o el texto — es integración, no prompt.
+- **`closer_analisis_agente.agente_id`** ya distingue por agente, así que los cuatro pueden
+  convivir en la misma tabla y cada uno alimenta su propia tarjeta.
+
 ## 49. Cómo trabajar en este repo
 
 - Los cambios llegan como **specs** de Francisco (reglas + prompts + mockups). Implementar lo especificado; NO inventar features, textos ni estados. Si un dato no existe, el elemento no se renderiza (regla 10 de §4).
