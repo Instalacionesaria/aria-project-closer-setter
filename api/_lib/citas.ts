@@ -15,6 +15,26 @@ import { asegurarContacto } from "./ingesta.js";
 import { db } from "./repo.js";
 import { sincronizarContacto } from "./contactos.js";
 
+/**
+ * Un instante ISO partido en fecha y hora **de la organización**.
+ *
+ * Vive acá y no en cada endpoint porque el browser no puede decidir esto: un closer
+ * conectado fuera de Lima vería la hora de su propia zona sobre una cita que está agendada
+ * en la de la agencia. El backend manda las dos piezas ya resueltas y la vista solo pinta.
+ */
+export function fechaHoraOrg(iso: string): { fecha: string; hora: string } {
+  const d = new Date(iso);
+  return {
+    fecha: new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA_ORG }).format(d),
+    hora: new Intl.DateTimeFormat("es-PE", {
+      timeZone: ZONA_HORARIA_ORG,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d),
+  };
+}
+
 /** Offset (`-05:00`) de la zona de la organización para una fecha dada. */
 export function offsetOrg(iso: string): string {
   const partes = new Intl.DateTimeFormat("en-US", {

@@ -27,7 +27,9 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ghl } from "../_lib/ghl/index.js";
-import { perfilDesdeContacto } from "../_lib/ghl/lectura.js";
+import { CAMPOS_PERFIL } from "../../src/lib/ghl/contrato.js";
+import { leerCampo, leerEntero, perfilDesdeContacto } from "../_lib/ghl/lectura.js";
+import { db } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
@@ -74,6 +76,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const perfil = perfilDesdeContacto(contacto);
+
+    /**
+     * Write-through de los contadores del agente de voz (📞).
+     *
+     * Abrir la ficha ya trajo el contacto vivo de GHL, así que refrescar el número que se
+     * pinta en las LISTAS no cuesta ni una llamada extra. Sin esto, el contador solo se
+     * actualizaría en el cron de :25/:55 o al apretar Sincronizar CRM.
+     *
+     * No bloquea la respuesta ni la rompe: el Perfil se devuelve igual aunque la caché no se
+     * pueda escribir — es una mejora oportunista, no parte del contrato de este endpoint.
+     */
+    void db()
+      .from("closer_contactos")
+      .update({
+        llamadas_ia_intentos: leerEntero(contacto, CAMPOS_PERFIL.llamadasIaIntentos.valor),
+        llamadas_ia_contestadas: leerEntero(contacto, CAMPOS_PERFIL.llamadasIaContestadas.valor),
+        ultima_llamada_ia_resultado: leerCampo(contacto, CAMPOS_PERFIL.ultimaLlamadaIaResultado.valor),
+      })
+      .eq("ghl_contact_id", contacto.id)
+      .then(({ error }) => {
+        if (error) console.error("perfil: no se cachearon los contadores de llamadas:", error.message);
+      });
 
     return res.status(200).json({
       ok: true,

@@ -12,6 +12,8 @@ import {
   situacionPorSlug,
   perteneceAlCloser,
   estadoBotDesdeTags,
+  botDesdeTags,
+  FUENTE_IG,
   assertEnviable,
   literalesPendientes,
   LiteralNoConfirmadoError,
@@ -227,12 +229,86 @@ describe("estadoBotDesdeTags — el ruteo del Buzón depende de esto (doc §2)",
     expect(TAG_SEGUIMIENTO_AUTO).toBe(TAGS.seguimientoRecupero.valor);
   });
 
-  it("los cuatro tags de bot están declarados y confirmados", () => {
+  /**
+   * Eran cuatro hasta el 2026-08-04. `bot_apagado_manual` y `derivado_lt` vivían como
+   * strings sueltos dentro de `api/_lib/contactos.ts`, fuera del contrato — §49 pide que
+   * TODO literal de GHL se declare acá. Al unificar la derivación del bot se trajeron.
+   */
+  it("los seis tags de bot están declarados y confirmados", () => {
     expect(Object.values(TAGS_BOT).map((t) => t.valor).sort()).toEqual([
       "bot_activado",
+      "bot_apagado_manual",
       "bot_desactivado_postcall",
       "bot_pausado_fallo",
       "bot_reactivar",
+      "derivado_lt",
     ]);
+  });
+});
+
+/**
+ * `botDesdeTags` es la única derivación del estado del bot del proyecto, y `estadoBotDesdeTags`
+ * es su proyección binaria. Los casos de arriba cubren el binario; estos, los 6 valores.
+ */
+describe("botDesdeTags — los 6 estados del toggle 🤖", () => {
+  it("sin tags → null, nunca 'activo' (default APAGADO, §51.3)", () => {
+    expect(botDesdeTags([])).toBeNull();
+    expect(botDesdeTags(["zona_closer", "lead_meta_ads"])).toBeNull();
+  });
+
+  it("cada tag da su estado", () => {
+    expect(botDesdeTags([TAGS_BOT.botActivado.valor])).toBe("activo");
+    expect(botDesdeTags([TAGS_BOT.botPausadoFallo.valor])).toBe("pausado_fallo");
+    expect(botDesdeTags([TAGS_BOT.botDesactivadoPostcall.valor])).toBe("muerto_postcall");
+    expect(botDesdeTags([TAGS_BOT.botApagadoManual.valor])).toBe("apagado_manual");
+    expect(botDesdeTags([TAGS_BOT.derivadoLt.valor])).toBe("derivado_lt");
+  });
+
+  it("normaliza mayúsculas y espacios, igual que la proyección binaria", () => {
+    expect(botDesdeTags([" Bot_Pausado_Fallo "])).toBe("pausado_fallo");
+  });
+
+  /**
+   * El fallo del auditor gana sobre todo lo demás porque es lo único que pide una acción
+   * humana ahora. Si ganara `muerto_postcall`, una urgencia real se vería como un bot que
+   * simplemente terminó su ciclo.
+   */
+  it("el orden de precedencia: fallo > postcall > lt > manual > activado", () => {
+    const todos = [
+      TAGS_BOT.botActivado.valor,
+      TAGS_BOT.botApagadoManual.valor,
+      TAGS_BOT.derivadoLt.valor,
+      TAGS_BOT.botDesactivadoPostcall.valor,
+      TAGS_BOT.botPausadoFallo.valor,
+    ];
+    expect(botDesdeTags(todos)).toBe("pausado_fallo");
+    expect(botDesdeTags(todos.slice(0, 4))).toBe("muerto_postcall");
+    expect(botDesdeTags(todos.slice(0, 3))).toBe("derivado_lt");
+    expect(botDesdeTags(todos.slice(0, 2))).toBe("apagado_manual");
+  });
+
+  it("Instagram no tiene bot, sin importar los tags (§11)", () => {
+    expect(botDesdeTags([TAGS_BOT.botActivado.valor], FUENTE_IG)).toBeNull();
+    expect(botDesdeTags([TAGS_BOT.botPausadoFallo.valor], FUENTE_IG)).toBeNull();
+  });
+
+  /**
+   * La garantía de que las dos funciones no pueden divergir: `estadoBotDesdeTags` es una
+   * proyección, no una segunda implementación. Este test lo verifica sobre todos los casos.
+   */
+  it("estadoBotDesdeTags es exactamente 'activo → prendido, todo lo demás → apagado'", () => {
+    const casos = [
+      [],
+      [TAGS_BOT.botActivado.valor],
+      [TAGS_BOT.botPausadoFallo.valor],
+      [TAGS_BOT.botDesactivadoPostcall.valor],
+      [TAGS_BOT.botApagadoManual.valor],
+      [TAGS_BOT.derivadoLt.valor],
+      [TAGS_BOT.botActivado.valor, TAGS_BOT.botPausadoFallo.valor],
+    ];
+    for (const tags of casos) {
+      const esperado = botDesdeTags(tags) === "activo" ? "prendido" : "apagado";
+      expect(estadoBotDesdeTags(tags)).toBe(esperado);
+    }
   });
 });

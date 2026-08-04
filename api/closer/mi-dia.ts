@@ -28,9 +28,11 @@ import { estadoBotDesdeTags, perteneceAlCloser, TAGS_BOT } from "../../src/lib/g
 import { etapaDesdeTags, type StageKey } from "../../src/lib/ghl/etapas.js";
 import { hoyISO } from "../../src/lib/fechas.js";
 import { derivarFila, type Seguimiento } from "../../src/lib/seguimientos/dominio.js";
+import { INDICADORES_VACIOS, type IndicadoresContacto } from "../../src/lib/indicadores.js";
 import { offsetOrg } from "../_lib/citas.js";
-import { ghl } from "../_lib/ghl/index.js";
-import { db, hoyOrg } from "../_lib/repo.js";
+import { env } from "../_lib/env.js";
+import { cargarIndicadores } from "../_lib/indicadores.js";
+import { db, hoyOrg, ORG_ID } from "../_lib/repo.js";
 
 export type CasoSeguimiento = "manual_de_hoy" | "manual_vencido" | "serie_agotada" | "automatico_en_curso";
 
@@ -48,24 +50,33 @@ interface FilaContacto {
   tags: string[] | null;
   stage_key: string | null;
   congelado: boolean;
+  monto: number | null;
+  llamadas_ia_intentos: number | null;
+  llamadas_ia_contestadas: number | null;
   buzon_resuelto_el: string | null;
   ultimo_entrante_el: string | null;
   ultimo_entrante_texto: string | null;
 }
 
-const resumenContacto = (c: FilaContacto) => {
-  const tags = (c.tags ?? []).map((t) => t.trim().toLowerCase());
-  return {
-    ghlContactId: c.ghl_contact_id,
-    nombre: c.nombre,
-    telefono: c.telefono,
-    fuente: c.fuente ?? "DIRECTO",
-    tags: c.tags ?? [],
-    // Supabase manda; sin stage_key se deriva de los tags (cae en `agendado`, la entrada).
-    etapa: ((c.stage_key as StageKey | null) ?? etapaDesdeTags(tags)) as StageKey,
-    congelado: c.congelado,
-  };
-};
+/** Supabase manda; sin stage_key se deriva de los tags (cae en `agendado`, la entrada). */
+const etapaDe = (c: FilaContacto): StageKey =>
+  ((c.stage_key as StageKey | null) ?? etapaDesdeTags((c.tags ?? []).map((t) => t.trim().toLowerCase()))) as StageKey;
+
+/**
+ * El resumen que viaja en TODAS las colas. Lleva los `indicadores` para que los 6 íconos se
+ * vean iguales acá que en el Pipeline y en la ficha — el pedido de Fabio de que la
+ * información acompañe al contacto a donde se muestre.
+ */
+const resumenContacto = (c: FilaContacto, indicadores: Map<string, IndicadoresContacto>) => ({
+  ghlContactId: c.ghl_contact_id,
+  nombre: c.nombre,
+  telefono: c.telefono,
+  fuente: c.fuente ?? "DIRECTO",
+  tags: c.tags ?? [],
+  etapa: etapaDe(c),
+  congelado: c.congelado,
+  indicadores: indicadores.get(c.ghl_contact_id) ?? INDICADORES_VACIOS,
+});
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
@@ -82,13 +93,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: contactosData, error: errContactos } = await db()
       .from("closer_contactos")
       .select(
-        "ghl_contact_id, nombre, telefono, fuente, tags, stage_key, congelado, " +
+        "ghl_contact_id, nombre, telefono, fuente, tags, stage_key, congelado, monto, " +
+          "llamadas_ia_intentos, llamadas_ia_contestadas, " +
           "buzon_resuelto_el, ultimo_entrante_el, ultimo_entrante_texto",
-      );
+      )
+      .eq("org_id", ORG_ID)
+      .limit(2000);
     if (errContactos) throw new Error(`closer_contactos: ${errContactos.message}`);
     // El select multilínea rompe la inferencia de supabase-js — shape declarado a mano.
     const contactos = (contactosData ?? []) as unknown as FilaContacto[];
     const porId = new Map(contactos.map((c) => [c.ghl_contact_id, c]));
+
+    // UNA query para los 6 indicadores de todos. Alimenta las cinco colas de abajo.
+    const indicadores = await cargarIndicadores(
+      contactos.map((c) => ({
+        ghl_contact_id: c.ghl_contact_id,
+        tags: c.tags,
+        fuente: c.fuente,
+        llamadas_ia_intentos: c.llamadas_ia_intentos,
+        llamadas_ia_contestadas: c.llamadas_ia_contestadas,
+        etapa: etapaDe(c),
+        monto: c.monto,
+      })),
+    );
 
     /* ── Urgentes: bot_pausado_fallo en tags cacheados ───────────────────── */
     const urgentesFilas = contactos.filter(
@@ -111,7 +138,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const urgentes = urgentesFilas.map((c) => ({
-      ...resumenContacto(c),
+      ...resumenContacto(c, indicadores),
       fallo: motivos.get(c.ghl_contact_id) ?? "requiere intervención — revisar conversación",
     }));
     const enUrgentes = new Set(urgentes.map((u) => u.ghlContactId));
@@ -128,7 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return new Date(c.ultimo_entrante_el).getTime() > resuelto;
       })
       .map((c) => ({
-        ...resumenContacto(c),
+        ...resumenContacto(c, indicadores),
         ultimoEntranteEl: c.ultimo_entrante_el,
         snippet: (c.ultimo_entrante_texto ?? "").slice(0, 80) || null,
       }))
@@ -155,6 +182,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         meetUrl: c.meet_url,
         /** Pasó la hora y nadie la movió con Avanzar: baja con "vencido hace X", jamás desaparece. */
         vencida: new Date(c.fecha_hora).getTime() < Date.now(),
+        /**
+         * Los 6 íconos también acá. El widget "Agenda de Hoy" los tenía HARDCODEADOS en cero
+         * (`llamadas: []`, `botEstado: undefined`) — apagaba los íconos de contactos que sí
+         * tenían el dato, en la única vitrina donde el closer mira antes de una llamada.
+         */
+        indicadores: indicadores.get(c.ghl_contact_id) ?? INDICADORES_VACIOS,
       };
     });
 
@@ -193,6 +226,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         caso: clasificarCaso(f.modo, f.estado, diasVencido),
         seguimiento: seg,
         fila: derivarFila(seg),
+        indicadores: indicadores.get(f.ghl_contact_id) ?? INDICADORES_VACIOS,
       };
     });
 
@@ -211,12 +245,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const completadasHoy = [
       ...(avancesHoy ?? []).map((a) => ({
-        ...(porId.get(a.ghl_contact_id) ? resumenContacto(porId.get(a.ghl_contact_id)!) : { ghlContactId: a.ghl_contact_id, nombre: null, telefono: null, fuente: "DIRECTO", tags: [], etapa: "agendado" as StageKey, congelado: false }),
+        ...(porId.get(a.ghl_contact_id)
+          ? resumenContacto(porId.get(a.ghl_contact_id)!, indicadores)
+          : {
+              // Un avance de un contacto que ya no está en la caché (lo borraron del
+              // pipeline): la fila sigue apareciendo en Completadas Hoy, sin inventarle datos.
+              ghlContactId: a.ghl_contact_id,
+              nombre: null,
+              telefono: null,
+              fuente: "DIRECTO",
+              tags: [],
+              etapa: "agendado" as StageKey,
+              congelado: false,
+              indicadores: INDICADORES_VACIOS,
+            }),
         motivo: `avanzar:${a.salida}`,
         cuando: a.created_at,
       })),
       ...resueltosBuzonHoy.map((c) => ({
-        ...resumenContacto(c),
+        ...resumenContacto(c, indicadores),
         motivo: "buzon_resuelto",
         cuando: c.buzon_resuelto_el as string,
       })),
@@ -226,7 +273,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ok: true,
       hoy,
       zonaHoraria: "America/Lima",
-      ghlModo: ghl().modo,
+      ghlModo: env.ghlModo(),
       citasHoy,
       urgentes,
       buzon,

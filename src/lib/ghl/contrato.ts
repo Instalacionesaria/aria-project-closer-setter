@@ -253,6 +253,18 @@ export const TAGS_BOT = {
     fuente: "api/_lib/analizador.ts (el auditor de Kevin lo aplica)",
     uso: "El auditor IA apagó el bot por fallo grave. Solo lectura — es de Kevin.",
   },
+  botApagadoManual: {
+    valor: "bot_apagado_manual",
+    confianza: "confirmado",
+    fuente: "api/_lib/contactos.ts — vivía como string suelto hasta 2026-08-04",
+    uso: "Un humano apagó el bot a mano desde el compositor. Solo lectura.",
+  },
+  derivadoLt: {
+    valor: "derivado_lt",
+    confianza: "confirmado",
+    fuente: "CONTRATO-GHL.md §9 — vivía como string suelto en contactos.ts",
+    uso: "El bot derivó la conversación a low-ticket y se pausó al hacerlo. Solo lectura.",
+  },
 } as const satisfies Record<string, Literal>;
 
 /**
@@ -268,24 +280,68 @@ export const TAG_SEGUIMIENTO_AUTO = TAGS.seguimientoRecupero.valor;
 export type EstadoBot = "prendido" | "apagado";
 
 /**
- * Deriva el estado del bot desde los tags crudos, en el orden EXACTO del doc §2:
+ * Los 6 estados del toggle 🤖 (§25.A). Vive acá y no en `closerStore.tsx` porque `api/` lo
+ * necesita para derivarlo del lado del servidor, y una función serverless no debe arrastrar
+ * un `.tsx` con React adentro. `closerStore` lo re-exporta para no romper sus consumidores.
+ */
+export type BotEstado =
+  | "activo"
+  | "pausado_fallo"
+  | "apagado_manual"
+  | "pausa_temporal"
+  | "derivado_lt"
+  | "muerto_postcall";
+
+/** El chip de fuente de un contacto de Instagram — el único canal sin bot (§11). */
+export const FUENTE_IG = "📷 IG PROFILE";
+
+/**
+ * EL estado del bot, derivado de los tags. Única implementación en todo el proyecto.
  *
- *   tiene bot_desactivado_postcall → APAGADO (ya tuvo reunión)
- *   tiene bot_pausado_fallo        → APAGADO (lo apagó el auditor)
- *   tiene bot_activado             → PRENDIDO
- *   ninguno                        → APAGADO (default conservador)
+ * Hasta el 2026-08-04 había DOS que no se hablaban: esta (que solo distinguía prendido de
+ * apagado, para rutear el Buzón) y una `botDesdeTags` local en `api/_lib/contactos.ts` que
+ * escribía la columna `closer_contactos.bot_estado`. Esa columna estaba NULL en los 7
+ * contactos de producción — se derivaba y se guardaba, pero nadie la leía de vuelta. Ahora
+ * el estado se DERIVA en cada lectura y la columna quedó obsoleta (migración 013).
  *
- * El default APAGADO es decisión de Fabio (2026-07-31) e INVIERTE lo que el código asumía
- * antes ("prendido salvo tag de apagado"): un mensaje sin bot detectable entra al Buzón —
- * peor caso, el closer ve mensajes de más; nunca se pierde uno. El orden importa: un
- * contacto puede tener `bot_activado` residual junto a un tag de apagado, y el apagado gana.
+ * Precedencia, de más específico a menos (los apagados ganan siempre):
+ *
+ *   fuente IG                   → null              (nunca tuvo bot, §11)
+ *   bot_pausado_fallo           → pausado_fallo     (urgencia accionable — gana porque pide acción)
+ *   bot_desactivado_postcall    → muerto_postcall   (terminal, §34)
+ *   derivado_lt                 → derivado_lt
+ *   bot_apagado_manual          → apagado_manual
+ *   bot_activado                → activo
+ *   ninguno                     → null              (default APAGADO, §51.3)
+ *
+ * `pausa_temporal` NO se deriva: no tiene tag en GHL. Es un estado optimista que el front
+ * superpone localmente al enviar un mensaje manual (§25.C), hasta el próximo refresco.
+ *
+ * El `null` final es deliberado y no es lo mismo que `"activo"`: significa "el sistema no
+ * tiene evidencia de que el bot esté atendiendo". Afirmar lo contrario contradiría el ruteo
+ * del Buzón, que con ese mismo default ya está mandando esos mensajes al closer.
+ */
+export function botDesdeTags(tags: readonly string[], fuente?: string | null): BotEstado | null {
+  if (fuente === FUENTE_IG) return null;
+  const t = tags.map((x) => x.trim().toLowerCase());
+  if (t.includes(TAGS_BOT.botPausadoFallo.valor)) return "pausado_fallo";
+  if (t.includes(TAGS_BOT.botDesactivadoPostcall.valor)) return "muerto_postcall";
+  if (t.includes(TAGS_BOT.derivadoLt.valor)) return "derivado_lt";
+  if (t.includes(TAGS_BOT.botApagadoManual.valor)) return "apagado_manual";
+  if (t.includes(TAGS_BOT.botActivado.valor)) return "activo";
+  return null;
+}
+
+/**
+ * Proyección binaria de `botDesdeTags`, que es lo único que necesita el ruteo del Buzón
+ * (§51.3): ¿el chatbot está atendiendo, sí o no?
+ *
+ * Es una PROYECCIÓN y no una segunda implementación a propósito — así no pueden divergir.
+ * Semántica idéntica a la versión anterior: los cuatro estados de apagado y el `null` caen
+ * todos en `"apagado"`, y solo `bot_activado` sin ningún tag de apagado da `"prendido"`.
  */
 export function estadoBotDesdeTags(tags: readonly string[]): EstadoBot {
-  const t = tags.map((x) => x.trim().toLowerCase());
-  if (t.includes(TAGS_BOT.botDesactivadoPostcall.valor)) return "apagado";
-  if (t.includes(TAGS_BOT.botPausadoFallo.valor)) return "apagado";
-  if (t.includes(TAGS_BOT.botActivado.valor)) return "prendido";
-  return "apagado";
+  return botDesdeTags(tags) === "activo" ? "prendido" : "apagado";
 }
 
 /* ================================================================== */

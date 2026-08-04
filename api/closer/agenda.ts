@@ -22,7 +22,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { hoyISO, sumarDias, ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
-import { offsetOrg, sincronizarCitas } from "../_lib/citas.js";
+import { fechaHoraOrg, offsetOrg, sincronizarCitas } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
 import { ghl } from "../_lib/ghl/index.js";
 import { db } from "../_lib/repo.js";
@@ -40,14 +40,8 @@ interface FilaCita {
 function normalizar(c: FilaCita) {
   // `fecha_hora` es timestamptz (UTC en el wire); la hora local se reconstruye en la zona
   // de la organización — igual que hacía la versión GHL-directa con el offset del evento.
-  const d = new Date(c.fecha_hora);
-  const fecha = new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA_ORG }).format(d);
-  const hora = new Intl.DateTimeFormat("es-PE", {
-    timeZone: ZONA_HORARIA_ORG,
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(d);
+  // `fechaHoraOrg` es compartida con el Pipeline: una sola definición de "la hora de la cita".
+  const { fecha, hora } = fechaHoraOrg(c.fecha_hora);
   const titulo = c.titulo ?? "";
   const nombre = titulo.replace(/^.*?-\s*/, "").trim() || titulo || "Sin nombre";
 

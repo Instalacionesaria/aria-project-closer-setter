@@ -389,7 +389,14 @@ export const ghlReal: GhlPort = {
       pageLimit: Math.min(limite, 100),
       filters: [{ field: "tags", operator: "contains", value: tag }],
     });
-    if (!r.ok) return [];
+    /**
+     * LANZA en vez de devolver `[]` (corregido 2026-08-04).
+     *
+     * La lista vacía era indistinguible de "el territorio no tiene a nadie", y desde que el
+     * barrido congela por ausencia (`sincronizarTerritorio`), un 429 de GHL habría congelado
+     * la base entera de un golpe. Un error acá tiene que doler, no simularse.
+     */
+    if (!r.ok) throw new Error(`buscarPorTag(${tag}): ${r.error ?? `GHL respondió ${r.status}`}`);
     return (r.datos?.contacts ?? []).map((c: any) => c.id).filter(Boolean);
   },
 

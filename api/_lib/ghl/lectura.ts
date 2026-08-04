@@ -223,7 +223,7 @@ export interface CampoPerfilLeido {
  * Acá se baja primero, con lo que la insensibilidad a mayúsculas alcanza también al prefijo.
  * Es más barato que depender de que GHL nunca cambie la caja del prefijo.
  */
-const normalizarClave = (k: string) => k.toLowerCase().replace(/^contact\./, "");
+export const normalizarClave = (k: string) => k.toLowerCase().replace(/^contact\./, "");
 
 /**
  * El valor de un custom field llega tipado como `string`, pero GHL manda números para los
@@ -234,6 +234,34 @@ function aTexto(valor: unknown): string {
   if (valor === null || valor === undefined) return "";
   if (Array.isArray(valor)) return valor.map(aTexto).filter(Boolean).join(", ");
   return String(valor).trim();
+}
+
+/**
+ * UN custom field del contacto, buscado con la misma normalización que usa el Perfil.
+ *
+ * Existe porque `api/_lib/contactos.ts` tenía su propio lector (`cf[clave] ?? cf[sin prefijo]`)
+ * que era **case-sensitive**: un `Contact.Nivel_De_Inters_Seguimiento` no matcheaba y la
+ * subcategoría se guardaba en null sin que nada fallara. Dos parsers distintos sobre el mismo
+ * payload es la clase de bug que no se ve hasta que alguien compara dos pantallas.
+ *
+ * Devuelve `null` para el campo vacío — misma regla que el Perfil: "existe la clave" y "hay
+ * un dato" son lo mismo.
+ */
+export function leerCampo(contacto: ContactoGhl, literal: string): string | null {
+  const buscada = normalizarClave(literal);
+  for (const [clave, valor] of Object.entries(contacto.customFields ?? {})) {
+    if (normalizarClave(clave) !== buscada) continue;
+    return aTexto(valor) || null;
+  }
+  return null;
+}
+
+/** El mismo campo, leído como entero. `null` si no está o si no es un número (nunca `0`). */
+export function leerEntero(contacto: ContactoGhl, literal: string): number | null {
+  const texto = leerCampo(contacto, literal);
+  if (texto === null) return null;
+  const n = Number.parseInt(texto, 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 /**

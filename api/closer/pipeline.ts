@@ -23,8 +23,11 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { contarPorEtapa, desenlaceDesdeTags, ETAPAS_ORDEN, etapaDesdeTags } from "../../src/lib/ghl/etapas.js";
-import { ghl } from "../_lib/ghl/index.js";
-import { db } from "../_lib/repo.js";
+import { INDICADORES_VACIOS } from "../../src/lib/indicadores.js";
+import { fechaHoraOrg } from "../_lib/citas.js";
+import { env } from "../_lib/env.js";
+import { cargarIndicadores } from "../_lib/indicadores.js";
+import { db, ORG_ID } from "../_lib/repo.js";
 
 interface FilaContacto {
   ghl_contact_id: string;
@@ -40,10 +43,17 @@ interface FilaContacto {
   forma_pago_venta: string | null;
   razon_noshow: string | null;
   origen_nurture: string | null;
-  cita_el: string | null;
-  cita_meet_url: string | null;
+  llamadas_ia_intentos: number | null;
+  llamadas_ia_contestadas: number | null;
   ultimo_entrante_el: string | null;
 }
+
+/**
+ * Tope defensivo. No es una paginación: es la diferencia entre una pantalla lenta y una
+ * pantalla que miente. Cuando se alcanza, `cobertura.truncado` lo dice — truncar en silencio
+ * haría que "faltan contactos" pareciera un bug de datos en vez de un límite.
+ */
+const TOPE_CONTACTOS = 2000;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "GET") {
@@ -57,24 +67,64 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select(
         "ghl_contact_id, nombre, telefono, fuente, tags, stage_key, congelado, monto, " +
           "nivel_interes_seguimiento, motivo_descalificacion, forma_pago_venta, razon_noshow, origen_nurture, " +
-          "cita_el, cita_meet_url, ultimo_entrante_el",
-      );
+          "llamadas_ia_intentos, llamadas_ia_contestadas, ultimo_entrante_el",
+      )
+      .eq("org_id", ORG_ID)
+      .limit(TOPE_CONTACTOS);
     if (error) throw new Error(`closer_contactos: ${error.message}`);
 
     // El select multilínea rompe la inferencia de supabase-js (devuelve su tipo de error
     // genérico), así que el shape se declara a mano — las columnas están una línea arriba.
     const filas = (data ?? []) as unknown as FilaContacto[];
 
+    /**
+     * La etapa de cada contacto, resuelta ANTES de los indicadores porque 💰 depende de ella.
+     * Supabase manda: si Avanzar ya escribió `stage_key`, esa es la etapa. Si no, se deriva
+     * de los tags UNA vez — `etapaDesdeTags` cae en `agendado` (la etapa de ENTRADA) cuando
+     * el contacto tiene `zona_closer` y todavía ningún desenlace.
+     */
+    const etapaDe = new Map(
+      filas.map((f) => {
+        const tags = (f.tags ?? []).map((t) => t.trim().toLowerCase());
+        return [f.ghl_contact_id, (f.stage_key as ReturnType<typeof etapaDesdeTags> | null) ?? etapaDesdeTags(tags)];
+      }),
+    );
+
+    // UNA query para los 6 indicadores de TODOS los contactos. Nunca una por contacto: este
+    // endpoint corre en cada montaje del Pipeline y tras cada Avanzar.
+    const indicadores = await cargarIndicadores(
+      filas.map((f) => ({
+        ghl_contact_id: f.ghl_contact_id,
+        tags: f.tags,
+        fuente: f.fuente,
+        llamadas_ia_intentos: f.llamadas_ia_intentos,
+        llamadas_ia_contestadas: f.llamadas_ia_contestadas,
+        etapa: etapaDe.get(f.ghl_contact_id) ?? "agendado",
+        monto: f.monto,
+      })),
+    );
+
     const contactos = filas
       .map((f) => {
         const tags = (f.tags ?? []).map((t) => t.trim().toLowerCase());
         const desenlace = desenlaceDesdeTags(tags);
+        const etapa = etapaDe.get(f.ghl_contact_id) ?? "agendado";
+        const ind = indicadores.get(f.ghl_contact_id) ?? INDICADORES_VACIOS;
+
         /**
-         * Supabase manda: si Avanzar ya escribió `stage_key`, esa es la etapa. Si no, se
-         * deriva de los tags UNA vez — `etapaDesdeTags` cae en `agendado` (etapa de ENTRADA)
-         * cuando el contacto tiene `zona_closer` y todavía ningún desenlace.
+         * La cita del contacto: la próxima si tiene, y si no la última que venció.
+         *
+         * Sale de `closer_citas` (vía la vista de indicadores) y NO de `closer_contactos.cita_el`,
+         * que está muerta: solo la escribe el webhook `cita.agendada` y en producción quedó NULL
+         * en los 7 contactos. Un dato con dos orígenes posibles siempre termina con uno viejo.
+         *
+         * `vencida` replica la regla de Mi Día: una cita pasada sin Avanzar baja con el aviso,
+         * jamás desaparece (§50.10).
          */
-        const etapa = (f.stage_key as ReturnType<typeof etapaDesdeTags> | null) ?? etapaDesdeTags(tags);
+        const citaEl = ind.proximaCitaEl ?? ind.ultimaCitaVencidaEl;
+        const cita = citaEl
+          ? { el: citaEl, ...fechaHoraOrg(citaEl), meetUrl: ind.proximaMeetUrl, vencida: !ind.proximaCitaEl }
+          : null;
 
         return {
           ghlContactId: f.ghl_contact_id,
@@ -94,8 +144,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             no_show: f.razon_noshow,
             nurture: f.origen_nurture,
           },
-          citaEl: f.cita_el,
-          citaMeetUrl: f.cita_meet_url,
+          cita,
+          indicadores: ind,
           ultimoEntranteEl: f.ultimo_entrante_el,
         };
       })
@@ -110,21 +160,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const activos = contactos.filter((c) => !c.congelado);
     const enJuego = activos.filter((c) => !["ganado", "no_show", "nurture", "descalificado"].includes(c.etapa));
 
+    // `env.ghlModo()` y no `ghl().modo`: son idénticos, pero importar el adapter arrastraría
+    // el cliente HTTP completo de GHL (414 líneas, sin tree-shaking posible) al bundle de
+    // esta función, que no llama a GHL ni una vez.
+    const truncado = filas.length >= TOPE_CONTACTOS;
+
     return res.status(200).json({
       ok: true,
-      ghlModo: ghl().modo,
+      ghlModo: env.ghlModo(),
       total: contactos.length,
       /** Siempre las 7 claves (§38.D). Los congelados cuentan: siguen en su columna. */
       porEtapa: contarPorEtapa(contactos.map((c) => c.etapa)),
       contactos,
       /** Stats del doc §8.3, derivadas por query — nunca contadores sueltos. */
       stats: { baseTotal: activos.length, enJuegoActivo: enJuego.length, congelados: contactos.length - activos.length },
-      fueraDeZonaCloser: 0,
       /**
        * La caché ES la lista completa del territorio: la mantienen webhook + cron, no una
-       * paginación que pueda cortarse. `completo: true` deja de ser una promesa condicional.
+       * paginación que pueda cortarse. Solo deja de ser completa si se alcanza el tope
+       * defensivo, y en ese caso lo dice en vez de recortar en silencio.
        */
-      cobertura: { completo: true, truncado: false, totalEnGhl: null, paginasLeidas: 0, fuente: "cache" },
+      cobertura: { completo: !truncado, truncado, totalEnGhl: null, paginasLeidas: 0, fuente: "cache" },
       ...(contactos.length === 0
         ? {
             aviso:
