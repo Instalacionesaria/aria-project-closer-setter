@@ -18,7 +18,7 @@
  *
  * ── Las notas viajan crudas ──
  *
- * `{ texto, autor, creadoEl }` en ISO, nunca "8 jul · Diego M. · ...". La presentación es del
+ * `{ texto, autor, creadoEl }` en ISO, nunca "8 jul · Jorge Q. · ...". La presentación es del
  * tool (`CONTRATO-GHL.md` §0): el servidor no puede saber si la ficha va a mostrar la fecha
  * relativa, completa, o ninguna.
  */

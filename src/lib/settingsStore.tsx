@@ -50,21 +50,21 @@ export interface Sugerencia {
 const DEFAULT_MI_CUENTA: MiCuenta = {
   metaComision: 3000,
   calendarConectado: true,
-  linkPersonal: "https://cal.example.com/diego-m",
+  linkPersonal: "https://cal.example.com/jorge-q",
   sonidoVenta: "caja",
 };
 
 const SEED_COMISIONES: Record<string, number> = {
-  "Diego M.": 10,
+  "Jorge Q.": 10,
   "Ariel C.": 12,
 };
 
 /** § correcciones dashboards (2026-07-11) — comisión del Setter tiene 2 tramos (§ doc de Francisco): directa (LT que vende él) y diferida (HT que cierra el closer sobre un lead que el setter originó/rescató). */
 const SEED_COMISIONES_SETTER_LT: Record<string, number> = {
-  "Diego M.": 20,
+  "Jorge Q.": 20,
 };
 const SEED_COMISIONES_SETTER_DIFERIDA: Record<string, number> = {
-  "Diego M.": 10,
+  "Jorge Q.": 10,
 };
 
 const DEFAULT_GERENCIA: GerenciaParams = {

@@ -165,7 +165,7 @@ export function filaAContacto(f: FilaApi): ClosurerContact {
     historial: [],
     // La nota del Avanzar viaja al tab Notas con su contexto (§3).
     notas: f.seguimiento.nota
-      ? [{ id: 1, contexto: armarPildora({ stage: "seguimiento", subcategoria: situacionLabel }), texto: f.seguimiento.nota, autor: "Diego M.", fecha: "—" }]
+      ? [{ id: 1, contexto: armarPildora({ stage: "seguimiento", subcategoria: situacionLabel }), texto: f.seguimiento.nota, autor: "Jorge Q.", fecha: "—" }]
       : [],
   };
 }

@@ -67,7 +67,7 @@ export async function registrarEnOutbox(e: EntradaOutbox): Promise<void> {
  * Una nota, tal como sale de la base y tal como viaja al front.
  *
  * Campos CRUDOS: la fecha va en ISO y el autor es un nombre suelto. Componer "8 jul · Venta ·
- * Diego M." es trabajo de la vista (`CONTRATO-GHL.md` §0 — la presentación es del tool), y si
+ * Jorge Q." es trabajo de la vista (`CONTRATO-GHL.md` §0 — la presentación es del tool), y si
  * el servidor mandara ese string ya armado la ficha no podría mostrarlo de otra forma en la
  * lista y en el detalle.
  */
@@ -97,11 +97,11 @@ export interface CrearNotaInput {
 
 /**
  * Mientras haya un solo closer y ninguna sesión, el autor de una nota escrita a mano es él.
- * Duplica el `"Diego M."` que `seguimientos.ts` le pasa a `closer_registrar_seguimiento`: son
+ * Duplica el `"Jorge Q."` que `seguimientos.ts` le pasa a `closer_registrar_seguimiento`: son
  * dos casos de uso distintos y unificarlos ahora sería inventar un módulo de identidad para
  * un usuario único. Cuando haya auth, los dos leen de ahí.
  */
-export const AUTOR_POR_DEFECTO = "Diego M.";
+export const AUTOR_POR_DEFECTO = "Jorge Q.";
 
 /** Fila cruda de `closer_notas`. Vive acá para que el mapeo snake→camel esté en un solo lado. */
 interface FilaNota {

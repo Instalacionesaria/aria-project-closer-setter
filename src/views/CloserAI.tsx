@@ -448,7 +448,7 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
   const ventas = inicio?.ventas ?? 0;
   /** Comisión = cash real × el % del closer en Ajustes > Administración (§30). */
   const { comisiones } = useSettings();
-  const pct = (comisiones["Diego M."] ?? 10) / 100;
+  const pct = (comisiones["Jorge Q."] ?? 10) / 100;
   const comisionReal = Math.round(cashCollected * pct);
 
   /** Tasa de Cierre = ventas ÷ llamadas ocurridas (§6.A), con su base (§4.9). */

@@ -357,7 +357,7 @@ interface SetterCockpitBase {
   oportunidadesLTBase: number;
 }
 
-const CURRENT_SETTER_NAME = "Diego M.";
+const CURRENT_SETTER_NAME = "Jorge Q.";
 
 const SETTER_COCKPIT_BASE: SetterCockpitBase = {
   ltBruto: 500,

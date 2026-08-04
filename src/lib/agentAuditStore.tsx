@@ -357,17 +357,17 @@ export interface AdjustmentEntry {
 /** Historial de Ajustes — reproduce exactamente las capturas de referencia; "Marcar grupo resuelto" agrega filas nuevas encima. */
 const SEED_ADJUSTMENTS: AdjustmentEntry[] = [
   {
-    date: "04 Jul 2026", issue: "Promesa vacía — bonos", count: "×8", agentIcon: "💬", agentName: "Lead Flow AI", category: "Base de conocimiento", author: "Diego M.",
+    date: "04 Jul 2026", issue: "Promesa vacía — bonos", count: "×8", agentIcon: "💬", agentName: "Lead Flow AI", category: "Base de conocimiento", author: "Jorge Q.",
     diagnostico: "El agente ofrecía bonos de regalo (auditoría gratis, sesión extra) que no estaban aprobados en la oferta vigente, generando expectativas que el equipo de cierre no podía cumplir.",
     correctionBlock: "No menciones bonos, regalos o extras que no estén listados explícitamente en la base de conocimiento del producto activo.",
   },
   {
-    date: "02 Jul 2026", issue: "Tono demasiado formal", count: "×34", agentIcon: "💬", agentName: "Lead Flow AI", category: "Comportamiento", author: "Diego M.",
+    date: "02 Jul 2026", issue: "Tono demasiado formal", count: "×34", agentIcon: "💬", agentName: "Lead Flow AI", category: "Comportamiento", author: "Jorge Q.",
     diagnostico: "El agente respondía con un registro muy formal ('Estimado/a', párrafos largos) que no calzaba con el tono cercano de WhatsApp, bajando el engagement inicial.",
     correctionBlock: "Usa un tono cercano y coloquial, como si fueras un vendedor humano por WhatsApp. Evita fórmulas formales de correo electrónico.",
   },
   {
-    date: "01 Jul 2026", issue: "Cuelga al buzón de voz", count: "×12", agentIcon: "📞", agentName: "Lead Flow Voz", category: "Comportamiento", author: "Diego M.",
+    date: "01 Jul 2026", issue: "Cuelga al buzón de voz", count: "×12", agentIcon: "📞", agentName: "Lead Flow Voz", category: "Comportamiento", author: "Jorge Q.",
     diagnostico: "El agente de voz colgaba apenas detectaba el tono de buzón de voz, sin dejar un mensaje pregrabado — perdiendo la oportunidad de generar un callback.",
     correctionBlock: "Si detectás buzón de voz, dejá el mensaje pregrabado estándar antes de colgar en vez de cortar inmediatamente.",
   },
@@ -464,7 +464,7 @@ export function AgentAuditProvider({ children }: { children: React.ReactNode }) 
           agentIcon: agent?.type === "voz" ? "📞" : "💬",
           agentName: agent?.name ?? agentId,
           category: CATEGORY_LABEL[group[0].category],
-          author: "Diego M.",
+          author: "Jorge Q.",
           diagnostico: group.find((a) => a.diagnostico)?.diagnostico,
           correctionBlock: group.find((a) => a.correctionBlock)?.correctionBlock,
         },

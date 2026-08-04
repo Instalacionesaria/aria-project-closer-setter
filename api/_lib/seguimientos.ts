@@ -49,7 +49,7 @@ import { ORG_ID, db, hoyOrg } from "./repo.js";
 
 const CLOSER_POR_DEFECTO = "00000000-0000-0000-0000-0000000000c1";
 /** Un solo closer mientras `zona_closer` sea territorio y no asignación (§50.7). */
-const AUTOR_POR_DEFECTO = "Diego M.";
+const AUTOR_POR_DEFECTO = "Jorge Q.";
 
 /** Toda salida que NO es Seguimiento — no crea fila, solo cierra la que hubiera. */
 export type ResultadoSinSeguimiento = Exclude<ResultadoAvanzar, "seguimiento">;

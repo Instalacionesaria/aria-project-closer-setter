@@ -19,14 +19,14 @@ values (
 )
 on conflict (org_id) do nothing;
 
--- Closer por defecto. Reemplaza el `CURRENT_CLOSER_NAME = "Diego M."` que está hardcodeado
+-- Closer por defecto. Reemplaza el `CURRENT_CLOSER_NAME = "Jorge Q."` que está hardcodeado
 -- en closerStore.tsx. `ghl_user_id` queda null hasta que sepamos el id real del usuario en
 -- GHL — no se inventa, y sin él la atribución por closer sigue siendo de un solo usuario.
 insert into closer_usuarios (id, org_id, nombre, rol)
 values (
   '00000000-0000-0000-0000-0000000000c1',
   '00000000-0000-0000-0000-000000000001',
-  'Diego M.',
+  'Jorge Q.',
   'closer'
 )
 on conflict (id) do nothing;

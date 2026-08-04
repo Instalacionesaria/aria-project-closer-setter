@@ -43,7 +43,7 @@ import { CADENCIA, registrarReloj } from "./polling";
 const GRACIA_MS = 20_000;
 
 /** Quién firma lo que se escribe desde la app. Sin auth real, es el closer del demo (§50.7). */
-const AUTOR_ACTIVO = "Diego M.";
+const AUTOR_ACTIVO = "Jorge Q.";
 
 /** Fecha corta para la ficha ("3 ago, 17:41") — el servidor manda ISO crudo (CONTRATO §0). */
 const fechaCorta = (iso: string) =>
@@ -445,7 +445,7 @@ function buildSeedContacts(): Record<string, ClosurerContact> {
    no queda ningún número del cockpit sin un dato detrás. */
 
 /** Closer activo del demo (sin auth real) — su % vive en Ajustes > Administración > Comisiones. */
-const CURRENT_CLOSER_NAME = "Diego M.";
+const CURRENT_CLOSER_NAME = "Jorge Q.";
 
 /**
  * El efecto de un Avanzar sobre UN contacto, como función pura.
@@ -595,6 +595,18 @@ const ClosurerCtx = createContext<ClosurerStoreValue | null>(null);
 
 export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Record<string, ClosurerContact>>(() => buildSeedContacts());
+  /**
+   * Espejo SÍNCRONO del Record, para leer un contacto ANTES de despachar un setState.
+   *
+   * La trampa que motivó esto (bug de notas perdidas, 2026-08-03): leer datos "dentro" del
+   * updater de setContacts y usarlos afuera. React solo ejecuta el updater al instante si no
+   * hay otra actualización pendiente en el provider — y acá los relojes de 10s despachan
+   * actualizaciones todo el tiempo, así que a veces el updater corre DESPUÉS, la variable
+   * capturada sigue vacía, y el POST que dependía de ella jamás sale. Intermitente y sin
+   * error visible. Regla: los efectos de red se deciden leyendo este ref, nunca el updater.
+   */
+  const contactsRef = useRef(contacts);
+  contactsRef.current = contacts;
   const [openContactName, setOpenContactName] = useState<string | null>(null);
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const { comisiones } = useSettings();
@@ -858,10 +870,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   }, [refrescarAgenda]);
 
   const advance = useCallback((name: string, input: AdvanceInput) => {
-    setContacts((prev) => {
-      const c = prev[name];
-      if (!c) return prev;
-
+    // Se lee del espejo síncrono (ver contactsRef): los efectos de red NUNCA dentro del updater.
+    const c = contactsRef.current[name];
+    if (c) {
       /**
        * Contacto real + resultado Seguimiento → se persiste. El POST va sin `await`: la UI
        * ya se actualizó y no hay nada que esperar. Es optimista a propósito — si falla, la
@@ -920,8 +931,12 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
         // da tiempo a `proyectarAvance` a escribir el stage antes de releer.
         setTimeout(traerPipeline, 1_500);
       }
+    }
 
-      return { ...prev, [name]: applyAdvance(c, input) };
+    setContacts((prev) => {
+      const actual = prev[name];
+      if (!actual) return prev;
+      return { ...prev, [name]: applyAdvance(actual, input) };
     });
   }, [traerPipeline]);
 
@@ -933,17 +948,20 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * `/api/closer/notas` ya existía — lo que faltaba era llamarlo.
    */
   const addNota = useCallback((name: string, texto: string) => {
-    let ghlContactId: string | undefined;
+    // Se lee del espejo síncrono (ver contactsRef). La primera versión leía el ghlContactId
+    // DENTRO del updater de setContacts y lo chequeaba afuera — cuando React difería el
+    // updater (cosa que hace seguido con los relojes de 10s activos), el id quedaba vacío y
+    // el POST nunca salía: notas que "se guardaban" solo en pantalla, de forma intermitente.
+    const ghlContactId = contactsRef.current[name]?.ghlContactId;
 
     setContacts((prev) => {
       const c = prev[name];
       if (!c) return prev;
-      ghlContactId = c.ghlContactId;
       return {
         ...prev,
         [name]: {
           ...c,
-          notas: [{ id: Date.now(), contexto: null, texto, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas],
+          notas: [{ id: Date.now(), contexto: null, texto, autor: AUTOR_ACTIVO, fecha: "Hoy" }, ...c.notas],
         },
       };
     });
@@ -1166,7 +1184,20 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     };
 
     fetchNotas(id)
-      .then((r) => aplicar((c) => ({ ...c, notas: (r.notas ?? []).map(notaRealAItem) })))
+      .then((r) =>
+        aplicar((c) => {
+          const delServidor = (r.notas ?? []).map(notaRealAItem);
+          const enServidor = new Set(delServidor.map((n) => n.texto));
+          // MERGE, no reemplazo: si el usuario escribió una nota mientras este GET estaba en
+          // vuelo, pisarle la lista se la "desaparecía" de la pantalla (el POST seguía su
+          // curso, pero parecía perdida). Las optimistas de esta sesión que el servidor
+          // todavía no devuelve se conservan arriba.
+          const optimistas = c.notas.filter(
+            (n) => (n.fecha === "Hoy" || n.fecha.startsWith("⚠")) && !enServidor.has(n.texto),
+          );
+          return { ...c, notas: [...optimistas, ...delServidor] };
+        }),
+      )
       .catch(() => {
         /* backend caído: se conserva lo que hubiera en memoria, no se inventa nada */
       });

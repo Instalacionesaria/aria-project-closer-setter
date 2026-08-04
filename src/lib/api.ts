@@ -412,7 +412,7 @@ export function fetchPipeline(): Promise<PipelineResponse> {
  * semilla en `closerStore.tsx`: son formas distintas y conviven en la misma ficha.
  *
  * Los campos viajan CRUDOS. `creadoEl` es ISO y `autor` un nombre suelto — componer
- * "8 jul · Venta · Diego M." es de la vista, no del servidor.
+ * "8 jul · Venta · Jorge Q." es de la vista, no del servidor.
  */
 export interface NotaReal {
   id: string;

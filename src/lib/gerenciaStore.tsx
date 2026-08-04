@@ -216,7 +216,7 @@ export function useGerenciaMetrics(period: GerenciaPeriodKey): GerenciaMetrics {
     const liveTotal = liveSinIntervencion + liveConRescate;
     const liveAutomatizacionPct = liveTotal > 0 ? Math.round((liveSinIntervencion / liveTotal) * 100) : null;
 
-    // Equipo — 100% en vivo, mismo persona demo que "Diego M." usa en el resto de la app (§17/§26/§30) tanto para Closer como para Setter (un solo usuario demo jugando ambos roles, sin auth real).
+    // Equipo — 100% en vivo, mismo persona demo que "Jorge Q." usa en el resto de la app (§17/§26/§30) tanto para Closer como para Setter (un solo usuario demo jugando ambos roles, sin auth real).
     const asistieronCloserLive = Object.values(closerContacts).filter((c) => c.stage !== "agendado" && c.stage !== "no_show").length;
     const closerCloseRateLive = asistieronCloserLive > 0 ? Math.round((closerCockpit.ventas / asistieronCloserLive) * 100) : 0;
     const closerTicketPromedio = closerCockpit.ventas > 0 ? Math.round(closerCockpit.cashCollected / closerCockpit.ventas) : 0;
@@ -263,14 +263,14 @@ export function useGerenciaMetrics(period: GerenciaPeriodKey): GerenciaMetrics {
       objetivoFacturacion: gerencia.objetivoFacturacion,
       equipo: {
         closer: {
-          nombre: "Diego M.",
+          nombre: "Jorge Q.",
           cashCerrado: closerCockpit.cashCollected,
           closeRate: closerCloseRateLive,
           ticketPromedio: closerTicketPromedio,
           comision: closerCockpit.comision,
         },
         setter: {
-          nombre: "Diego M.",
+          nombre: "Jorge Q.",
           agendasRescatadas: setterCockpit.agendasGeneradas,
           tasaRescate: setterTasaRescate,
           ventasLT: setterCockpit.ltVentasCount,

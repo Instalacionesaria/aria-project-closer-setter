@@ -91,7 +91,7 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ── Usuarios ────────────────────────────────────────────────────────────────
--- Reemplaza el `CURRENT_CLOSER_NAME = "Diego M."` hardcodeado en closerStore.tsx.
+-- Reemplaza el `CURRENT_CLOSER_NAME = "Jorge Q."` hardcodeado en closerStore.tsx.
 
 create table if not exists closer_usuarios (
   id          uuid primary key default gen_random_uuid(),
