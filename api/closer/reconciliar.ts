@@ -100,7 +100,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     /* ── 2. Los contactos del territorio, desde la caché (0 llamadas) ──── */
     const { data: filas, error: errContactos } = await db()
       .from("closer_contactos")
-      .select("ghl_contact_id, tags, congelado, buzon_resuelto_el, last_message_ghl_at");
+      .select("ghl_contact_id, tags, congelado, buzon_resuelto_el, last_message_ghl_at")
+      // Con una sola org el comportamiento no cambia, pero es lo que vuelve elegibles los
+      // índices compuestos `(org_id, …)` que ya existen — sin WHERE ningún índice puede
+      // ayudar, y esta query corre cada 10 segundos.
+      .eq("org_id", ORG_ID)
+      .limit(2000);
     if (errContactos) throw new Error(`closer_contactos: ${errContactos.message}`);
 
     const porId = new Map<string, ContactoCacheado>();

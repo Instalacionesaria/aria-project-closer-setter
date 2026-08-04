@@ -18,7 +18,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { hoyISO, ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
 import { offsetOrg } from "../_lib/citas.js";
-import { ghl } from "../_lib/ghl/index.js";
+import { env } from "../_lib/env.js";
 import { db, hoyOrg } from "../_lib/repo.js";
 
 /** Fecha civil (YYYY-MM-DD) de un timestamp, en la zona de la organización. */
@@ -97,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       mes: nombreMes,
       rango: { desde: inicioMesIso, hasta: hoy },
       zonaHoraria: ZONA_HORARIA_ORG,
-      ghlModo: ghl().modo,
+      ghlModo: env.ghlModo(),
       cashCollected,
       ventas: ventas.length,
       sobreLaMesa,

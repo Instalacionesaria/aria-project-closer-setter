@@ -418,8 +418,16 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
       {/* Hero negro/dorado */}
       <div className="rounded-[32px] bg-[#0a0a0a] p-8 sm:p-12 relative overflow-hidden flex flex-col justify-between border border-white/5 shadow-2xl">
         <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] sm:w-[800px] h-[600px] sm:h-[800px] bg-[#D4AF37]/5 rounded-full blur-[80px] sm:blur-[100px] pointer-events-none animate-pulse"
-          style={{ animationDuration: "4s" }}
+          /* `will-change` + `translateZ(0)` promueven esto a su propia capa de composición:
+             una superficie difuminada de 800px se rasteriza UNA vez y el pulso corre en el
+             compositor, en vez de repintar el blur en cada frame mientras el tab esté abierto.
+             Mismo aspecto, sin el costo. */
+          style={{
+            willChange: "opacity",
+            transform: "translate(-50%, -50%) translateZ(0)",
+            animationDuration: "4s",
+          }}
+          className="absolute top-1/2 left-1/2 w-[600px] sm:w-[800px] h-[600px] sm:h-[800px] bg-[#D4AF37]/5 rounded-full blur-[80px] sm:blur-[100px] pointer-events-none animate-pulse motion-reduce:animate-none"
         />
         <div className="flex flex-col md:flex-row gap-12 items-start md:items-center justify-between relative z-10">
           {/* Izquierda */}

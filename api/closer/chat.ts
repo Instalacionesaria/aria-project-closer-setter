@@ -9,7 +9,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
-import { ghl } from "../_lib/ghl/index.js";
+import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -50,7 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).json({
       ok: true,
       conversationId: data?.[0]?.conversation_id ?? null,
-      ghlModo: ghl().modo,
+      ghlModo: env.ghlModo(),
       fuente: "cache",
       count: messages.length,
       messages,
