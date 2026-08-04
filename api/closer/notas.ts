@@ -1,8 +1,9 @@
 /**
  * `/api/closer/notas` — el tab Notas de la ficha del contacto.
  *
- *   GET  ?ghlContactId=...            → las notas del contacto, la más reciente primero.
- *   POST { ghlContactId, texto, ... } → agrega una nota.
+ *   GET    ?ghlContactId=...            → las notas del contacto, la más reciente primero.
+ *   POST   { ghlContactId, texto, ... } → agrega una nota.
+ *   DELETE ?id=...                      → borra UNA nota por su id (pedido de Fabio, 2026-08-03).
  *
  * ── Por qué las notas no son eventos del historial ──
  *
@@ -24,7 +25,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { acotarLimite, crearNota, leerNotas } from "../_lib/repo.js";
+import { acotarLimite, crearNota, eliminarNota, leerNotas } from "../_lib/repo.js";
 
 /** Cuántas notas devuelve una lectura sin `?limite=`. Un contacto rara vez pasa de unas pocas. */
 const NOTAS_POR_DEFECTO = 100;
@@ -32,9 +33,10 @@ const NOTAS_POR_DEFECTO = 100;
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "GET") return listar(req, res);
   if (req.method === "POST") return crear(req, res);
+  if (req.method === "DELETE") return eliminar(req, res);
 
-  res.setHeader("Allow", "GET, POST");
-  return res.status(405).json({ ok: false, error: "Solo GET y POST." });
+  res.setHeader("Allow", "GET, POST, DELETE");
+  return res.status(405).json({ ok: false, error: "Solo GET, POST y DELETE." });
 }
 
 /* ── GET ─────────────────────────────────────────────────────────────── */
@@ -98,6 +100,23 @@ async function crear(req: VercelRequest, res: VercelResponse) {
     // 201 con la fila ya escrita: el front la agrega a la lista sin volver a pedir el GET, y
     // con el `id` y el `creadoEl` REALES de la base, no con los que inventaría el browser.
     return res.status(201).json({ ok: true, nota });
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: (e as Error).message });
+  }
+}
+
+/* ── DELETE ──────────────────────────────────────────────────────────── */
+
+async function eliminar(req: VercelRequest, res: VercelResponse) {
+  const id = unParametro(req.query.id)?.trim();
+  if (!id) return malo(res, "Falta id.", "id_faltante");
+
+  try {
+    const borrada = await eliminarNota(id);
+    // 404 honesto: si el id no existe (ya borrada en otra pestaña, o un id inventado), quien
+    // llama tiene que enterarse — un 200 dejaría al front creyendo que borró algo real.
+    if (!borrada) return res.status(404).json({ ok: false, codigo: "nota_inexistente", error: "No existe una nota con ese id." });
+    return res.status(200).json({ ok: true, id });
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error).message });
   }

@@ -471,6 +471,24 @@ export function crearNota(body: CrearNotaBody): Promise<CrearNotaResponse> {
   return pedir<CrearNotaResponse>(`/api/closer/notas`, conJson(body));
 }
 
+/**
+ * Borra una nota por su id REAL (el uuid de `closer_notas`, no el id numérico de la vista).
+ * Lanza si el servidor la rechaza (id inexistente → 404) — quien llama decide si restaurar
+ * la nota en pantalla.
+ */
+export function eliminarNota(id: string): Promise<{ ok: boolean; id: string }> {
+  return pedir(`/api/closer/notas?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/**
+ * Borra un lead de LA PLATAFORMA (fila de `closer_contactos` + todo su rastro en Supabase).
+ * GHL no se toca — el contacto sigue intacto allá, y puede volver a darse de alta si agenda
+ * una cita nueva (el webhook/cron lo re-crea por upsert, §51.3).
+ */
+export function eliminarContacto(ghlContactId: string): Promise<{ ok: boolean; existia: boolean }> {
+  return pedir(porContacto(`/api/closer/contactos`, ghlContactId), { method: "DELETE" });
+}
+
 /* ================================================================== */
 /* Historial del contacto (tab Historial)                              */
 /* ================================================================== */

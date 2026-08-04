@@ -13,6 +13,8 @@ import { etapaDesdeTags } from "./ghl/etapas";
 import { armarPildora } from "./pildora";
 import {
   crearNota,
+  eliminarContacto,
+  eliminarNota,
   fetchAgendaRange,
   fetchHistorial,
   fetchMiDiaCompleto,
@@ -65,6 +67,7 @@ const notaRealAItem = (n: NotaReal): NotaItem => ({
   texto: n.texto,
   autor: n.autor,
   fecha: fechaCorta(n.creadoEl),
+  realId: n.id,
 });
 
 /** Un evento de la base → la forma que ya consume el tab Historial. */
@@ -132,6 +135,8 @@ export interface NotaItem {
   texto: string;
   autor: string;
   fecha: string;
+  /** El uuid de `closer_notas` — presente SOLO en notas reales; con él se borra en el servidor. */
+  realId?: string;
 }
 
 /**
@@ -563,6 +568,10 @@ interface ClosurerStoreValue {
   closeContact: () => void;
   advance: (name: string, input: AdvanceInput) => void;
   addNota: (name: string, texto: string) => void;
+  /** Borra una nota (X roja del tab Notas). Real → también de `closer_notas`; semilla → solo memoria. */
+  removeNota: (name: string, id: number) => void;
+  /** Elimina el lead de la plataforma y de Supabase — GHL no se toca (puede volver si agenda de nuevo). */
+  deleteContact: (name: string) => void;
   /** "Marcar como Resuelto" en Intervenciones Urgentes: libera al contacto de la cola roja y reactiva la IA. */
   resolveIntervention: (name: string) => void;
   /** Cambios de estado del toggle 🤖 (manuales o automáticos) — siempre escribe su evento en Historial. */
@@ -998,6 +1007,73 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       });
   }, []);
 
+  /**
+   * Borra UNA nota (la X roja del tab Notas, pedido de Fabio 2026-08-03).
+   *
+   * Optimista: sale de la pantalla al instante. Si es una nota real (tiene `realId`) también
+   * se borra de `closer_notas`; si ese DELETE falla, se re-piden las notas del servidor para
+   * que la pantalla vuelva a la verdad en vez de quedarse mintiendo que se borró.
+   */
+  const removeNota = useCallback((name: string, id: number) => {
+    const c = contactsRef.current[name];
+    if (!c) return;
+    const nota = c.notas.find((n) => n.id === id);
+    if (!nota) return;
+
+    setContacts((prev) => {
+      const actual = prev[name];
+      if (!actual) return prev;
+      return { ...prev, [name]: { ...actual, notas: actual.notas.filter((n) => n.id !== id) } };
+    });
+
+    if (!nota.realId || !c.ghlContactId) return; // optimista/semilla: solo memoria
+
+    const ghlContactId = c.ghlContactId;
+    eliminarNota(nota.realId).catch((e) => {
+      console.error("La nota no se pudo borrar:", e);
+      fetchNotas(ghlContactId)
+        .then((r) =>
+          setContacts((prev) => {
+            const actual = prev[name];
+            if (!actual) return prev;
+            return { ...prev, [name]: { ...actual, notas: (r.notas ?? []).map(notaRealAItem) } };
+          }),
+        )
+        .catch(() => {
+          /* backend caído: no hay verdad que restaurar */
+        });
+    });
+  }, []);
+
+  /**
+   * Elimina un lead de LA PLATAFORMA (pedido de Fabio, 2026-08-03): desaparece de todas las
+   * vistas y su rastro se borra de Supabase. **GHL no se toca** — si el contacto sigue en
+   * territorio (`zona_closer`) y agenda una cita nueva, el webhook/cron lo re-crea como alta
+   * nueva (§51.3). La ficha se cierra primero para no quedar abierta sobre un fantasma.
+   */
+  const deleteContact = useCallback((name: string) => {
+    const c = contactsRef.current[name];
+    if (!c) return;
+
+    setOpenContactName(null);
+    setOpenGhlContactId(null);
+    setContacts((prev) => {
+      const { [name]: _fuera, ...resto } = prev;
+      return resto;
+    });
+
+    if (!c.ghlContactId) return; // semilla/demo: con sacarlo del Record alcanza
+
+    eliminarContacto(c.ghlContactId)
+      .then(() => traerPipeline())
+      .catch((e) => {
+        // Si el borrado remoto falla, el próximo refresco del Pipeline lo va a traer de
+        // vuelta — preferible a que parezca borrado sin estarlo.
+        console.error("El contacto no se pudo eliminar del servidor:", e);
+        traerPipeline();
+      });
+  }, [traerPipeline]);
+
   const resolveIntervention = useCallback((name: string) => {
     setContacts((prev) => {
       const c = prev[name];
@@ -1242,6 +1318,8 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     },
     advance,
     addNota,
+    removeNota,
+    deleteContact,
     resolveIntervention,
     setBotEstado,
     pinTask,

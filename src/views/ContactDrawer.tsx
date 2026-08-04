@@ -40,6 +40,7 @@ import {
   Pin,
   RotateCcw,
   Check,
+  Trash2,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { isoEnDias, fechaCorta } from "../lib/fechas";
@@ -1077,6 +1078,8 @@ export default function ContactDrawer({
   onAdvance,
   onSetterAdvance,
   onAddNota,
+  onDeleteNota,
+  onDeleteContact,
   onResolveIntervention,
   onBotStateChange,
   onPin,
@@ -1095,6 +1098,10 @@ export default function ContactDrawer({
   onAdvance?: (result: AvanzarResult) => void;
   onSetterAdvance?: (input: SetterAdvanceInput) => void;
   onAddNota?: (texto: string) => void;
+  /** Borra una nota puntual (la X roja del tab Notas). */
+  onDeleteNota?: (id: number) => void;
+  /** Elimina el lead de la plataforma (con confirmación) — sin él, el botón no se renderiza. */
+  onDeleteContact?: () => void;
   /** "Marcar como Resuelto" en Intervenciones Urgentes — libera al contacto y reactiva la IA. */
   onResolveIntervention?: () => void;
   /** Cambios de estado del toggle 🤖. */
@@ -1110,6 +1117,8 @@ export default function ContactDrawer({
   const [avanzarOpen, setAvanzarOpen] = useState(false);
   const [celebrate, setCelebrate] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Confirmación del botón "eliminar lead" (junto a la píldora) — eliminar sin confirmar no existe.
+  const [confirmDeleteLead, setConfirmDeleteLead] = useState(false);
   const { miCuenta } = useSettings();
 
   // Fallback local — red de seguridad si algún día ContactDrawer se invoca sin contact/setterContact de una store.
@@ -1237,6 +1246,11 @@ export default function ContactDrawer({
     else setLocalNotas((prev) => [{ id: Date.now(), contexto: null, texto, autor: "Usuario Activo", fecha: "Hoy" }, ...prev]);
   };
 
+  const handleDeleteNota = (id: number) => {
+    if (onDeleteNota) onDeleteNota(id);
+    else setLocalNotas((prev) => prev.filter((n) => n.id !== id));
+  };
+
   return (
     <>
       {/* Overlay */}
@@ -1302,6 +1316,47 @@ export default function ContactDrawer({
               <div className={pildoraCls}>
                 {pildora}
               </div>
+              {/* Eliminar lead (pedido de Fabio, 2026-08-03) — lo saca de la plataforma y de
+                  Supabase, NUNCA de GHL. Siempre con confirmación. */}
+              {onDeleteContact && (
+                <div className="relative shrink-0">
+                  <button
+                    onClick={() => setConfirmDeleteLead(true)}
+                    title="Eliminar lead de la plataforma"
+                    className="h-6 w-6 flex items-center justify-center rounded-md text-muted-foreground/40 hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                  {confirmDeleteLead && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setConfirmDeleteLead(false)} />
+                      <div className="absolute left-0 top-full mt-2 z-40 w-64 bg-popover text-popover-foreground border border-border rounded-xl shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150">
+                        <p className="text-xs font-semibold text-foreground mb-1">¿Eliminar este lead?</p>
+                        <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
+                          Desaparece de la plataforma y de la base de datos. En GHL no se borra nada.
+                        </p>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => setConfirmDeleteLead(false)}
+                            className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-muted transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={() => {
+                              setConfirmDeleteLead(false);
+                              onDeleteContact();
+                            }}
+                            className="text-xs px-3 py-1.5 rounded-md bg-red-600 text-white hover:bg-red-700 transition-colors font-medium"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-4 shrink-0">
               {salesCallsCount > 0 ? (
@@ -1409,7 +1464,7 @@ export default function ContactDrawer({
           {tab === "llamada" && <LlamadaTab llamadas={llamadas} />}
           {tab === "perfil" && <PerfilTab perfil={perfilFields} videoPreCall={videoPreCall} llamadas={llamadas} />}
           {tab === "historial" && <HistorialTab items={historial} />}
-          {tab === "notas" && <NotasTab items={notas} onAdd={handleAddNota} />}
+          {tab === "notas" && <NotasTab items={notas} onAdd={handleAddNota} onDelete={handleDeleteNota} />}
         </div>
       </div>
 
@@ -2275,7 +2330,7 @@ function HistorialTab({ items }: { items: HistorialItem[] }) {
 }
 
 /* ---------- Notas ---------- */
-function NotasTab({ items, onAdd }: { items: NotaItem[]; onAdd: (texto: string) => void }) {
+function NotasTab({ items, onAdd, onDelete }: { items: NotaItem[]; onAdd: (texto: string) => void; onDelete: (id: number) => void }) {
   const [draft, setDraft] = useState("");
 
   const submit = () => {
@@ -2290,8 +2345,17 @@ function NotasTab({ items, onAdd }: { items: NotaItem[]; onAdd: (texto: string) 
       <div className="flex-1 p-6 overflow-y-auto scrollbar-thin">
         <div className="space-y-4">
           {items.map((n) => (
-            <div key={n.id} className="bg-muted/40 p-4 rounded-2xl text-sm border border-border/40 shadow-sm">
-              <p className="text-foreground whitespace-pre-wrap leading-relaxed">
+            <div key={n.id} className="group relative bg-muted/40 p-4 rounded-2xl text-sm border border-border/40 shadow-sm">
+              {/* X roja al pasar el mouse (pedido de Fabio, 2026-08-03): borra la nota de la
+                  pantalla Y de la base cuando es real. Sin confirmación — es una nota, no un lead. */}
+              <button
+                onClick={() => onDelete(n.id)}
+                title="Eliminar nota"
+                className="absolute top-2 right-2 h-6 w-6 flex items-center justify-center rounded-full text-red-500 opacity-0 group-hover:opacity-100 hover:bg-red-500/10 transition-all"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+              <p className="text-foreground whitespace-pre-wrap leading-relaxed pr-6">
                 {n.contexto ? (
                   <>
                     junto a {n.contexto} · {n.autor}: "{n.texto}"

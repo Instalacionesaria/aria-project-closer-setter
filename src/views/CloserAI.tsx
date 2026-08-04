@@ -2034,7 +2034,7 @@ function AgendaTab() {
 
 function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
   const [tab, setTab] = useState<TabKey>("inicio");
-  const { contacts, openContactName, openGhlContactId, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useClosurer();
+  const { contacts, openContactName, openGhlContactId, closeContact, advance, addNota, removeNota, deleteContact, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useClosurer();
   const { resolveAlertsForContact } = useAgentAudit();
   const openContact = contacts[openContactName ?? ""] ?? null;
 
@@ -2072,6 +2072,8 @@ function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) =>
           advance(openContactName, { ...result, stage: result.stage, situacion: result.situacionSlug })
         }
         onAddNota={(texto) => openContactName && addNota(openContactName, texto)}
+        onDeleteNota={(id) => openContactName && removeNota(openContactName, id)}
+        onDeleteContact={() => openContactName && deleteContact(openContactName)}
         onResolveIntervention={() => {
           if (!openContactName) return;
           resolveIntervention(openContactName);

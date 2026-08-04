@@ -175,6 +175,18 @@ export async function crearNota(input: CrearNotaInput): Promise<Nota> {
   return aNota(data as FilaNota);
 }
 
+/**
+ * Borra una nota por id. Devuelve `true` si la fila existía (y se borró), `false` si no —
+ * el endpoint convierte ese `false` en 404 en vez de responder un 200 mentiroso sobre algo
+ * que nunca estuvo.
+ */
+export async function eliminarNota(id: string): Promise<boolean> {
+  const { data, error } = await db().from("closer_notas").delete().eq("id", id).select("id");
+
+  if (error) throw new Error(`eliminar nota: ${error.message}`);
+  return (data ?? []).length > 0;
+}
+
 /* ================================================================== */
 /* Historial del contacto                                              */
 /* ================================================================== */
