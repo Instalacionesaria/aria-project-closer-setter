@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -31,8 +31,11 @@ import {
   Zap,
   Loader2,
   TriangleAlert,
+  Snowflake,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { StatusIcons } from "../components/StatusIcons";
+import { INDICADORES_VACIOS, type IndicadoresContacto } from "../lib/indicadores";
 import { fetchInicio, type AgendaAppointment, type InicioResponse } from "../lib/api";
 import { CADENCIA, usePolling } from "../lib/polling";
 import ContactDrawer from "./ContactDrawer";
@@ -44,14 +47,10 @@ import {
   useClosurer,
   STAGE_META,
   STAGE_ORDER,
-  botIconVisual,
-  countCallsContestadas,
-  countSalesCalls,
+  indicadoresDe,
   pendingTasksBreakdown,
   type Grade,
   type ClosurerContact,
-  type BotEstado,
-  type CallRecord,
   type StageKey,
 } from "../lib/closerStore";
 import { useSettings } from "../lib/settingsStore";
@@ -97,63 +96,12 @@ function Avatar({ grade }: { grade?: Grade }) {
   );
 }
 
-/** Columna de ancho fijo para cada ícono de estado — garantiza que todas las filas alineen entre sí, aunque un slot (ej. 📞 "2✗") sea más ancho que un ícono suelto. */
-function IconSlot({ children, wide = false }: { children: React.ReactNode; wide?: boolean }) {
-  return <div className={cn("flex items-center justify-center shrink-0", wide ? "w-7" : "w-3.5")}>{children}</div>;
-}
+/* `IconSlot`, `CallsBadge`, `VideoCallBadge` y `BotIcon` se movieron a
+   `src/components/StatusIcons.tsx` el 2026-08-04. Vivían acá y estaban copiados —con
+   variaciones— en cinco vitrinas distintas; ahora hay un solo componente que recibe el
+   bloque `indicadores` completo del backend. `botIconVisual` sigue en `closerStore.tsx`
+   porque la comparte el toggle del compositor (regla D.7 de §25). */
 
-/**
- * 📞 con contador de llamadas de IA contestadas — regla de oro: 0 = icono atenuado, sin número.
- * Derivado de `contact.llamadas` (§ auditoría íconos, 2026-07-10) — nunca un campo seteado a mano.
- * Cuenta ÚNICAMENTE Lead Flow Voz + App Flow Voz; las sales calls jamás suman aquí (regla de la spec).
- */
-function CallsBadge({ llamadas }: { llamadas?: CallRecord[] }) {
-  const count = countCallsContestadas(llamadas);
-  if (count === 0) {
-    return <Phone className="w-3.5 h-3.5 text-[#6b6980]/25 shrink-0" />;
-  }
-  return (
-    <span className="flex items-center gap-0.5 text-[11px] font-semibold shrink-0 text-[#6b6980]">
-      <Phone className="w-3.5 h-3.5" />
-      {count}✓
-    </span>
-  );
-}
-
-/**
- * 📹 con contador de llamadas/reuniones con el closer (2026-07-11) — reemplaza al viejo flag 🎙
- * y a la derivación por `agenda.meetUrl`. Mismo patrón que `CallsBadge`: 0 = ícono atenuado sin número.
- */
-function VideoCallBadge({ llamadas }: { llamadas?: CallRecord[] }) {
-  const count = countSalesCalls(llamadas);
-  if (count === 0) {
-    return <Video className="w-3.5 h-3.5 text-[#6b6980]/25 shrink-0" />;
-  }
-  return (
-    <span className="flex items-center gap-0.5 text-[11px] font-semibold shrink-0 text-[#6b6980]">
-      <Video className="w-3.5 h-3.5" />
-      {count}
-    </span>
-  );
-}
-
-/** 🤖 — misma fuente de verdad que el toggle del compositor (botIconVisual, regla D.7). "LT" = derivado a low-ticket. */
-function BotIcon({ estado }: { estado?: BotEstado }) {
-  const v = botIconVisual(estado);
-  if (v.label) {
-    return (
-      <span className={cn("flex items-center gap-0.5 text-[11px] font-semibold shrink-0", v.className)} title={v.title}>
-        <Bot className="w-3.5 h-3.5" />
-        {v.label}
-      </span>
-    );
-  }
-  return (
-    <span className="flex items-center shrink-0" title={v.title}>
-      <Bot className={cn("w-3.5 h-3.5", v.className)} />
-    </span>
-  );
-}
 
 /**
  * Fila de contacto de Mi Día — estructura inquebrantable compartida por
@@ -238,32 +186,7 @@ function MiDiaRow({
         </div>
       </div>
       <div className="flex items-center gap-4 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <IconSlot wide>
-            <VideoCallBadge llamadas={c.llamadas} />
-          </IconSlot>
-          <IconSlot>
-            <Calendar
-              className={cn("w-3.5 h-3.5", c.agenda ? "text-[#6b6980]" : "text-[#6b6980]/25")}
-            />
-          </IconSlot>
-          <IconSlot wide>
-            <CallsBadge llamadas={c.llamadas} />
-          </IconSlot>
-          <IconSlot wide>
-            <BotIcon estado={c.botEstado} />
-          </IconSlot>
-          <IconSlot>
-            <AlarmClock
-              className={cn("w-3.5 h-3.5", c.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")}
-            />
-          </IconSlot>
-          <IconSlot>
-            <DollarSign
-              className={cn("w-3.5 h-3.5", c.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")}
-            />
-          </IconSlot>
-        </div>
+        <StatusIcons ind={indicadoresDe(c)} />
         <ChevronRight className="w-4 h-4 text-muted-foreground/50 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" />
       </div>
     </div>
@@ -688,10 +611,12 @@ type AgendaWidgetItem = {
   contactId?: string;
   grade?: Grade;
   agenda: { time: string; meetUrl?: string; badge?: string; briefing?: string; videoPre?: string };
-  llamadas?: CallRecord[];
-  botEstado?: BotEstado;
-  seguimientoAutomaticoActivo?: boolean;
-  stage?: StageKey;
+  /**
+   * Los 6 íconos, del backend. Antes acá había `llamadas`/`botEstado`/`seguimientoAutomaticoActivo`
+   * sueltos que el mapeo rellenaba con `[]`/`undefined`/`false` — apagaba los íconos de
+   * contactos que sí tenían el dato. Un objeto entero no se puede completar a medias.
+   */
+  indicadores: IndicadoresContacto;
 };
 
 function MiDiaTab() {
@@ -734,9 +659,7 @@ function MiDiaTab() {
       // Cita vencida sin Avanzar: microtexto/tinte, jamás desaparece (doc §8.2).
       badge: c.vencida ? "vencida" : undefined,
     },
-    llamadas: [],
-    botEstado: undefined,
-    seguimientoAutomaticoActivo: false,
+    indicadores: c.indicadores ?? INDICADORES_VACIOS,
   }));
   const agendaLoading = false;
   const agendaError: string | null = null;
@@ -956,26 +879,7 @@ function MiDiaTab() {
                         <Video className="w-4 h-4" />
                       </div>
                     )}
-                    <div className="flex items-center gap-2.5">
-                      <IconSlot wide>
-                        <VideoCallBadge llamadas={item.llamadas} />
-                      </IconSlot>
-                      <IconSlot>
-                        <Calendar className="w-3.5 h-3.5 text-[#6b6980]" />
-                      </IconSlot>
-                      <IconSlot wide>
-                        <CallsBadge llamadas={item.llamadas} />
-                      </IconSlot>
-                      <IconSlot wide>
-                        <BotIcon estado={item.botEstado} />
-                      </IconSlot>
-                      <IconSlot>
-                        <AlarmClock className={cn("w-3.5 h-3.5", item.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
-                      </IconSlot>
-                      <IconSlot>
-                        <DollarSign className={cn("w-3.5 h-3.5", item.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} />
-                      </IconSlot>
-                    </div>
+                    <StatusIcons ind={item.indicadores} />
                     <button
                       onClick={() => toggleAgendaExpanded(item.name)}
                       className="ml-2 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-muted/50"
@@ -1137,98 +1041,206 @@ function MiDiaTab() {
 /* ================================================================== */
 
 
-/** Un agendado REAL (de la agenda de GHL) para la columna "Agendado" del Pipeline. */
-type PipelineAgendaContact = { name: string; contactId?: string; whenLabel: string; time: string };
-
-/** Fila del Pipeline para un agendado real — misma estructura visual que las filas del store, pero con datos de GHL (score "—", 📅 encendido). */
-function PipelineAgendaRow({ a, onOpen }: { a: PipelineAgendaContact; onOpen: (name: string, contactId?: string) => void }) {
+/**
+ * Chip del contacto que perdió `zona_closer` en GHL.
+ *
+ * Sigue visible y movible (§51.3) — solo se distingue. Sin esta marca, un contacto fuera del
+ * territorio se veía pixel por pixel igual a uno activo, y hoy son 2 de 9.
+ */
+function ChipCongelado() {
   return (
-    <tr className="transition-all duration-200 border-b border-border/30 group cursor-pointer bg-transparent hover:bg-muted/10">
+    <span
+      title="Perdió el tag zona_closer en GHL. Sigue visible y movible, pero el tool no le manda mensajes ni gasta llamadas por él."
+      className="inline-flex items-center gap-1 rounded-full h-6 px-2 text-[10px] uppercase tracking-wider font-semibold
+                 bg-slate-100 text-slate-600 border border-slate-200
+                 dark:bg-slate-500/15 dark:text-slate-300 dark:border-slate-500/30"
+    >
+      <Snowflake className="w-3 h-3" /> Fuera de zona
+    </span>
+  );
+}
+
+/**
+ * LA fila del Pipeline — una sola para las 7 etapas.
+ *
+ * Antes había dos: esta y `PipelineAgendaRow`, que se armaba desde la caché de CITAS en vez
+ * de la etapa. Esa bifurcación es la que dejaba a los contactos agendados sin cita fuera de
+ * toda la pantalla (Enrique Izaguirre y Fidel no tenían fila en ninguna parte, aunque el
+ * contador los contara), y de paso hacía que el filtro por grade no tuviera efecto sobre esa
+ * columna y que sus 6 íconos estuvieran hardcodeados en apagado.
+ *
+ * La regla que queda: **la etapa manda la columna; la cita es un dato de la fila.**
+ */
+const PipelineRow = memo(function PipelineRow({
+  r,
+  meta,
+  hoyOrg,
+  onOpen,
+}: {
+  r: ClosurerContact;
+  meta: (typeof STAGE_META)[StageKey];
+  hoyOrg: string;
+  onOpen: (name: string, contactId?: string) => void;
+}) {
+  const clave = r.ghlContactId ?? r.name;
+  return (
+    <tr
+      className={cn(
+        "transition-all duration-200 border-b border-border/30 group cursor-pointer bg-transparent hover:bg-muted/10",
+        // Atenuado, no `grayscale`: la letra de score sigue siendo un dato vigente.
+        r.congelado && "opacity-60 hover:opacity-100",
+      )}
+    >
       <td className="p-4 align-middle font-medium whitespace-nowrap px-8 py-4">
         <div className="flex items-center gap-4">
-          <Avatar />
+          <Avatar grade={r.grade} />
           <span
-            onClick={() => onOpen(a.name, a.contactId)}
+            onClick={() => onOpen(clave, r.ghlContactId)}
             className="w-40 truncate uppercase tracking-wide text-xs cursor-pointer hover:text-primary transition-colors flex items-center gap-1.5"
           >
-            {a.name}
+            {r.name}
+            {r.pinned && <Pin className="w-3 h-3 text-amber-500 shrink-0" />}
           </span>
-          <div className="flex items-center gap-2.5 shrink-0 ml-4">
-            <IconSlot wide><VideoCallBadge /></IconSlot>
-            <IconSlot><Calendar className="w-3.5 h-3.5 text-[#6b6980]" /></IconSlot>
-            <IconSlot wide><CallsBadge /></IconSlot>
-            <IconSlot wide><BotIcon estado={undefined} /></IconSlot>
-            <IconSlot><AlarmClock className="w-3.5 h-3.5 text-[#6b6980]/25" /></IconSlot>
-            <IconSlot><DollarSign className="w-3.5 h-3.5 text-[#6b6980]/25" /></IconSlot>
+          <div className="shrink-0 ml-4">
+            <StatusIcons ind={indicadoresDe(r)} />
           </div>
         </div>
       </td>
       <td className="p-4 align-middle px-8 py-4">
-        <div className={cn("inline-flex items-center rounded-full py-0.5 h-6 text-[10px] uppercase tracking-wider font-semibold border-0 shadow-none px-2", STAGE_META.agendado.pill)}>
-          AGENDADO
+        <div className="flex items-center gap-2">
+          <div
+            className={cn(
+              "inline-flex items-center rounded-full py-0.5 h-6 text-[10px] uppercase tracking-wider font-semibold border-0 shadow-none px-2",
+              meta.pill,
+            )}
+          >
+            {r.situacion}
+          </div>
+          {r.congelado && <ChipCongelado />}
         </div>
       </td>
       <td className="p-4 align-middle px-8 py-4">
-        <div className="flex flex-col">
-          <span className="text-xs text-foreground font-medium capitalize">{a.whenLabel}</span>
-          <span className="text-[10px] text-muted-foreground">{a.time}</span>
-        </div>
+        {/* Cita futura → día + hora. Vencida → lo mismo en ámbar: una cita pasada sin Avanzar
+            nunca desaparece (§50.10). Sin cita → la última actividad de siempre. */}
+        {r.cita ? (
+          <div className="flex flex-col">
+            <span
+              className={cn(
+                "text-xs font-medium capitalize flex items-center gap-1",
+                r.cita.vencida ? "text-amber-600 dark:text-amber-400" : "text-foreground",
+              )}
+            >
+              <Calendar className="w-3 h-3 shrink-0" />
+              {r.cita.vencida && "Vencida · "}
+              {relDayLabel(r.cita.fecha, hoyOrg) || fmtFecha(r.cita.fecha)}
+            </span>
+            <span className="text-[10px] text-muted-foreground">
+              {(() => {
+                const { time, ampm } = to12h(r.cita.hora);
+                return `${time} ${ampm}`.trim();
+              })()}
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col">
+            <span className="text-xs text-foreground font-medium capitalize">{r.when}</span>
+            <span className="text-[10px] text-muted-foreground">{r.activity}</span>
+          </div>
+        )}
       </td>
       <td className="p-4 align-middle px-8 py-4 text-right">
         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+          <Star className={cn("w-4 h-4", r.starred ? "fill-amber-400 text-amber-400" : "text-muted-foreground")} />
+          <MoreHorizontal className="w-4 h-4 text-muted-foreground" />
         </div>
       </td>
     </tr>
   );
-}
+});
 
 function PipelineTab() {
-  const { contacts, openContact, cierreEnCursoMonto, ganadoMonto } = useClosurer();
+  const { contacts, openContact, cierreEnCursoMonto, ganadoMonto, pipelineStats, sincronizarCrm } = useClosurer();
 
-  /* Las dos tarjetas de arriba eran literales de JSX (`84` y `42`). Ahora se derivan de los
-     mismos contactos que pinta el Pipeline: sin dato real detrás, un número grande en un
-     dashboard es peor que no mostrarlo (§4.10). */
-  const totalContactos = Object.keys(contacts).length;
-  const contactosVivos = Object.values(contacts).filter(
-    (c) => c.stage === "agendado" || c.stage === "seguimiento" || c.stage === "cierre",
-  ).length;
+  const hoyOrg = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
+
   /**
-   * Agenda para la columna "Agendado": del store (`agendaProximos`, caché del backend, una
-   * sola fuente para las tres vitrinas). Este tab ya no tiene reloj propio — antes pedía el
-   * rango a GHL cada 10s por su cuenta. "Sincronizar CRM" = `refrescarAgenda(true)` →
-   * exactamente 1 llamada a GHL, por acción explícita (doc §8.5) + refetch del territorio.
+   * UNA pasada sobre los contactos para agrupar por etapa, no siete.
+   *
+   * Antes el `.map` sobre `STAGE_ORDER` hacía `Object.values(contacts).filter(...)` DENTRO,
+   * así que recorría la lista completa una vez por etapa, en cada render, seis veces por
+   * minuto por culpa del reloj. Las 7 claves se siembran primero para no romper la invariante
+   * de §38.D: toda etapa que el filtro ofrece tiene que tener su sección, aunque esté vacía.
    */
-  const { agendaProximos, refrescarAgenda, refrescarPipeline } = useClosurer();
-  const [refreshing, setRefreshing] = useState(false);
-  const agendaRange = agendaProximos;
-  const agendaTodayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Lima" }).format(new Date());
-  const agendaLoading = false;
-  const agendaError: string | null = null;
+  const porEtapa = useMemo(() => {
+    const mapa = Object.fromEntries(STAGE_ORDER.map((s) => [s, [] as ClosurerContact[]])) as Record<
+      StageKey,
+      ClosurerContact[]
+    >;
+    for (const c of Object.values(contacts)) mapa[c.stage]?.push(c);
+    return mapa;
+  }, [contacts]);
 
-  const refreshFromCrm = () => {
+  /**
+   * Los conteos vienen del BACKEND (`stats`, derivado por query — §51.1), con fallback local
+   * mientras no haya respuesta para no pintar un 0 falso en el primer render.
+   */
+  const totales = useMemo(() => {
+    if (pipelineStats) {
+      return {
+        total: pipelineStats.baseTotal + pipelineStats.congelados,
+        activos: pipelineStats.baseTotal,
+        congelados: pipelineStats.congelados,
+        vivos: pipelineStats.enJuegoActivo,
+      };
+    }
+    const todos = Object.values(contacts);
+    const activos = todos.filter((c) => !c.congelado);
+    return {
+      total: todos.length,
+      activos: activos.length,
+      congelados: todos.length - activos.length,
+      vivos: activos.filter((c) => c.stage === "agendado" || c.stage === "seguimiento" || c.stage === "cierre").length,
+    };
+  }, [contacts, pipelineStats]);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<{ texto: string; error?: boolean } | null>(null);
+
+  /**
+   * "Sincronizar CRM" — ahora sincroniza de verdad.
+   *
+   * Hasta el 2026-08-04 solo traía las citas: los tags, el bot y los campos de un contacto ya
+   * cacheado no se releían nunca, así que el botón prometía más de lo que hacía. Ahora relee
+   * el territorio completo y dice en pantalla qué pasó, incluido cuando el candado de 60 s no
+   * lo dejó correr. El spinner dura lo que dura la llamada — antes eran 600 ms cosméticos.
+   */
+  const refreshFromCrm = async () => {
     if (refreshing) return;
     setRefreshing(true);
-    refrescarAgenda(true);
-    refrescarPipeline();
-    setTimeout(() => setRefreshing(false), 600); // spinner visible ~600ms
+    setSyncMsg(null);
+    try {
+      const r = await sincronizarCrm();
+      if (!r.corrio) {
+        setSyncMsg({ texto: r.motivo ?? "No se pudo sincronizar ahora." });
+      } else {
+        const c = r.contactos;
+        const partes = [
+          c ? `Actualizados ${c.sincronizados} de ${c.encontrados} contactos` : null,
+          c && c.congelados > 0 ? `${c.congelados} salieron de zona` : null,
+          c && c.descongelados > 0 ? `${c.descongelados} volvieron` : null,
+          r.citas ? `${r.citas.eventos} citas` : null,
+          c?.truncado ? `(tope ${c.tope})` : null,
+        ].filter(Boolean);
+        setSyncMsg({ texto: partes.join(" · ") });
+      }
+    } catch (e) {
+      setSyncMsg({ texto: (e as Error).message, error: true });
+    } finally {
+      setRefreshing(false);
+      setTimeout(() => setSyncMsg(null), 8000);
+    }
   };
 
-  // Dedup por contacto: la próxima cita de cada agendado (el rango ya viene ordenado asc por hora).
-  const agendaByContact = new Map<string, AgendaAppointment>();
-  for (const a of agendaRange) {
-    const key = a.contactId || a.name;
-    if (!agendaByContact.has(key)) agendaByContact.set(key, a);
-  }
-  const agendaContacts: PipelineAgendaContact[] = [...agendaByContact.values()].map((a) => {
-    const { time, ampm } = to12h(a.time);
-    return {
-      name: a.name,
-      contactId: a.contactId ?? undefined,
-      whenLabel: relDayLabel(a.date, agendaTodayStr) || fmtFecha(a.date),
-      time: `${time} ${ampm}`.trim(),
-    };
-  });
   const [grade, setGrade] = useState<Grade | null>(null);
   const [destacados, setDestacados] = useState(false);
   const [etapaFilter, setEtapaFilter] = useState<StageKey | null>(null);
@@ -1364,11 +1376,13 @@ function PipelineTab() {
             <Users className="w-4 h-4 text-muted-foreground opacity-50" />
           </div>
           <div>
-            {/* Antes era el literal `84`, escrito en el JSX y sin ninguna variable detrás.
-                Ahora cuenta los contactos que el módulo realmente conoce. */}
-            <div className="text-4xl font-light tracking-tight">{totalContactos}</div>
+            <div className="text-4xl font-light tracking-tight">{totales.total}</div>
+            {/* Con congelados en la base, un total plano esconde que la mitad está fuera de
+                zona. Sin ninguno, se muestra la etiqueta de siempre (§4.1). */}
             <p className="text-[10px] font-medium text-muted-foreground mt-2 uppercase tracking-wider">
-              Contactos en CRM
+              {totales.congelados > 0
+                ? `${totales.activos} activos · ${totales.congelados} congelados`
+                : "Contactos en CRM"}
             </p>
           </div>
         </div>
@@ -1383,7 +1397,7 @@ function PipelineTab() {
             {/* Antes era el literal `42`. "Vivo" = el trato sigue en juego: agendado,
                 en seguimiento o en cierre. Ganado, no-show, nurture y descalificado ya
                 salieron del embudo activo. */}
-            <div className="text-4xl font-light tracking-tight text-primary">{contactosVivos}</div>
+            <div className="text-4xl font-light tracking-tight text-primary">{totales.vivos}</div>
             <p className="text-[10px] font-medium text-primary mt-2 uppercase tracking-wider">
               Contactos vivos
             </p>
@@ -1411,10 +1425,13 @@ function PipelineTab() {
       <div className="space-y-6 mt-8">
         {stagesToRender.map((stageKey) => {
           const meta = STAGE_META[stageKey];
-          const isAgendado = stageKey === "agendado";
           // `members` = todos los de la etapa. `rows` = los que además pasan el filtro de la
           // barra. El badge cuenta `members` y el monto suma `members`; la tabla pinta `rows`.
-          const members = Object.values(contacts).filter((c) => c.stage === stageKey);
+          //
+          // Las 7 etapas pasan por acá por igual. Antes "agendado" se bifurcaba y se armaba
+          // desde la caché de CITAS: los `members` de esa etapa se calculaban y se tiraban, y
+          // los agendados sin cita futura no aparecían en ninguna parte de la pantalla.
+          const members = porEtapa[stageKey] ?? [];
           const rows = members.filter(filterRow);
           /* Las dos etapas con dinero llevan su total al lado del nombre. Los dos salen de
              sumar el `monto` de los contactos de esa etapa (en el store), no de una base
@@ -1432,169 +1449,58 @@ function PipelineTab() {
               key={stageKey}
               className="bg-card/50 backdrop-blur-sm rounded-[2rem] border border-border/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden"
             >
-              <div
-                className={cn(
-                  "py-4 px-8 border-b border-border/40 flex items-center gap-2",
-                  meta.headerBg,
-                )}
-              >
+              <div className={cn("py-4 px-8 border-b border-border/40 flex items-center gap-2", meta.headerBg)}>
                 <span className={cn("w-2 h-2 rounded-full", meta.dot)} />
-                <span
-                  className={cn(
-                    "font-semibold text-[11px] uppercase tracking-widest",
-                    meta.labelColor,
-                  )}
-                >
+                <span className={cn("font-semibold text-[11px] uppercase tracking-widest", meta.labelColor)}>
                   {label}
                 </span>
-                {/* Conteo real de la etapa. Antes sumaba un `hiddenOffset` —siete constantes
-                    escritas como restas literales (24-4, 26-4…) que representaban "contactos
-                    del CRM no incluidos en el demo"— y el badge terminaba mintiendo: mostraba
-                    27 en Seguimiento sobre 7 filas, 28 en No-show sobre 6. Eliminado.
-                    Cuenta `members` (todos los de la etapa) y no `rows`, para que el número no
+                {/* Cuenta `members` (todos los de la etapa) y no `rows`, para que el número no
                     cambie al filtrar por grade: el badge dice cuántos hay en la etapa, no
                     cuántos estás mirando. */}
                 <div className="inline-flex items-center border py-0.5 font-semibold transition-colors border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 ml-2 text-[10px] h-5 px-1.5 shadow-none rounded-full">
-                  {isAgendado ? agendaContacts.length : members.length}
+                  {members.length}
                 </div>
               </div>
-              {isAgendado ? (
-                agendaLoading && agendaContacts.length === 0 ? (
-                  <div className="p-10 text-center text-sm text-muted-foreground">Cargando agenda…</div>
-                ) : agendaError && agendaContacts.length === 0 ? (
-                  <div className="p-10 text-center text-sm text-amber-600 dark:text-amber-400">No se pudo cargar la agenda.</div>
-                ) : agendaContacts.length === 0 ? (
-                  <div className="p-10 text-center text-sm text-muted-foreground">Sin citas agendadas.</div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <div className="relative w-full overflow-auto">
-                      <table className="w-full caption-bottom text-sm">
-                        <thead className="[&_tr]:border-b bg-transparent">
-                          <tr className="transition-colors border-b border-border/40 hover:bg-transparent">
-                            <th className="h-12 text-left align-middle w-[40%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">Nombre</th>
-                            <th className="h-12 text-left align-middle w-[30%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">Situación</th>
-                            <th className="h-12 text-left align-middle w-[25%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">Última Actividad</th>
-                            <th className="h-12 text-left align-middle font-medium text-muted-foreground w-[5%] px-8 py-4" />
-                          </tr>
-                        </thead>
-                        <tbody className="[&_tr:last-child]:border-0">
-                          {agendaContacts.map((a) => (
-                            <PipelineAgendaRow key={a.contactId ?? a.name} a={a} onOpen={openContact} />
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )
-              ) : rows.length === 0 ? (
+              {rows.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">
                   {members.length === 0
                     ? "Sin contactos en esta etapa."
                     : "Ningún contacto coincide con el filtro seleccionado."}
                 </div>
               ) : (
-              <div className="overflow-x-auto">
-                <div className="relative w-full overflow-auto">
-                  <table className="w-full caption-bottom text-sm">
-                    <thead className="[&_tr]:border-b bg-transparent">
-                      <tr className="transition-colors border-b border-border/40 hover:bg-transparent">
-                        <th className="h-12 text-left align-middle w-[40%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
-                          Nombre
-                        </th>
-                        <th className="h-12 text-left align-middle w-[30%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
-                          Situación
-                        </th>
-                        <th className="h-12 text-left align-middle w-[25%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
-                          Última Actividad
-                        </th>
-                        <th className="h-12 text-left align-middle font-medium text-muted-foreground w-[5%] px-8 py-4" />
-                      </tr>
-                    </thead>
-                    <tbody className="[&_tr:last-child]:border-0">
-                      {rows.map((r) => (
-                        <tr
-                          key={r.name}
-                          className="transition-all duration-200 border-b border-border/30 group cursor-pointer bg-transparent hover:bg-muted/10"
-                        >
-                          <td className="p-4 align-middle font-medium whitespace-nowrap px-8 py-4">
-                            <div className="flex items-center gap-4">
-                              <Avatar grade={r.grade} />
-                              <span
-                                onClick={() => openContact(r.name, r.ghlContactId)}
-                                className="w-40 truncate uppercase tracking-wide text-xs cursor-pointer hover:text-primary transition-colors flex items-center gap-1.5"
-                              >
-                                {r.name}
-                              </span>
-                              <div className="flex items-center gap-2.5 shrink-0 ml-4">
-                                <IconSlot wide>
-                                  <VideoCallBadge llamadas={r.llamadas} />
-                                </IconSlot>
-                                <IconSlot>
-                                  <Calendar className={cn("w-3.5 h-3.5", r.agenda ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
-                                </IconSlot>
-                                <IconSlot wide>
-                                  <CallsBadge llamadas={r.llamadas} />
-                                </IconSlot>
-                                <IconSlot wide>
-                                  <BotIcon estado={r.botEstado} />
-                                </IconSlot>
-                                <IconSlot>
-                                  <AlarmClock className={cn("w-3.5 h-3.5", r.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")} />
-                                </IconSlot>
-                                <IconSlot>
-                                  <DollarSign className={cn("w-3.5 h-3.5", r.stage === "ganado" ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} />
-                                </IconSlot>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-4 align-middle px-8 py-4">
-                            <div
-                              className={cn(
-                                "inline-flex items-center rounded-full py-0.5 h-6 text-[10px] uppercase tracking-wider font-semibold border-0 shadow-none px-2",
-                                meta.pill,
-                              )}
-                            >
-                              {r.situacion}
-                            </div>
-                          </td>
-                          <td className="p-4 align-middle px-8 py-4">
-                            <div className="flex flex-col">
-                              <span className="text-xs text-foreground font-medium">
-                                {r.when}
-                              </span>
-                              {r.activity && (
-                                <span
-                                  className="text-[10px] text-muted-foreground truncate max-w-[200px]"
-                                  title={r.activity}
-                                >
-                                  {r.activity}
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="p-4 align-middle px-8 py-4 text-right">
-                            <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button className="p-1.5 rounded-full hover:bg-muted transition-colors">
-                                <Star
-                                  className={cn(
-                                    "w-4 h-4 transition-all",
-                                    r.starred
-                                      ? "text-amber-500 fill-amber-500"
-                                      : "text-muted-foreground/40 hover:text-muted-foreground",
-                                  )}
-                                />
-                              </button>
-                              <button className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors hover:bg-accent h-8 w-8 text-muted-foreground hover:text-foreground">
-                                <MoreHorizontal className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
+                <div className="overflow-x-auto">
+                  <div className="relative w-full overflow-auto">
+                    <table className="w-full caption-bottom text-sm">
+                      <thead className="[&_tr]:border-b bg-transparent">
+                        <tr className="transition-colors border-b border-border/40 hover:bg-transparent">
+                          <th className="h-12 text-left align-middle w-[40%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
+                            Nombre
+                          </th>
+                          <th className="h-12 text-left align-middle w-[30%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
+                            Situación
+                          </th>
+                          {/* La etapa Agendado mira hacia adelante (cuándo es la call); las
+                              demás, hacia atrás (qué pasó). Misma celda, distinto encabezado. */}
+                          <th className="h-12 text-left align-middle w-[25%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
+                            {stageKey === "agendado" ? "Próxima cita" : "Última actividad"}
+                          </th>
+                          <th className="h-12 text-left align-middle font-medium text-muted-foreground w-[5%] px-8 py-4" />
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="[&_tr:last-child]:border-0">
+                        {rows.map((r) => (
+                          <PipelineRow
+                            key={r.ghlContactId ?? r.name}
+                            r={r}
+                            meta={meta}
+                            hoyOrg={hoyOrg}
+                            onOpen={openContact}
+                          />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
               )}
             </div>
           );

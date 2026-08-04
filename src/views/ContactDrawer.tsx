@@ -47,7 +47,9 @@ import { isoEnDias, fechaCorta } from "../lib/fechas";
 import { armarPildora } from "../lib/pildora";
 import type { SituacionSeguimiento } from "../lib/ghl/contrato";
 import type { ModoSeguimiento } from "../lib/seguimientos/dominio";
-import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, callsIASummary, type ClosurerContact, type StageKey, type BotEstado, type CallRecord, type CallOrigin, type Sentimiento, type PerfilField, type PerfilGroup, type PerfilFormulario, type VideoPreCallInfo } from "../lib/closerStore";
+import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, callsIASummary, indicadoresDe, type ClosurerContact, type StageKey, type BotEstado, type CallRecord, type CallOrigin, type Sentimiento, type PerfilField, type PerfilGroup, type PerfilFormulario, type VideoPreCallInfo } from "../lib/closerStore";
+import { StatusIcons } from "../components/StatusIcons";
+import { INDICADORES_VACIOS, type IndicadoresContacto } from "../lib/indicadores";
 import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTagTone, type SetterAdvanceInput } from "../lib/setterStore";
 import { useSettings } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
@@ -1155,21 +1157,40 @@ export default function ContactDrawer({
   const notas = contact ? contact.notas : setterContact ? setterContact.notas : localNotas;
   const urgenteDetail = contact?.urgente?.detail ?? setterContact?.urgente?.detail;
   const llamadas = contact?.llamadas ?? setterContact?.llamadas;
-  // $ — SOLO pago real verificado (regla: nunca por monto potencial/"acordó comprar"). Closer: solo en stage "ganado". Setter: `monto` ya es exclusivamente pago real (venta_lt), sin gating extra.
-  const ventaMonto = contact
-    ? (contact.stage === "ganado" ? contact.monto ?? null : null)
+
+  /**
+   * LOS 6 ÍCONOS, resueltos en un solo lugar (§8).
+   *
+   * Para el closer sale de `indicadoresDe`, la misma función que usan Pipeline, Mi Día y el
+   * widget de Agenda — así el mismo contacto no puede verse distinto en dos pantallas, que es
+   * exactamente lo que pasaba hasta hoy. Setter todavía es 100% semilla (su store no hace
+   * ningún fetch), así que se arma con las derivaciones locales de siempre.
+   */
+  const indicadores: IndicadoresContacto = contact
+    ? indicadoresDe(contact)
     : setterContact
-      ? setterContact.monto ?? null
-      : localMonto;
-  // 📅 — presencia de una cita real (nunca por stage/texto).
-  const agendaActive = contact ? !!contact.agenda : setterContact ? !!setterContact.agendaFecha : false;
-  // 📹 — cuenta reuniones/llamadas CON EL CLOSER (`sales_call`) desde `llamadas` (2026-07-11) — reemplaza al viejo flag 🎙 y a la derivación por `agenda.meetUrl`.
-  const salesCallsCount = countSalesCalls(llamadas);
-  // 📞 — cuenta llamadas de IA contestadas desde `llamadas` (§ auditoría íconos, 2026-07-10) — nunca un campo aparte.
-  const callsCount = countCallsContestadas(llamadas);
-  const seguimientoAutomaticoActivo = contact ? contact.seguimientoAutomaticoActivo : setterContact ? setterContact.seguimientoAutomaticoActivo : undefined;
-  // IG no tiene bot (§11) — para closer se deriva de `fuente`; para setter, del `canal` del contacto.
-  const hasBot = contact ? contact.fuente !== "📷 IG PROFILE" : setterContact ? setterContact.canal !== "instagram" : true;
+      ? {
+          reuniones: countSalesCalls(setterContact.llamadas),
+          citaFutura: !!setterContact.agendaFecha,
+          proximaCitaEl: null,
+          proximaMeetUrl: setterContact.agendaMeetUrl ?? null,
+          ultimaCitaVencidaEl: null,
+          llamadasIaContestadas: countCallsContestadas(setterContact.llamadas),
+          llamadasIaIntentos: callsIASummary(setterContact.llamadas).intentos,
+          // IG no tiene bot (§11): el canal lo decide antes que cualquier estado.
+          bot: setterContact.canal === "instagram" ? null : (setterContact.botEstado ?? null),
+          seguimientoAuto: !!setterContact.seguimientoAutomaticoActivo,
+          // Setter: `monto` solo lo escribe la salida real `venta_lt`, sin gating por stage.
+          ventaMonto: setterContact.monto ?? null,
+        }
+      : { ...INDICADORES_VACIOS, bot: localBotEstado, ventaMonto: localMonto };
+
+  const ventaMonto = indicadores.ventaMonto;
+  const hasBot = contact
+    ? contact.fuente !== "📷 IG PROFILE"
+    : setterContact
+      ? setterContact.canal !== "instagram"
+      : true;
   // § toast/pin (2026-07-11) — hay una tarea de conversación activa que la barra de progreso completa/pinea: Respondieron (closer/setter) u Oportunidad LT (setter).
   // § correcciones toast/pin v2 (2026-07-11): "tarea de conversación" ya no es solo Respondieron/Oportunidad LT — también Seguimientos de hoy (y, en Setter, Estancadas). Únicas excepciones: Urgentes (su propio flujo de "Marcar como Resuelto") y Agenda (se cierra con Avanzar).
   const hasReplyTask = contact
@@ -1182,11 +1203,16 @@ export default function ContactDrawer({
   // Tab Perfil (§ auditoría v2, 2026-07-11) — campos reales agrupados por significado, sin importar rol/formulario de origen.
   const perfilFields: PerfilField[] = contact?.perfil ?? setterContact?.perfil ?? [];
   const videoPreCall: VideoPreCallInfo | undefined = contact?.videoPreCall;
-  const botEstado: BotEstado = contact
-    ? (contact.botEstado ?? "activo")
-    : setterContact
-      ? (setterContact.botEstado ?? "activo")
-      : localBotEstado;
+  /**
+   * El estado del bot para el TOGGLE del compositor. Sale del mismo bloque que el ícono, así
+   * que no pueden desalinearse (regla D.7 de §25).
+   *
+   * Se eliminó el `?? "activo"` que tenía acá (2026-08-04): §51.3 fijó el default en APAGADO,
+   * y afirmar "IA activa" sin ningún tag que lo respalde contradecía al propio sistema, que
+   * con ese mismo default ya estaba mandando los mensajes de ese contacto al Buzón. `null`
+   * ahora significa lo que dice: no hay evidencia de que el bot esté atendiendo.
+   */
+  const botEstado: BotEstado | null = indicadores.bot;
   const handleBotStateChange = (estado: BotEstado, evento: string, autor: string = "Usuario Activo") => {
     if (onBotStateChange) {
       onBotStateChange(estado, evento, autor);
@@ -1358,55 +1384,10 @@ export default function ContactDrawer({
                 </div>
               )}
             </div>
-            <div className="flex items-center gap-4 shrink-0">
-              {salesCallsCount > 0 ? (
-                <div className="flex items-center gap-0.5 text-[11px] font-semibold text-[#6b6980]" title="Reuniones con el closer">
-                  <Video className="w-4 h-4" />
-                  {salesCallsCount}
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 text-[#6b6980]/25" title="Sin reuniones con el closer">
-                  <Video className="w-4 h-4" />
-                </div>
-              )}
-              <div
-                className={cn("flex items-center gap-1", agendaActive ? "text-[#6b6980]" : "text-[#6b6980]/25")}
-                title={agendaActive ? "Tiene cita agendada" : "Sin cita agendada"}
-              >
-                <Calendar className="w-4 h-4" />
-              </div>
-              {callsCount > 0 ? (
-                <div className="flex items-center gap-0.5 text-[11px] font-semibold text-[#6b6980]" title="Contestó">
-                  <Phone className="w-4 h-4" />
-                  {callsCount}✓
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 text-[#6b6980]/25" title="Sin llamadas">
-                  <Phone className="w-4 h-4" />
-                </div>
-              )}
-              {(() => {
-                const v = botIconVisual(hasBot ? botEstado : undefined);
-                return (
-                  <div className={cn("flex items-center gap-0.5 text-[11px] font-semibold", v.className)} title={v.title}>
-                    <Bot className="w-4 h-4" />
-                    {v.label}
-                  </div>
-                );
-              })()}
-              <div
-                className={cn("flex items-center gap-1", seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")}
-                title={seguimientoAutomaticoActivo ? "Seguimiento automático activo" : "Sin seguimiento activo"}
-              >
-                <AlarmClock className="w-4 h-4" />
-              </div>
-              <div
-                className={cn("flex items-center gap-1", ventaMonto ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")}
-                title={ventaMonto ? `Venta ${money(ventaMonto)}` : "Sin venta registrada"}
-              >
-                <DollarSign className="w-4 h-4" />
-              </div>
-            </div>
+            {/* La MISMA fila de íconos que las listas — antes era una quinta copia con su
+                propia lógica, y su `?? "activo"` hacía que el mismo contacto se viera "sin
+                bot" en el Pipeline e "IA activa" acá. */}
+            <StatusIcons ind={indicadores} size="header" />
           </div>
 
           <div className="w-full mt-1">
@@ -1630,7 +1611,12 @@ function ChatTab({
   onResolveIntervention?: () => void;
   /** IG no tiene bot (§11) — el toggle no se renderiza en absoluto. */
   hasBot: boolean;
-  botEstado: BotEstado;
+  /**
+   * `null` = el sistema no tiene evidencia de que el bot esté atendiendo (§51.3: default
+   * APAGADO). El toggle lo trata como apagado-y-clicable, que es el comportamiento correcto:
+   * se puede encender, con su confirmación de siempre.
+   */
+  botEstado: BotEstado | null;
   onBotStateChange: (estado: BotEstado, evento: string, autor?: string) => void;
   urgenteDetail?: string;
   /** § toast/pin (2026-07-11): hay una tarea de Respondieron/Buzón/Oportunidad LT activa — responder dispara la barra de completado de 5s. */
@@ -1994,7 +1980,7 @@ function ChatTab({
           <button
             onClick={handleBotToggle}
             disabled={isUrgente}
-            title={botIconVisual(botEstado).title}
+            title={botIconVisual(botEstado ?? undefined).title}
             className={cn(
               "relative h-10 w-10 shrink-0 rounded-full border transition-all flex items-center justify-center mb-0.5 ml-1",
               isUrgente

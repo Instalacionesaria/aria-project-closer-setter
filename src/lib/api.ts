@@ -31,6 +31,8 @@
  * éxito falso que la regla §4 prohíbe. Quien llama decide si muestra el error o no.
  */
 
+import type { IndicadoresContacto } from "./indicadores";
+
 /** Error uniforme para todas las llamadas: el status y el detalle del cuerpo, sin ruido. */
 async function pedir<T>(ruta: string, init?: RequestInit): Promise<T> {
   const res = await fetch(ruta, init);
@@ -276,6 +278,8 @@ export interface MiDiaContacto {
   tags: string[];
   etapa: string;
   congelado: boolean;
+  /** Los 6 íconos, los MISMOS que manda el Pipeline — para que las vitrinas no divergan. */
+  indicadores?: IndicadoresContacto;
 }
 
 export interface MiDiaResponse {
@@ -290,6 +294,11 @@ export interface MiDiaResponse {
     estado: string | null;
     meetUrl: string | null;
     vencida: boolean;
+    /**
+     * Los íconos del widget "Agenda de Hoy". Antes venían hardcodeados en cero desde la
+     * vista, apagándolos justo en la pantalla que el closer mira antes de una llamada.
+     */
+    indicadores?: IndicadoresContacto;
   }[];
   urgentes: (MiDiaContacto & { fallo: string })[];
   buzon: (MiDiaContacto & { ultimoEntranteEl: string | null; snippet: string | null })[];
@@ -350,6 +359,39 @@ export interface PipelineContacto {
   subcategorias?: Record<string, string | null>;
   /** Perdió `zona_closer` (§7): visible y movible, pero inerte hacia GHL. */
   congelado?: boolean;
+  /**
+   * Los 6 indicadores de la fila de íconos, calculados por el servidor (§8).
+   *
+   * Opcional a propósito: un backend viejo desplegado contra un front nuevo no debe romper
+   * el tipo. Cuando falta, la vista cae a las derivaciones históricas de la semilla.
+   */
+  indicadores?: IndicadoresContacto;
+  /**
+   * La cita del contacto: la próxima si tiene una vigente, y si no la última que venció
+   * (`vencida: true`). `fecha`/`hora` vienen resueltas en la zona de la organización — el
+   * browser no puede decidir eso sin equivocarse para un closer fuera de Lima.
+   *
+   * Es un DATO de la fila, nunca el criterio para que el contacto exista en una columna:
+   * la etapa manda dónde aparece. Que la cita decidiera eso es lo que dejaba a dos contactos
+   * agendados sin fila en ninguna parte (corregido 2026-08-04).
+   */
+  cita?: {
+    el: string;
+    fecha: string;
+    hora: string;
+    meetUrl: string | null;
+    vencida: boolean;
+  } | null;
+}
+
+/** Los conteos que el backend deriva por query — nunca contadores sueltos (§51.1). */
+export interface PipelineStats {
+  /** Contactos EN zona (no congelados). */
+  baseTotal: number;
+  /** De esos, los que siguen en juego: agendado, seguimiento o cierre. */
+  enJuegoActivo: number;
+  /** Los que perdieron `zona_closer`. Siguen visibles en su columna, atenuados. */
+  congelados: number;
 }
 
 /**
@@ -373,7 +415,10 @@ export interface PipelineCobertura {
   /** Lo que GHL informa como total del filtro. `null` si no lo devolvió. */
   totalEnGhl: number | null;
   paginasLeidas: number;
-  tope: { porPagina: number; paginas: number };
+  /** Opcional: desde que el Pipeline lee de la caché, el endpoint no manda este campo. */
+  tope?: { porPagina: number; paginas: number };
+  /** De dónde salió la lista. Hoy siempre `"cache"`. */
+  fuente?: string;
   /** Por qué cortó el barrido, cuando `truncado`. */
   motivo?: string;
 }
@@ -386,8 +431,8 @@ export interface PipelineResponse {
   /** Siempre las 7 claves, incluidas las que dan 0. La regla de "contador en cero no se pinta" la aplica la vista. */
   porEtapa: Record<string, number>;
   contactos: PipelineContacto[];
-  /** Devueltos por la búsqueda sin tener `zona_closer` de verdad. Debería ser 0. */
-  fueraDeZonaCloser: number;
+  /** Activos vs. congelados, del servidor. La vista los muestra en vez de recontar por su cuenta. */
+  stats?: PipelineStats;
   cobertura: PipelineCobertura;
   /** Frase del servidor para un humano (ej. falta configuración). Ausente = no hay nada que avisar. */
   aviso?: string;
@@ -396,6 +441,36 @@ export interface PipelineResponse {
 /** Pipeline completo del closer: todos los contactos con `zona_closer`, ya clasificados. */
 export function fetchPipeline(): Promise<PipelineResponse> {
   return pedir<PipelineResponse>(`/api/closer/pipeline`);
+}
+
+/** Lo que devuelve el botón "Sincronizar CRM". */
+export interface SincronizarCrmResponse {
+  ok: boolean;
+  /** `false` = el candado de 60 s no dejó correr. No es un error: `motivo` lo explica. */
+  corrio: boolean;
+  modo: string;
+  motivo?: string;
+  citas?: { eventos: number; contactosNuevos: number };
+  contactos?: {
+    encontrados: number;
+    sincronizados: number;
+    congelados: number;
+    descongelados: number;
+    truncado: boolean;
+    tope: number;
+    errores: string[];
+  };
+  /** Lo que costó, para que el presupuesto de §51.4 sea verificable y no declarativo. */
+  llamadasGhl?: number;
+}
+
+/**
+ * Sincroniza de verdad: citas de los próximos 15 días + cada contacto del territorio contra
+ * GHL. Sin secreto — el freno es el candado en Postgres, igual que `/api/closer/reconciliar`
+ * (el `WEBHOOK_SECRET` es server-only y el browser no debe tenerlo).
+ */
+export function sincronizarCrm(): Promise<SincronizarCrmResponse> {
+  return pedir<SincronizarCrmResponse>(`/api/closer/sincronizar`, { method: "POST" });
 }
 
 /* El fetcher del cockpit de GHL (`fetchCockpit`, Opportunity Value leído de vuelta) se

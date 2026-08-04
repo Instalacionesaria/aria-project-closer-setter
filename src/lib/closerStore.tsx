@@ -21,11 +21,16 @@ import {
   fetchNotas,
   fetchPipeline,
   pingReconciliar,
+  sincronizarCrm as sincronizarCrmRemoto,
   type AgendaAppointment,
   type EventoHistorial,
   type MiDiaResponse,
   type NotaReal,
+  type PipelineContacto,
+  type PipelineStats,
+  type SincronizarCrmResponse,
 } from "./api";
+import type { IndicadoresContacto } from "./indicadores";
 import { CADENCIA, registrarReloj } from "./polling";
 
 /* Los pollers `polling-closer-intervenciones-urgentes` (10s) y `polling-closer-pipeline`
@@ -324,6 +329,50 @@ export interface ClosurerContact {
   llamadas?: CallRecord[];
   /** Tab Perfil — campos reales agrupados por significado, no por rol/formulario. Ausente/vacío → estado vacío. */
   perfil?: PerfilField[];
+  /**
+   * Los 6 íconos, calculados por el backend (§8). PRESENTE = contacto real, y manda sobre
+   * cualquier derivación local. AUSENTE = semilla, y se cae a las derivaciones históricas
+   * sobre `llamadas`/`agenda`/`botEstado`, que siguen vivas para ella. Ver `indicadoresDe`.
+   */
+  indicadores?: IndicadoresContacto;
+  /** Perdió `zona_closer` en GHL (§51.3): visible y movible, pero inerte hacia GHL. */
+  congelado?: boolean;
+  /**
+   * La próxima cita, o la última vencida. Es un DATO de la fila — NO decide en qué columna
+   * del Pipeline aparece el contacto; eso lo manda la etapa y solo la etapa.
+   */
+  cita?: NonNullable<PipelineContacto["cita"]>;
+}
+
+/**
+ * LOS 6 INDICADORES de un contacto, resueltos. Único lugar del proyecto donde se decide qué
+ * se pinta en la fila de íconos — ninguna vista deriva un ícono por su cuenta.
+ *
+ * El bloque del servidor gana; la semilla cae a las derivaciones de siempre. Las tres
+ * funciones históricas (`countSalesCalls`, `countCallsContestadas`, `callsIASummary`) no se
+ * borran: pasan de ser la derivación principal a ser el fallback, y siguen alimentando el
+ * tab Perfil.
+ */
+export function indicadoresDe(c: ClosurerContact): IndicadoresContacto {
+  const s = c.indicadores;
+  return {
+    reuniones: s?.reuniones ?? countSalesCalls(c.llamadas),
+    citaFutura: s?.citaFutura ?? !!c.agenda,
+    proximaCitaEl: s?.proximaCitaEl ?? null,
+    proximaMeetUrl: s?.proximaMeetUrl ?? c.agenda?.meetUrl ?? null,
+    ultimaCitaVencidaEl: s?.ultimaCitaVencidaEl ?? null,
+    llamadasIaContestadas: s?.llamadasIaContestadas ?? countCallsContestadas(c.llamadas),
+    llamadasIaIntentos: s?.llamadasIaIntentos ?? callsIASummary(c.llamadas).intentos,
+    /**
+     * El estado LOCAL gana sobre el del servidor, y es el único indicador donde pasa: hay
+     * escrituras optimistas que el servidor no puede conocer todavía —`muerto_postcall` tras
+     * un Avanzar, `pausa_temporal` al escribir un mensaje (que ni siquiera tiene tag en GHL)—.
+     * `traerPipeline` limpia el local cuando llega el del servidor, para que no quede pegado.
+     */
+    bot: c.botEstado ?? s?.bot ?? null,
+    seguimientoAuto: s?.seguimientoAuto ?? !!c.seguimientoAutomaticoActivo,
+    ventaMonto: c.stage === "ganado" ? (c.monto ?? null) : null,
+  };
 }
 
 /** Lo que produce el cuadrante Avanzar y que la store necesita para propagar el cambio. */
@@ -554,6 +603,10 @@ interface ClosurerStoreValue {
   completadasReales: MiDiaResponse["completadasHoy"];
   /** Citas de los próximos 15 días — una sola fuente para el tab Agenda y la franja del Pipeline. */
   agendaProximos: AgendaAppointment[];
+  /** Activos vs. congelados, del backend. `null` hasta el primer refresco del Pipeline. */
+  pipelineStats: PipelineStats | null;
+  /** El botón "Sincronizar CRM": relee GHL entero y devuelve qué pasó. */
+  sincronizarCrm: () => Promise<SincronizarCrmResponse>;
   /** `true` fuerza 1 llamada a GHL (el botón "Refrescar" de la Agenda, §8.5). */
   refrescarAgenda: (forzar?: boolean) => void;
   /** Refetch del territorio por evento (montaje/foco/Avanzar) — el Pipeline ya no tiene reloj. */
@@ -616,8 +669,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    */
   const contactsRef = useRef(contacts);
   contactsRef.current = contacts;
+  /** Firmas del último tick, para no escribir listas nuevas que dicen lo mismo (ver el reloj). */
+  const firmaCitasRef = useRef("");
+  const firmaCompletadasRef = useRef("");
   const [openContactName, setOpenContactName] = useState<string | null>(null);
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
+  /**
+   * Activos vs. congelados, del servidor. La vista los MUESTRA en vez de recontar por su
+   * cuenta: §51.1 pide que los conteos se deriven por query, nunca de contadores sueltos.
+   */
+  const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
   const { comisiones } = useSettings();
   const comisionPct = (comisiones[CURRENT_CLOSER_NAME] ?? 10) / 100;
 
@@ -654,7 +715,14 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
 
       setContacts((prev) => {
         const siguiente = { ...prev };
-        for (const fila of r.seguimientosHoy) siguiente[fila.ghlContactId] = filaAContacto(fila);
+        for (const fila of r.seguimientosHoy) {
+          /**
+           * FUSIÓN, no reemplazo. Antes era una asignación directa, así que un contacto que
+           * también estaba en Seguimientos de Hoy perdía todo lo que le había puesto el
+           * Pipeline —indicadores, cita, congelado— en la primera hidratación.
+           */
+          siguiente[fila.ghlContactId] = { ...siguiente[fila.ghlContactId], ...filaAContacto(fila) };
+        }
         return siguiente;
       });
     });
@@ -697,26 +765,60 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
           fetchMiDiaCompleto()
             .then((res) => {
               if (!res?.ok) return;
-              setCitasHoy(res.citasHoy ?? []);
-              setCompletadasReales(res.completadasHoy ?? []);
+              // Firma antes de escribir: estas dos son listas de presentación sin merge, así
+              // que un string alcanza. Sin esto, dos arrays nuevos cada 10s bastan para
+              // re-renderizar el árbol entero aunque no haya cambiado nada.
+              const firmaCitas = JSON.stringify(res.citasHoy ?? []);
+              if (firmaCitas !== firmaCitasRef.current) {
+                firmaCitasRef.current = firmaCitas;
+                setCitasHoy(res.citasHoy ?? []);
+              }
+              const firmaCompletadas = JSON.stringify(res.completadasHoy ?? []);
+              if (firmaCompletadas !== firmaCompletadasRef.current) {
+                firmaCompletadasRef.current = firmaCompletadas;
+                setCompletadasReales(res.completadasHoy ?? []);
+              }
 
               setContacts((prev) => {
                 const siguiente = { ...prev };
                 const conUrgenciaAhora = new Set<string>();
                 const enBuzonAhora = new Set<string>();
+                /**
+                 * ── El guard que apaga el reloj de re-renders ──
+                 *
+                 * Antes este updater devolvía SIEMPRE un objeto nuevo, cambiara algo o no. Con
+                 * el `value` del contexto recreándose en cada render, eso re-renderizaba
+                 * `CloserAI` (2000+ líneas) y la ficha abierta cada 10 segundos, para nada.
+                 *
+                 * La comparación es POR CAMPO y no por referencia a propósito: los objetos
+                 * `urgente`/`respondido` se construyen frescos en cada tick, así que comparar
+                 * referencias diría "cambió" siempre y el guard no serviría de nada.
+                 */
+                let cambio = false;
 
                 for (const u of res.urgentes ?? []) {
                   conUrgenciaAhora.add(u.ghlContactId);
                   const previo = siguiente[u.ghlContactId];
+                  const etapa = (u.etapa as StageKey) ?? etapaDesdeTags(u.tags);
+
+                  if (
+                    previo &&
+                    previo.urgente?.detail === u.fallo &&
+                    previo.stage === etapa &&
+                    previo.indicadores === u.indicadores
+                  ) {
+                    continue; // idéntico: se conserva la identidad de `previo` intacta
+                  }
+
                   const urgente: UrgenteInfo = {
                     pill: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
                     detail: u.fallo,
                     highlighted: true,
                   };
-                  const etapa = (u.etapa as StageKey) ?? etapaDesdeTags(u.tags);
+                  cambio = true;
 
                   siguiente[u.ghlContactId] = previo
-                    ? { ...previo, urgente, botEstado: "pausado_fallo", stage: etapa }
+                    ? { ...previo, urgente, stage: etapa, indicadores: u.indicadores ?? previo.indicadores }
                     : {
                         name: (u.nombre ?? "SIN NOMBRE").toUpperCase(),
                         // Sin calificación no se inventa una letra: la fila muestra "—" (§4.7).
@@ -726,8 +828,8 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                         when: "hoy",
                         activity: "",
                         fuente: u.fuente,
-                        botEstado: "pausado_fallo",
                         ghlContactId: u.ghlContactId,
+                        indicadores: u.indicadores,
                         urgente,
                         historial: [],
                         notas: [],
@@ -737,11 +839,21 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                 for (const b of res.buzon ?? []) {
                   enBuzonAhora.add(b.ghlContactId);
                   const previo = siguiente[b.ghlContactId];
-                  const respondido = { microtext: b.snippet ? `escribió: "${b.snippet}"` : "escribió · sin responder" };
+                  const microtext = b.snippet ? `escribió: "${b.snippet}"` : "escribió · sin responder";
                   const etapa = (b.etapa as StageKey) ?? etapaDesdeTags(b.tags);
 
+                  if (
+                    previo &&
+                    previo.respondido?.microtext === microtext &&
+                    previo.stage === etapa &&
+                    previo.indicadores === b.indicadores
+                  ) {
+                    continue;
+                  }
+                  cambio = true;
+
                   siguiente[b.ghlContactId] = previo
-                    ? { ...previo, respondido, stage: etapa }
+                    ? { ...previo, respondido: { microtext }, stage: etapa, indicadores: b.indicadores ?? previo.indicadores }
                     : {
                         name: (b.nombre ?? "SIN NOMBRE").toUpperCase(),
                         grade: undefined,
@@ -751,7 +863,8 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                         activity: b.snippet ?? "",
                         fuente: b.fuente,
                         ghlContactId: b.ghlContactId,
-                        respondido,
+                        indicadores: b.indicadores,
+                        respondido: { microtext },
                         historial: [],
                         notas: [],
                       };
@@ -761,18 +874,23 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                  * Lo que el backend ya no reporta se apaga acá también — solo sobre contactos
                  * reales (con ghlContactId): la semilla EJEMPLO conserva sus marcadores, que
                  * es exactamente lo que Fabio pidió de ella (vuelve sola al refrescar).
+                 *
+                 * Esto NO se puede reemplazar por una firma gruesa de la respuesta: es lo que
+                 * corrige la deriva cuando el servidor deja de reportar a alguien.
                  */
                 for (const [clave, c] of Object.entries(siguiente)) {
                   if (!c.ghlContactId) continue;
                   if (c.urgente && !conUrgenciaAhora.has(c.ghlContactId)) {
                     siguiente[clave] = { ...siguiente[clave], urgente: undefined };
+                    cambio = true;
                   }
                   if (c.respondido && !enBuzonAhora.has(c.ghlContactId)) {
                     siguiente[clave] = { ...siguiente[clave], respondido: undefined };
+                    cambio = true;
                   }
                 }
 
-                return siguiente;
+                return cambio ? siguiente : prev;
               });
             })
             .catch(() => {
@@ -814,6 +932,12 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
             const subcategoria = c.subcategorias?.[etapa] ?? undefined;
             const monto = etapa === "ganado" ? (c.monto ?? undefined) : undefined;
 
+            /**
+             * `indicadores`, `congelado` y `cita` se asignan EXPLÍCITAMENTE en las dos ramas.
+             * Dejarlos al `{...previo}` conservaría para siempre una cita ya cancelada o un
+             * congelado que el servidor acaba de levantar — el spread preserva lo viejo cuando
+             * el campo nuevo no se nombra.
+             */
             siguiente[c.ghlContactId] = previo
               ? {
                   ...previo,
@@ -822,6 +946,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                   monto: monto ?? previo.monto,
                   fuente: previo.fuente ?? c.fuente,
                   telefono: c.telefono ?? previo.telefono,
+                  indicadores: c.indicadores,
+                  congelado: c.congelado,
+                  cita: c.cita ?? undefined,
+                  /**
+                   * El `botEstado` optimista se suelta en cuanto llega el del servidor, salvo
+                   * en la ventana de gracia de un Avanzar recién hecho. Sin esto, un
+                   * `pausa_temporal` puesto al escribir un mensaje se quedaría pegado para
+                   * siempre y taparía el estado real de los tags.
+                   */
+                  botEstado: tocadoReciente ? previo.botEstado : undefined,
                 }
               : {
                   // `nombre` puede venir null: GHL no siempre tiene uno. No se inventa (§4.10).
@@ -835,12 +969,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                   ghlContactId: c.ghlContactId,
                   telefono: c.telefono ?? undefined,
                   monto,
+                  indicadores: c.indicadores,
+                  congelado: c.congelado,
+                  cita: c.cita ?? undefined,
                   historial: [],
                   notas: [],
                 };
           }
           return siguiente;
         });
+        setPipelineStats(res.stats ?? null);
       })
       .catch(() => {
         /* Backend caído: se queda lo que ya había. */
@@ -1289,43 +1427,103 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     };
   }, [openGhlContactId]);
 
-  const value: ClosurerStoreValue = {
-    contacts,
-    cockpit,
-    citasHoy,
-    completadasReales,
-    agendaProximos,
-    refrescarAgenda,
-    refrescarPipeline: traerPipeline,
-    cierreEnCursoMonto,
-    ganadoMonto,
-    openContactName,
-    openGhlContactId,
-    openContact: (name: string, ghlContactId?: string) => {
-      /**
-       * La CLAVE del Record para un contacto real es su ghlContactId, no el nombre (el
-       * nombre es display). Guardar el nombre acá hacía que `contacts[openContactName]`
-       * fallara para todo contacto real y la ficha cayera al fallback demo — chat,
-       * historial y notas inventados sobre una persona de verdad (bug de Fabio Malpartida,
-       * 2026-08-01). Se guarda la clave que de verdad indexa.
-       */
-      setOpenContactName(ghlContactId ?? name);
-      setOpenGhlContactId(ghlContactId ?? null);
-    },
-    closeContact: () => {
-      setOpenContactName(null);
-      setOpenGhlContactId(null);
-    },
-    advance,
-    addNota,
-    removeNota,
-    deleteContact,
-    resolveIntervention,
-    setBotEstado,
-    pinTask,
-    completeTask,
-    reviveTask,
-  };
+  /**
+   * El botón "Sincronizar CRM" del Pipeline. Relee de GHL las citas de los próximos 15 días
+   * Y cada contacto del territorio (tags, bot, contadores de llamadas), descongelando al que
+   * recuperó `zona_closer` y congelando al que lo perdió.
+   *
+   * Al terminar refresca las dos vistas desde la CACHÉ — cero llamadas extra a GHL. Devuelve
+   * la respuesta cruda para que la barra de filtros muestre qué pasó, incluido el caso en que
+   * el candado de 60 s no dejó correr nada.
+   */
+  const sincronizarCrm = useCallback(async (): Promise<SincronizarCrmResponse> => {
+    const r = await sincronizarCrmRemoto();
+    traerPipeline();
+    refrescarAgenda();
+    return r;
+  }, [traerPipeline, refrescarAgenda]);
+
+  const openContact = useCallback((name: string, ghlContactId?: string) => {
+    /**
+     * La CLAVE del Record para un contacto real es su ghlContactId, no el nombre (el
+     * nombre es display). Guardar el nombre acá hacía que `contacts[openContactName]`
+     * fallara para todo contacto real y la ficha cayera al fallback demo — chat,
+     * historial y notas inventados sobre una persona de verdad (bug de Fabio Malpartida,
+     * 2026-08-01). Se guarda la clave que de verdad indexa.
+     */
+    setOpenContactName(ghlContactId ?? name);
+    setOpenGhlContactId(ghlContactId ?? null);
+  }, []);
+
+  const closeContact = useCallback(() => {
+    setOpenContactName(null);
+    setOpenGhlContactId(null);
+  }, []);
+
+  /**
+   * `useMemo` sobre el value, y `useCallback` sobre las dos acciones de arriba, por la misma
+   * razón: sin esto el objeto se recrea en CADA render del provider y todo consumidor de
+   * `useClosurer()` se re-renderiza, aunque el campo que le importa no haya cambiado.
+   *
+   * El orden en que se hizo importa y conviene dejarlo escrito: memoizar esto ANTES de poner
+   * el guard del reloj (arriba) no habría servido de nada — el tick creaba una referencia
+   * nueva de `contacts` cada 10 segundos, así que el memo se invalidaba igual. Primero se
+   * dejó de escribir estado sin cambios; recién después el memo tiene algo que conservar.
+   */
+  const value = useMemo<ClosurerStoreValue>(
+    () => ({
+      contacts,
+      cockpit,
+      citasHoy,
+      completadasReales,
+      agendaProximos,
+      pipelineStats,
+      refrescarAgenda,
+      refrescarPipeline: traerPipeline,
+      sincronizarCrm,
+      cierreEnCursoMonto,
+      ganadoMonto,
+      openContactName,
+      openGhlContactId,
+      openContact,
+      closeContact,
+      advance,
+      addNota,
+      removeNota,
+      deleteContact,
+      resolveIntervention,
+      setBotEstado,
+      pinTask,
+      completeTask,
+      reviveTask,
+    }),
+    [
+      contacts,
+      cockpit,
+      citasHoy,
+      completadasReales,
+      agendaProximos,
+      pipelineStats,
+      refrescarAgenda,
+      traerPipeline,
+      sincronizarCrm,
+      cierreEnCursoMonto,
+      ganadoMonto,
+      openContactName,
+      openGhlContactId,
+      openContact,
+      closeContact,
+      advance,
+      addNota,
+      removeNota,
+      deleteContact,
+      resolveIntervention,
+      setBotEstado,
+      pinTask,
+      completeTask,
+      reviveTask,
+    ],
+  );
 
   return <ClosurerCtx.Provider value={value}>{children}</ClosurerCtx.Provider>;
 }
