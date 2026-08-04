@@ -1048,6 +1048,156 @@ NOTA FUTURA: con Supabase Realtime, ese módulo se reemplaza por suscripciones.
   `lastMessageBody/Direction/Date` por conversación; el envío es
   `POST /conversations/messages {type:"WhatsApp", contactId, message}`.
 
+## 52. Indicadores del contacto, Pipeline por etapa y optimización (2026-08-04)
+
+Tres pedidos de Fabio en la misma pasada, sobre los mismos archivos.
+
+### 52.1 Los 6 íconos son información PERSISTENTE del contacto
+
+Pedido literal: *"estos símbolos deben aparecer como información del contacto, o sea que si
+ese contacto se mueve a otra parte del pipeline esto siempre lo acompañará... cuando se
+muestre en cualquier parte traerá esa información."*
+
+**El problema real era peor de lo que parecía.** Los 6 se derivaban de `ClosurerContact.llamadas`
+/`.agenda`/`.botEstado`, campos que solo existen en la semilla — y la semilla está vacía desde
+el 2026-08-01. Para un contacto real de GHL, **cinco de los seis estaban permanentemente
+apagados**; solo 💰 funcionaba. Además el bloque de render vivía duplicado en CINCO vitrinas con
+lógica divergente: el header de la ficha tenía un `?? "activo"` que las listas no, así que el
+mismo contacto se veía "sin bot" en el Pipeline e "IA activa" en su ficha.
+
+**La arquitectura nueva**: un bloque `indicadores` calculado en el BACKEND, devuelto por todos
+los endpoints que listan contactos, y pintado por UN componente
+(`src/components/StatusIcons.tsx`). Ninguna vista deriva un ícono por su cuenta.
+
+| Ícono | De dónde sale | Nota |
+|---|---|---|
+| 📹 reuniones | `closer_citas` pasadas no canceladas − los No-show de `closer_avances` | No hay fuente real de llamadas; ver 52.2 |
+| 📅 cita | `closer_citas` futura no cancelada | |
+| 📞 llamadas de voz | columnas `llamadas_ia_*`, cacheadas de los custom fields de GHL | La única denormalización |
+| 🤖 bot | **derivado de los tags en cada lectura** | `botDesdeTags` en `contrato.ts` |
+| ⏱ seguimiento | `closer_seguimientos` automático pendiente | Su único origen: la vista de Mi Día lo excluye a propósito (§50.2) |
+| 💰 venta | `monto` con etapa `ganado` | Ya funcionaba |
+
+**La regla que dejó la migración 013**: *lo que se deriva en la lectura no se queda viejo; lo
+que se denormaliza, sí.* Se descubrió auditando la base: `closer_contactos.bot_estado` y
+`cita_el` estaban **NULL en los 7 contactos** pese a que el código decía escribirlas. Las dos
+quedaron marcadas obsoletas (no se dropean: un DROP repite el trap de schema cache de §51.5).
+📞 es la excepción consciente — su origen está en GHL y traerlo en vivo costaría una llamada
+por fila.
+
+**Una sola derivación del bot.** Había dos que no se hablaban: `estadoBotDesdeTags` (binaria,
+para el Buzón) y una `botDesdeTags` local en `api/_lib/contactos.ts`. Ahora `botDesdeTags` vive
+en `contrato.ts` con los 6 valores y precedencia explícita (fallo > postcall > lt > manual >
+activado > null), y `estadoBotDesdeTags` es su **proyección** — no una segunda implementación,
+para que no puedan divergir. `bot_apagado_manual` y `derivado_lt` dejaron de ser strings sueltos.
+
+**Se eliminó el `?? "activo"` del drawer.** §51.3 fijó el default en APAGADO; afirmar "IA
+activa" sin ningún tag contradecía al propio sistema, que con ese default ya mandaba esos
+mensajes al Buzón. `null` ahora significa lo que dice: sin evidencia de que el bot atienda.
+
+### 52.2 📹 no tiene fuente real — y la regla que se eligió
+
+GHL no expone las llamadas del closer, no hay evento de webhook, no hay tabla. Y su estado de
+cita es inútil: **verificado, las citas que ya pasaron siguen en `confirmed`** — nadie marca
+`showed`/`noshow`. Regla acordada con Fabio: *la cita pasó y el closer no dijo que lo
+plantaron ⇒ la reunión ocurrió.* El vínculo cita↔avance es (contacto, día civil de la org).
+
+**Límite dejado a propósito**: si el No-show se registra al día siguiente, la reunión se cuenta
+igual. Es el MISMO hueco que ya tiene el show-rate de `api/closer/inicio.ts`; que los dos
+mientan igual es preferible a arreglar uno solo y que el cockpit y el ícono del mismo contacto
+se contradigan. Si se ensancha la ventana, se ensancha **en los dos lugares a la vez**.
+
+### 52.3 La etapa manda la columna; la cita es un dato de la fila
+
+Amplía la invariante de §38. La columna "Agendado" del Pipeline se armaba desde la caché de
+CITAS, no desde la etapa. Consecuencias verificadas en producción: **Enrique Izaguirre y Fidel
+no tenían fila en ninguna parte** aunque el contador los contara, el filtro de grade no tenía
+ningún efecto sobre esa sección, sus 6 íconos estaban hardcodeados en apagado, y un contacto de
+otra etapa con cita futura podía aparecer duplicado en dos columnas.
+
+`PipelineAgendaRow`/`PipelineAgendaContact` se eliminaron. `PipelineRow` es una sola fila para
+las 7 etapas; la cita pasó a ser una celda (encabezado "Próxima cita" en agendado, "Última
+actividad" en el resto) con su variante ámbar "Vencida ·" para la que ya pasó (§50.10).
+
+**Congelados visibles** (§51.3 pedía "visible y movible", y se veían idénticos a un activo):
+fila con `opacity-60` + chip `FUERA DE ZONA`. "Base Total" muestra `N activos · M congelados`
+desde el `stats` del backend, en vez de un total plano — el front lo ignoraba y recontaba solo.
+
+### 52.4 "Sincronizar CRM" ahora sincroniza
+
+Antes: 1 llamada a `/calendars/events`, guardaba citas, y **no releía ni un contacto ya
+cacheado** — ni tags, ni bot, ni campos. El nombre prometía más de lo que hacía.
+
+Ahora relee el territorio completo (`sincronizarTerritorio`), descongela al que recuperó
+`zona_closer` y congela al que lo perdió. Dos modos: con `x-webhook-secret` (ops, tope 100) y
+sin secreto para la UI (tope 25, candado de 60 s en Postgres). Abrirlo sin secreto tiene
+precedente exacto: `/api/closer/reconciliar` ya es público y su freno también es un candado —
+el `WEBHOOK_SECRET` es server-only y el browser no debe tenerlo.
+
+**El guard que no se puede sacar.** Congelar por ausencia es peligroso: `buscarPorTag` devolvía
+`[]` ante un error de GHL, indistinguible de "el territorio está vacío" — un 429 habría
+congelado la base entera. Se arregló para que **lance**, y quedan además dos guards
+(`!truncado && ids.length > 0`) como defensa en profundidad.
+
+**Primera corrida real**: encontró 7 con `zona_closer` y **dos contactos que no estaban en la
+plataforma** (leads activos, invisibles). La red de seguridad funcionando.
+
+Fila nueva para la tabla de §51.4:
+
+| Proceso | Frecuencia | Llamadas |
+|---|---|---|
+| Sincronizar CRM (botón del Pipeline) | por clic, ≤1 cada 60 s (candado en Postgres) | 2 + activos (tope 25) |
+
+### 52.5 Optimización — qué costaba y qué se midió
+
+El síntoma ("la app se puso lenta") no venía del volumen: 7 contactos y 45 mensajes.
+
+- **El tick de 10 s re-renderizaba el árbol entero**, cambiara algo o no: el updater devolvía
+  siempre un objeto nuevo y el `value` del contexto se recreaba en cada render. Ahora hay un
+  guard **por campo** en el reloj de Mi Día (comparar referencias no serviría: los objetos
+  `urgente`/`respondido` se reconstruyen frescos cada tick) + `useMemo` en los cuatro
+  providers. **El orden importa**: memoizar sin el guard no habría servido de nada.
+- **El agrupado por etapa hacía 7 pasadas completas por render** (un `.filter()` dentro del
+  `.map` sobre `STAGE_ORDER`). Ahora es un `useMemo` de una pasada, sembrando las 7 claves para
+  no romper §38.D.
+- **N+1 real contra GHL**: `api/setter/urgentes.ts` pedía la nota de cada urgente por separado,
+  cada 60 s. Reemplazado por una query batcheada a `closer_analisis_agente` — el mismo texto
+  (`analizador.ts` guarda `motivo` en la tabla y manda el mismo string a la nota). De `1+N` a 1.
+- **Cuatro endpoints de solo lectura importaban el cliente completo de GHL** (414 líneas, sin
+  tree-shaking posible porque la elección real/stub es en runtime) solo para leer un string de
+  diagnóstico. Ahora usan `env.ghlModo()`.
+- **`.eq("org_id")` en los tres SELECT grandes**: con una sola org no cambia el comportamiento,
+  pero es lo único que vuelve elegibles los índices compuestos — sin WHERE ningún índice ayuda.
+- **Bundle**: `framer-motion` costaba 39 KB gzip (24% del total) por dos animaciones del tab
+  Inicio; reproducidas con CSS + `requestAnimationFrame`, misma duración y curva. Más
+  `React.lazy` por vista y `manualChunks` de react. **Medido: 161,7 KB gzip en un archivo →
+  entrada de 22 KB + react 45 KB (cacheable entre deploys) + la vista que se abra.**
+- **ErrorBoundary** (`src/components/LimiteDeError.tsx`), en el mismo commit que el splitting y
+  no después: un chunk que no se puede descargar —el caso normal, deploy nuevo con pestaña
+  vieja— deja la pantalla en blanco, y `closerStore.tsx` ya avisaba de que no había ninguno.
+
+**Cómo medirlo**: React DevTools → Profiler → "Highlight updates", 60 s de inactividad (antes
+parpadeaba 6 veces, objetivo 0) · `PerformanceObserver` sobre `longtask` · Network filtrado a
+`/api/` · `gzip -c dist/assets/index-*.js | wc -c`.
+
+### 52.6 Carpeta nueva: `src/components/`
+
+No existía. La estrenan `StatusIcons.tsx` y `LimiteDeError.tsx`, que comparten `CloserAI`,
+`ContactDrawer` y `App` — ninguno es "dueño" de ellos.
+
+### 52.7 Pendientes detectados, no resueltos
+
+- **`resolverBuzon()` existe en `api.ts` y nadie lo llama**: `resolveIntervention` solo limpia
+  el marcador en memoria, así que el servidor lo vuelve a reportar en el tick siguiente.
+  Resolverlo de verdad exige quitar el tag `bot_pausado_fallo` en GHL — es un cambio de
+  producto, no de rendimiento.
+- **Tick unificado**: `closer:reconciliar` y `closer:mi-dia` corren a la misma cadencia y leen
+  la misma tabla por separado (12 req/min sin ficha). Fusionarlos en un `POST /api/closer/tick`
+  con `Promise.allSettled` bajaría a 6-7 — diseñado y no ejecutado: toca ingesta, candado y las
+  cinco colas a la vez, y merece su propio commit y deploy aislados.
+- 📹 y 📞 con detalle por llamada (fecha, duración, grabación) siguen sin fuente en GHL. Lo de
+  acá son proxies honestos sobre los datos que sí existen.
+
 ## 49. Cómo trabajar en este repo
 
 - Los cambios llegan como **specs** de Francisco (reglas + prompts + mockups). Implementar lo especificado; NO inventar features, textos ni estados. Si un dato no existe, el elemento no se renderiza (regla 10 de §4).
