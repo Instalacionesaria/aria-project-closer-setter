@@ -47,16 +47,70 @@ export function idDeMensaje(conversationId: string | null, timestampIso: string,
   return `wh:${conversationId ?? "sin-conv"}:${timestampIso}:${(hash >>> 0).toString(36)}`;
 }
 
-/** Upsert idempotente del lote. Devuelve cuántos eran genuinamente nuevos. */
+/**
+ * Cuánto se apartan la hora REAL de un mensaje (la de GHL, que trae la reconciliación) y la
+ * de llegada de su webhook. Observado: entre 2 y 46 segundos. 10 minutos deja margen de
+ * sobra para una entrega lenta sin llegar a confundir dos mensajes distintos.
+ */
+const VENTANA_GEMELO_MS = 10 * 60_000;
+
+const esFabricado = (id: string) => id.startsWith("wh:");
+
+/** El mismo mensaje ya guardado por la otra vía: mismo contacto, misma dirección, mismo texto, casi la misma hora. */
+async function buscarGemelos(m: MensajeNormalizado, entre: "fabricados" | "reales") {
+  const centro = Date.parse(m.timestampGhl);
+  if (Number.isNaN(centro)) return [];
+
+  const { data } = await db()
+    .from("closer_mensajes")
+    .select("id")
+    .eq("ghl_contact_id", m.ghlContactId)
+    .eq("direccion", m.direccion)
+    .eq("body", m.body)
+    .gte("timestamp_ghl", new Date(centro - VENTANA_GEMELO_MS).toISOString())
+    .lte("timestamp_ghl", new Date(centro + VENTANA_GEMELO_MS).toISOString());
+
+  const ids = (data ?? []).map((f) => f.id as string);
+  return entre === "fabricados" ? ids.filter(esFabricado) : ids.filter((id) => !esFabricado(id));
+}
+
+/**
+ * Upsert idempotente del lote. Devuelve cuántos eran genuinamente nuevos.
+ *
+ * ## Por qué la primary key no alcanza (bug encontrado el 2026-08-04)
+ *
+ * §51.2 dice que el dedupe entre webhook y reconciliación ES la primary key: las dos vías
+ * traen el `messageId` de GHL y el segundo no duplica. Con los webhooks reales resultó
+ * falso: **el webhook estándar (gratis) de GHL no manda `messageId`**, así que el webhook
+ * fabrica un `wh:...` y la reconciliación guarda el mismo mensaje con su id verdadero — dos
+ * filas, un solo mensaje. Los 4 entrantes de la prueba de Fabio quedaron duplicados.
+ *
+ * La regla acá es asimétrica a propósito, y solo cruza fabricado↔real (nunca real↔real, que
+ * son mensajes legítimamente distintos aunque digan lo mismo):
+ *
+ *   - Un fabricado NO se inserta si su mensaje real ya está.
+ *   - Un real, al insertarse, BORRA los fabricados equivalentes.
+ *
+ * Así, en cualquier orden de llegada, queda exactamente una fila — y con la hora buena, que
+ * es la del real. Si la reconciliación nunca corre (nadie abrió la app), el fabricado se
+ * queda: mejor el mensaje con su hora aproximada que ningún mensaje.
+ */
 export async function guardarMensajes(mensajes: MensajeNormalizado[]): Promise<number> {
   if (mensajes.length === 0) return 0;
+
+  const aInsertar: MensajeNormalizado[] = [];
+  for (const m of mensajes) {
+    if (esFabricado(m.id) && (await buscarGemelos(m, "reales")).length > 0) continue;
+    aInsertar.push(m);
+  }
+  if (aInsertar.length === 0) return 0;
 
   // `ignoreDuplicates` + `count` es lo que permite saber cuántos NO estaban: la
   // reconciliación usa ese número para decidir si hay que disparar efectos de entrante.
   const { data, error } = await db()
     .from("closer_mensajes")
     .upsert(
-      mensajes.map((m) => ({
+      aInsertar.map((m) => ({
         id: m.id,
         ghl_contact_id: m.ghlContactId,
         conversation_id: m.conversationId,
@@ -69,6 +123,14 @@ export async function guardarMensajes(mensajes: MensajeNormalizado[]): Promise<n
     .select("id");
 
   if (error) throw new Error(`closer_mensajes: ${error.message}`);
+
+  // El real acaba de entrar: se limpia la copia que hubiera dejado el webhook.
+  for (const m of aInsertar) {
+    if (esFabricado(m.id)) continue;
+    const gemelos = await buscarGemelos(m, "fabricados");
+    if (gemelos.length > 0) await db().from("closer_mensajes").delete().in("id", gemelos);
+  }
+
   return data?.length ?? 0;
 }
 
@@ -140,10 +202,31 @@ export function estaFueraDeZona(tags: readonly string[]): boolean {
  * inferencia de ~$0,02, y el doc de esta tarea prohíbe tocar su disparo.
  */
 export async function efectosDeEntrante(ghlContactId: string, texto: string, ocurrioEl: string): Promise<void> {
-  await db()
+  /**
+   * `ultimo_entrante_el` solo AVANZA, nunca retrocede.
+   *
+   * Las dos vías escriben el mismo mensaje y la que llega segunda pisaba la marca con su
+   * propia hora: un webhook que aterrizaba después de la reconciliación la movía hacia
+   * atrás. Y esa marca decide el Buzón General (§51.3 — "último entrante posterior a
+   * `buzon_resuelto_el`"), así que retroceder puede hacer desaparecer de la cola a alguien
+   * que sí escribió. El resto de los efectos (evento, cancelar serie, reabrir tarea) sí se
+   * ejecutan igual: son idempotentes.
+   */
+  const { data: previo } = await db()
     .from("closer_contactos")
-    .update({ ultimo_entrante_el: ocurrioEl, ultimo_entrante_texto: texto.slice(0, 500) || null })
-    .eq("ghl_contact_id", ghlContactId);
+    .select("ultimo_entrante_el")
+    .eq("ghl_contact_id", ghlContactId)
+    .maybeSingle();
+
+  const anterior = previo?.ultimo_entrante_el ? Date.parse(previo.ultimo_entrante_el as string) : 0;
+  const nuevo = Date.parse(ocurrioEl);
+
+  if (Number.isNaN(nuevo) || nuevo >= anterior) {
+    await db()
+      .from("closer_contactos")
+      .update({ ultimo_entrante_el: ocurrioEl, ultimo_entrante_texto: texto.slice(0, 500) || null })
+      .eq("ghl_contact_id", ghlContactId);
+  }
 
   await registrarEventoSistema(
     ghlContactId,

@@ -163,6 +163,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 }
 
+/**
+ * La hora del MENSAJE, o la de llegada del webhook si el payload no la trae.
+ *
+ * `date_created` estaba en esta cadena y era la trampa (encontrada el 2026-08-04 con los
+ * webhooks reales de Fabio): en el payload del webhook estándar de GHL, ese campo es la
+ * fecha en que se creó **el contacto**, no el mensaje — llegaba idéntica en los tres
+ * webhooks de la prueba (`2026-08-03T20:16:09.600Z`), fechando mensajes de hoy 20 horas en
+ * el pasado y ordenando mal el chat.
+ *
+ * `ocurridoEl`/`timestamp` sí son nuestros por contrato (los mandaría un workflow con cuerpo
+ * JSON editable, plan de paga). Sin ellos, la hora de llegada es una aproximación honesta:
+ * el webhook llega segundos después del mensaje.
+ */
+function horaDelMensaje(cuerpo: Record<string, unknown>, ahora: string): string {
+  const declarada = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? "").trim();
+  if (!declarada) return ahora;
+  const ms = Date.parse(declarada);
+  return Number.isNaN(ms) ? ahora : new Date(ms).toISOString();
+}
+
 async function procesar(evento: string, contactId: string, cuerpo: Record<string, unknown>) {
   if (!EVENTOS_CONOCIDOS.includes(evento)) {
     // No es un error: es un workflow nuevo que todavía no sabemos interpretar. Queda en el
@@ -209,7 +229,7 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
       const texto = String(
         cuerpo.mensaje ?? cuerpo.body ?? (typeof msgNativo === "string" ? msgNativo : (msgNativo?.body ?? "")),
       ).slice(0, 500);
-      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? cuerpo.date_created ?? "") || ahora;
+      const timestampGhl = horaDelMensaje(cuerpo, ahora);
 
       // Red de seguridad del alta (decisión de Fabio, 2026-07-31): si el contacto no está
       // en la caché —el webhook de mensaje llegó antes que el de cita, o ese se perdió—
@@ -264,7 +284,7 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
       const texto = String(
         cuerpo.mensaje ?? cuerpo.body ?? (typeof msgNativoOut === "string" ? msgNativoOut : (msgObjOut?.body ?? "")),
       ).slice(0, 500);
-      const timestampGhl = String(cuerpo.ocurridoEl ?? cuerpo.timestamp ?? cuerpo.date_created ?? "") || ahora;
+      const timestampGhl = horaDelMensaje(cuerpo, ahora);
 
       const contacto = await asegurarContacto(contactId);
       if (!contacto) return { ignorado: "GHL no devolvió ese contacto" };
