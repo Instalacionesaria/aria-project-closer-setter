@@ -56,22 +56,25 @@ const VENTANA_GEMELO_MS = 10 * 60_000;
 
 const esFabricado = (id: string) => id.startsWith("wh:");
 
-/** El mismo mensaje ya guardado por la otra vía: mismo contacto, misma dirección, mismo texto, casi la misma hora. */
-async function buscarGemelos(m: MensajeNormalizado, entre: "fabricados" | "reales") {
-  const centro = Date.parse(m.timestampGhl);
-  if (Number.isNaN(centro)) return [];
+/** ¿Son el mismo mensaje visto por las dos vías? Mismo texto y dirección, con las horas casi pegadas. */
+const mismoMensaje = (a: MensajeNormalizado, b: { direccion: string; body: string; timestamp_ghl: string }) =>
+  a.direccion === b.direccion &&
+  a.body === b.body &&
+  Math.abs(Date.parse(a.timestampGhl) - Date.parse(b.timestamp_ghl)) <= VENTANA_GEMELO_MS;
 
-  const { data } = await db()
-    .from("closer_mensajes")
-    .select("id")
-    .eq("ghl_contact_id", m.ghlContactId)
-    .eq("direccion", m.direccion)
-    .eq("body", m.body)
-    .gte("timestamp_ghl", new Date(centro - VENTANA_GEMELO_MS).toISOString())
-    .lte("timestamp_ghl", new Date(centro + VENTANA_GEMELO_MS).toISOString());
+/**
+ * Las filas de una vía para los contactos del lote, en UNA query.
+ *
+ * Se resuelve con una sola consulta por lote (no una por mensaje) porque esto corre en el
+ * camino caliente: la reconciliación llama a `guardarMensajes` cada 10 segundos y un
+ * contacto activo puede traer decenas de mensajes. El filtro fino se hace en memoria.
+ */
+async function filasDeLaOtraVia(contactIds: string[], via: "fabricados" | "reales") {
+  let q = db().from("closer_mensajes").select("id, direccion, body, timestamp_ghl").in("ghl_contact_id", contactIds);
+  q = via === "fabricados" ? q.like("id", "wh:%") : q.not("id", "like", "wh:%");
 
-  const ids = (data ?? []).map((f) => f.id as string);
-  return entre === "fabricados" ? ids.filter(esFabricado) : ids.filter((id) => !esFabricado(id));
+  const { data } = await q;
+  return (data ?? []) as { id: string; direccion: string; body: string; timestamp_ghl: string }[];
 }
 
 /**
@@ -98,10 +101,14 @@ async function buscarGemelos(m: MensajeNormalizado, entre: "fabricados" | "reale
 export async function guardarMensajes(mensajes: MensajeNormalizado[]): Promise<number> {
   if (mensajes.length === 0) return 0;
 
-  const aInsertar: MensajeNormalizado[] = [];
-  for (const m of mensajes) {
-    if (esFabricado(m.id) && (await buscarGemelos(m, "reales")).length > 0) continue;
-    aInsertar.push(m);
+  const contactos = [...new Set(mensajes.map((m) => m.ghlContactId))];
+
+  // Un fabricado (webhook) no entra si su mensaje real ya está. Solo se consulta cuando el
+  // lote trae alguno — la reconciliación, que manda ids reales, se saltea esta query entera.
+  let aInsertar = mensajes;
+  if (mensajes.some((m) => esFabricado(m.id))) {
+    const reales = await filasDeLaOtraVia(contactos, "reales");
+    aInsertar = mensajes.filter((m) => !esFabricado(m.id) || !reales.some((r) => mismoMensaje(m, r)));
   }
   if (aInsertar.length === 0) return 0;
 
@@ -124,11 +131,18 @@ export async function guardarMensajes(mensajes: MensajeNormalizado[]): Promise<n
 
   if (error) throw new Error(`closer_mensajes: ${error.message}`);
 
-  // El real acaba de entrar: se limpia la copia que hubiera dejado el webhook.
-  for (const m of aInsertar) {
-    if (esFabricado(m.id)) continue;
-    const gemelos = await buscarGemelos(m, "fabricados");
-    if (gemelos.length > 0) await db().from("closer_mensajes").delete().in("id", gemelos);
+  /**
+   * Los reales acaban de entrar: se limpian las copias que hubiera dejado el webhook.
+   *
+   * Una sola query de lectura por lote, y casi siempre vuelve vacía (los fabricados solo
+   * viven el rato que va del webhook a la reconciliación siguiente), así que el DELETE ni
+   * se ejecuta. Sin esto, el camino caliente pagaría una consulta por mensaje cada 10s.
+   */
+  const nuevosReales = aInsertar.filter((m) => !esFabricado(m.id));
+  if (nuevosReales.length > 0) {
+    const fabricados = await filasDeLaOtraVia(contactos, "fabricados");
+    const sobran = fabricados.filter((f) => nuevosReales.some((m) => mismoMensaje(m, f))).map((f) => f.id);
+    if (sobran.length > 0) await db().from("closer_mensajes").delete().in("id", sobran);
   }
 
   return data?.length ?? 0;
