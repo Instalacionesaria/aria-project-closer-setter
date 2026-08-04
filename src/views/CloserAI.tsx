@@ -1,5 +1,4 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 import {
   House,
@@ -272,42 +271,80 @@ function Header({ tab, setTab }: { tab: TabKey; setTab: (t: TabKey) => void }) {
 /* INICIO — cockpit                                                    */
 /* ================================================================== */
 
-const RING_ANIM_DURATION = 1.8;
+const RING_ANIM_MS = 1800;
+
+/** `easeOut` cúbico — la misma curva que usaba framer-motion, escrita en una línea. */
+const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 
 /**
- * Contador animado (§ Anillo Dorado / Cash Collected, 2026-07-11) — anima desde el valor previo
- * (o 0 en el primer render) hacia `value` cada vez que cambia, ej. al montar el dashboard o al
- * registrar una venta nueva. Sincronizado en duración con `GoldRing` para que ambos "terminen de
- * cargar" al mismo tiempo.
+ * ── Estas dos animaciones ya no usan framer-motion (2026-08-04) ──
+ *
+ * La librería pesaba 123 KB crudos / 39 KB gzip —el 24% del bundle de toda la app— para
+ * exactamente estos dos componentes, visibles solo en el tab Inicio del closer. Y como no
+ * había code splitting, viajaba igual para alguien que solo usa Setter o Ajustes.
+ *
+ * Lazy-cargar el tab no habría servido: Inicio es el tab por defecto, así que se descargaba
+ * en el primer pintado de todos modos. Reproducirlas a mano son ~30 líneas y el resultado es
+ * indistinguible: misma duración, misma curva, mismo reinicio al cambiar el valor.
+ */
+
+/**
+ * Contador animado (§36) — anima desde el valor previo (o 0 en el primer render) hacia
+ * `value` cada vez que cambia: al montar el dashboard, o al registrar una venta nueva.
+ * Sincronizado en duración con `GoldRing` para que ambos "terminen de cargar" a la vez.
  */
 function AnimatedNumber({ value, format }: { value: number; format: (n: number) => string }) {
-  const motionVal = useMotionValue(0);
-  const display = useTransform(motionVal, (v) => format(Math.round(v)));
+  const [mostrado, setMostrado] = useState(0);
+  const desdeRef = useRef(0);
+
   useEffect(() => {
-    const controls = animate(motionVal, value, { duration: RING_ANIM_DURATION, ease: "easeOut" });
-    return () => controls.stop();
+    // Respeta a quien pidió menos movimiento: salta al valor final sin animar.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+      desdeRef.current = value;
+      setMostrado(value);
+      return;
+    }
+    const desde = desdeRef.current;
+    const inicio = performance.now();
+    let raf = 0;
+    const paso = (ahora: number) => {
+      const t = Math.min((ahora - inicio) / RING_ANIM_MS, 1);
+      const v = desde + (value - desde) * easeOut(t);
+      setMostrado(v);
+      if (t < 1) raf = requestAnimationFrame(paso);
+      else desdeRef.current = value;
+    };
+    raf = requestAnimationFrame(paso);
+    return () => cancelAnimationFrame(raf);
   }, [value]);
-  return <motion.span>{display}</motion.span>;
+
+  return <span>{format(Math.round(mostrado))}</span>;
 }
 
 /**
- * Anillo dorado de progreso hacia la meta mensual — real, no decorativo: el trazo dorado se anima
- * (stroke-dashoffset) desde "vacío" hasta el % logrado (tope visual 100%, aunque el texto del centro
- * puede superar el 100% si la meta ya se superó). `percentage` ya debe venir capado por el caller.
+ * Anillo dorado de progreso hacia la meta mensual — real, no decorativo: el trazo se anima
+ * desde "vacío" hasta el % logrado (tope visual 100%, aunque el texto del centro puede
+ * superar el 100% si la meta ya se superó). `percentage` ya viene capado por el caller.
+ *
+ * La animación es una transición CSS sobre `stroke-dashoffset`: el navegador la interpola
+ * solo, sin JS por frame. El offset arranca en "vacío" en el primer pintado y se mueve al
+ * real en el efecto — sin ese doble paso no habría transición que animar.
  */
 function GoldRing({ percentage }: { percentage: number }) {
   const r = 46;
   const circumference = 2 * Math.PI * r;
-  const targetOffset = circumference - (percentage / 100) * circumference;
-  const offset = useMotionValue(circumference);
+  const objetivo = circumference - (percentage / 100) * circumference;
+  const [offset, setOffset] = useState(circumference);
+
   useEffect(() => {
-    const controls = animate(offset, targetOffset, { duration: RING_ANIM_DURATION, ease: "easeOut" });
-    return () => controls.stop();
-  }, [targetOffset]);
+    const raf = requestAnimationFrame(() => setOffset(objetivo));
+    return () => cancelAnimationFrame(raf);
+  }, [objetivo]);
+
   return (
     <svg className="w-full h-full transform -rotate-90 relative z-10" viewBox="0 0 100 100">
       <circle cx="50" cy="50" r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="2" />
-      <motion.circle
+      <circle
         cx="50"
         cy="50"
         r={r}
@@ -316,7 +353,8 @@ function GoldRing({ percentage }: { percentage: number }) {
         strokeWidth="2"
         strokeLinecap="round"
         strokeDasharray={circumference}
-        style={{ strokeDashoffset: offset }}
+        strokeDashoffset={offset}
+        style={{ transition: `stroke-dashoffset ${RING_ANIM_MS}ms cubic-bezier(0.33, 1, 0.68, 1)` }}
       />
       <defs>
         <linearGradient id="gold-gradient" x1="0%" y1="0%" x2="100%" y2="100%">

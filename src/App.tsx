@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   Zap,
   UserCheck,
@@ -11,11 +11,29 @@ import {
   Sun,
 } from "lucide-react";
 import { cn } from "./lib/utils";
-import CloserAI from "./views/CloserAI";
-import SetterView from "./views/SetterView";
-import AgentsAudit from "./views/AgentsAudit";
-import Gerencia from "./views/Gerencia";
-import Ajustes from "./views/Ajustes";
+import { LimiteDeError } from "./components/LimiteDeError";
+
+/**
+ * ── Una vista, un chunk (2026-08-04) ──
+ *
+ * Antes las cinco entraban en un único bundle: alguien que solo usa Closer descargaba igual
+ * el código de Setter, Auditoría de Agentes, Gerencia y Ajustes. Con `React.lazy` cada una
+ * viaja cuando se abre por primera vez.
+ *
+ * `ContactDrawer` (2400 líneas, el archivo más grande del repo) queda en el chunk de Closer
+ * porque las dos vistas que lo usan ya son lazy — separarlo otra vez agregaría un salto de
+ * red justo al abrir una ficha, que es la acción más frecuente de la app.
+ *
+ * Los cuatro providers SIGUEN en el chunk de entrada, y no es una omisión: `useSetter()` lo
+ * consumen también `gerenciaStore` y `AgentsAudit`, y `useAgentAudit()` lo consume `CloserAI`
+ * — bajarlos a su vista los duplicaría en varios chunks.
+ */
+const CloserAI = lazy(() => import("./views/CloserAI"));
+const SetterView = lazy(() => import("./views/SetterView"));
+const AgentsAudit = lazy(() => import("./views/AgentsAudit"));
+const Gerencia = lazy(() => import("./views/Gerencia"));
+const Ajustes = lazy(() => import("./views/Ajustes"));
+
 import { SettingsProvider, useSettings } from "./lib/settingsStore";
 import { ClosurerProvider } from "./lib/closerStore";
 import { SetterProvider } from "./lib/setterStore";
@@ -194,11 +212,24 @@ function AppInner() {
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
-        {view === "closer" && <CloserAI onScreenChange={setScreenLabel} />}
-        {view === "setter" && <SetterView onScreenChange={setScreenLabel} />}
-        {view === "agents_audit" && <AgentsAudit onScreenChange={setScreenLabel} />}
-        {view === "gerencia" && <Gerencia role={role} onScreenChange={setScreenLabel} />}
-        {view === "ajustes" && <Ajustes role={role} />}
+        {/* El boundary va POR FUERA del Suspense: cubre tanto el chunk que no se puede
+            descargar como cualquier error de render de la vista ya cargada. El `key` lo
+            reinicia al cambiar de vista, para que un error en una no deje muertas las otras. */}
+        <LimiteDeError key={view}>
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center">
+                <div className="h-6 w-6 rounded-full border-2 border-muted border-t-primary animate-spin" />
+              </div>
+            }
+          >
+            {view === "closer" && <CloserAI onScreenChange={setScreenLabel} />}
+            {view === "setter" && <SetterView onScreenChange={setScreenLabel} />}
+            {view === "agents_audit" && <AgentsAudit onScreenChange={setScreenLabel} />}
+            {view === "gerencia" && <Gerencia role={role} onScreenChange={setScreenLabel} />}
+            {view === "ajustes" && <Ajustes role={role} />}
+          </Suspense>
+        </LimiteDeError>
       </div>
     </div>
   );
