@@ -1539,6 +1539,15 @@ las dos pantallas digan lo mismo.
 reconciliación los trae y `actualizarEstados` los corrige sobre filas que ya existen. El chat
 pinta el saliente fallido en rojo con el motivo textual de GHL debajo.
 
+Y una **pasada extra** (`4.b`), que hizo falta al verificar: la reconciliación solo relee
+conversaciones con actividad NUEVA, y un saliente que Meta rechaza minutos después **no
+cambia la fecha de la conversación**. Sin ella, `estadosActualizados` daba 0 sobre un mensaje
+que en GHL ya figuraba como `failed`. Relee solo conversaciones con salientes sin resolver de
+la última hora, tope 2 por ciclo, y **excluye los ids fabricados `wh:…`** (los inventa el
+webhook cuando GHL no manda `messageId`, §51.2): no existen del lado de GHL, así que nunca
+recibirían estado y dejarían la consulta llena para siempre — 2 llamadas por ciclo eternas.
+Con las dos acotaciones, en reposo no cuesta nada.
+
 Las dos hacen falta: la primera cubre el caso conocido sin gastar nada, la segunda cubre todo
 lo demás que Meta pueda rechazar (número sin WhatsApp, dispositivo desconectado — hay
 contactos con el tag `[whatsapp] - phone device is disconnected`).

@@ -214,17 +214,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
      * se quedaría en `pending` para siempre y el bug del 2026-08-05 seguiría medio invisible
      * (verificado: tras el arreglo, `estadosActualizados` daba 0 sobre un mensaje ya fallido).
      *
-     * La consulta se vacía sola —en cuanto un mensaje se resuelve a delivered/read/failed
-     * deja de calificar, y a las 24 h caduca igual— así que en reposo no cuesta ninguna
-     * llamada. El tope de 2 conversaciones por ciclo es el freno para el caso patológico de
-     * un mensaje que GHL nunca resuelve.
+     * Dos acotaciones que NO son opcionales, porque sin ellas la consulta nunca se vacía y
+     * la pasada cuesta 2 llamadas por ciclo para siempre:
+     *
+     *   · **Solo la última hora.** Esto existe para resolver un veredicto que está por
+     *     llegar, no para rellenar el pasado. Meta responde en segundos; una hora es holgado.
+     *     Los mensajes anteriores a la migración 015 se quedan sin estado y está bien: no hay
+     *     nada que mostrar sobre un envío de la semana pasada.
+     *   · **Sin los ids fabricados (`wh:…`).** Los inventa el webhook cuando GHL no manda
+     *     `messageId` (§51.2). No existen del lado de GHL, así que releer la conversación
+     *     JAMÁS les va a asignar un estado — se quedarían en la cola de candidatos de manera
+     *     permanente.
+     *
+     * Con eso, en reposo no cuesta ninguna llamada. El tope de 2 conversaciones por ciclo es
+     * el freno para el caso patológico de un mensaje que GHL deje colgado dentro de la hora.
      */
     const { data: enElAire } = await db()
       .from("closer_mensajes")
       .select("ghl_contact_id, conversation_id")
       .eq("direccion", "outbound")
       .or("estado.is.null,estado.eq.pending")
-      .gte("timestamp_ghl", new Date(Date.now() - 24 * 3_600_000).toISOString())
+      .not("id", "like", "wh:%")
+      .gte("timestamp_ghl", new Date(Date.now() - 3_600_000).toISOString())
+      .order("timestamp_ghl", { ascending: false })
       .limit(50);
 
     const yaLeidas = new Set(cambiadas.map((c) => c.conversationId));
