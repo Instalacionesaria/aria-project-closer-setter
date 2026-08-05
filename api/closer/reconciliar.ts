@@ -206,6 +206,48 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
+    /**
+     * ── 4.b Cerrar los mensajes que quedaron en el aire ──────────────────
+     *
+     * El paso anterior solo relee conversaciones con actividad NUEVA, y un saliente que Meta
+     * rechaza minutos después **no cambia la fecha de la conversación**: sin esto, su estado
+     * se quedaría en `pending` para siempre y el bug del 2026-08-05 seguiría medio invisible
+     * (verificado: tras el arreglo, `estadosActualizados` daba 0 sobre un mensaje ya fallido).
+     *
+     * La consulta se vacía sola —en cuanto un mensaje se resuelve a delivered/read/failed
+     * deja de calificar, y a las 24 h caduca igual— así que en reposo no cuesta ninguna
+     * llamada. El tope de 2 conversaciones por ciclo es el freno para el caso patológico de
+     * un mensaje que GHL nunca resuelve.
+     */
+    const { data: enElAire } = await db()
+      .from("closer_mensajes")
+      .select("ghl_contact_id, conversation_id")
+      .eq("direccion", "outbound")
+      .or("estado.is.null,estado.eq.pending")
+      .gte("timestamp_ghl", new Date(Date.now() - 24 * 3_600_000).toISOString())
+      .limit(50);
+
+    const yaLeidas = new Set(cambiadas.map((c) => c.conversationId));
+    const pendientes = [
+      ...new Map(
+        ((enElAire ?? []) as { ghl_contact_id: string; conversation_id: string | null }[])
+          .filter((m) => m.conversation_id && !yaLeidas.has(m.conversation_id) && porId.has(m.ghl_contact_id))
+          .map((m) => [m.conversation_id!, m.ghl_contact_id]),
+      ).entries(),
+    ].slice(0, 2);
+
+    for (const [conversationId, ghlContactId] of pendientes) {
+      const crudos = await mensajesDeConversacion(conversationId);
+      llamadasGhl++;
+      estadosActualizados += await actualizarEstados(
+        crudos
+          .filter((m) => esMensajeDeChat(m) && Boolean(m.body))
+          .map((m) => ({ id: String(m.id), estado: m.status ?? null, errorEnvio: m.error ?? null })),
+      );
+      // Sirve para el diagnóstico: si esto crece, hay mensajes que no se están resolviendo.
+      void ghlContactId;
+    }
+
     /* ── 5. Avanzar la marca de agua (RPC, misma razón que el candado) ──── */
     if (marcaNueva > marcaAgua) {
       await db().rpc("closer_reconciliar_marca", {
