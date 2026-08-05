@@ -32,6 +32,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db } from "../_lib/repo.js";
 import { analizarYMarcar } from "../_lib/analizador.js";
+import { autorConEnv } from "../_lib/autoria.js";
 import { sincronizarContacto } from "../_lib/contactos.js";
 import {
   asegurarContacto,
@@ -250,6 +251,9 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
           direccion: "inbound",
           body: texto,
           timestampGhl,
+          // Un entrante es del contacto y no hay ambigüedad posible: es el único autor que
+          // el webhook puede afirmar sin depender de campos que su payload no manda.
+          autor: "contacto",
         },
       ]);
 
@@ -289,6 +293,17 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
       const contacto = await asegurarContacto(contactId);
       if (!contacto) return { ignorado: "GHL no devolvió ese contacto" };
 
+      /**
+       * El payload del webhook ESTÁNDAR de GHL casi nunca trae `source`/`userId`, así que
+       * la mayoría de los salientes van a caer en `desconocido`. No es un descuido: es la
+       * respuesta honesta, y se corrige sola cuando la reconciliación trae el mismo mensaje
+       * con su payload completo y su gemelo real reemplaza al fabricado (§51.2).
+       *
+       * La consecuencia hay que tenerla presente: con la app cerrada solo ingiere el
+       * webhook, así que el contador de mensajes de la IA no avanza y el auditor no dispara
+       * hasta que alguien abra la herramienta. El diagnóstico lo muestra como el renglón
+       * `desconocido` de `salientes7d`.
+       */
       await guardarMensajes([
         {
           id:
@@ -299,6 +314,12 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
           direccion: "outbound",
           body: texto,
           timestampGhl,
+          autor: autorConEnv({
+            direccion: "outbound",
+            source: String(cuerpo.source ?? msgObjOut?.source ?? "") || null,
+            userId: String(cuerpo.userId ?? msgObjOut?.userId ?? "") || null,
+            messageType: String(cuerpo.messageType ?? msgObjOut?.messageType ?? "") || null,
+          }),
         },
       ]);
 

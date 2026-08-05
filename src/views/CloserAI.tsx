@@ -1987,7 +1987,7 @@ function AgendaTab() {
 function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
   const [tab, setTab] = useState<TabKey>("inicio");
   const { contacts, openContactName, openGhlContactId, closeContact, advance, addNota, removeNota, deleteContact, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useClosurer();
-  const { resolveAlertsForContact } = useAgentAudit();
+  const { resolverAlertasDeContacto } = useAgentAudit();
   const openContact = contacts[openContactName ?? ""] ?? null;
 
   useEffect(() => {
@@ -2029,7 +2029,8 @@ function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) =>
         onResolveIntervention={() => {
           if (!openContactName) return;
           resolveIntervention(openContactName);
-          resolveAlertsForContact(openContactName);
+          // Por id: los hallazgos del auditor se indexan por contacto de GHL, no por nombre.
+          void resolverAlertasDeContacto(openGhlContactId);
         }}
         onBotStateChange={(estado, evento, autor) => openContactName && setBotEstado(openContactName, estado, evento, autor)}
         onPin={() => openContactName && pinTask(openContactName)}

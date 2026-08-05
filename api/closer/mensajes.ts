@@ -95,6 +95,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         direccion: "outbound",
         body: message,
         timestampGhl: ahora,
+        // Lo acaba de escribir el closer en el compositor: es el único saliente cuya autoría
+        // no hay que inferir de `source`/`userId`, la sabemos de primera mano. Importa que
+        // quede bien: si contara como del agente, el auditor juzgaría al bot por lo que
+        // escribió un humano — y encima le avanzaría el contador del debounce.
+        autor: "asesor",
       },
     ]);
 

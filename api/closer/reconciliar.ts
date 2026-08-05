@@ -42,6 +42,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { esMensajeDeChat, mensajesDeConversacion } from "../_lib/ghl/lectura.js";
+import { autorDeMensajeGhl } from "../_lib/autoria.js";
 import {
   efectosDeEntrante,
   guardarMensajes,
@@ -151,14 +152,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const crudos = await mensajesDeConversacion(conversationId);
       llamadasGhl++;
 
-      const normalizados: MensajeNormalizado[] = crudos.filter(esMensajeDeChat).map((m: any) => ({
-        id: String(m.id),
-        ghlContactId: contacto.ghl_contact_id,
-        conversationId,
-        direccion: m.direction === "inbound" ? "inbound" : "outbound",
-        body: String(m.body ?? ""),
-        timestampGhl: new Date(m.dateAdded ?? lastMessageDate).toISOString(),
-      }));
+      /**
+       * `esMensajeDeChat` dejó de exigir `body` (§54: un audio de WhatsApp es un mensaje que
+       * existió, y el auditor tiene que verlo). Acá se sigue exigiendo, y a propósito: el
+       * caché alimenta el tab Chat de la ficha, donde una burbuja vacía no comunica nada. El
+       * marcador `[nota de voz…]` es una decisión del transcript del auditor, que lee de GHL
+       * directo — no un dato que corresponda guardar como si fuera el texto del mensaje.
+       */
+      const normalizados: MensajeNormalizado[] = crudos
+        .filter((m) => esMensajeDeChat(m) && Boolean(m.body))
+        .map((m) => ({
+          id: String(m.id),
+          ghlContactId: contacto.ghl_contact_id,
+          conversationId,
+          direccion: m.direction === "inbound" ? ("inbound" as const) : ("outbound" as const),
+          body: String(m.body ?? ""),
+          timestampGhl: new Date(m.dateAdded ?? lastMessageDate).toISOString(),
+          // Esta vía trae el payload completo de GHL, así que es la que clasifica BIEN.
+          // La del webhook casi nunca tiene `source` y cae en `desconocido`; cuando el
+          // gemelo real entra por acá, reemplaza al fabricado y corrige la autoría.
+          autor: autorDeMensajeGhl(m),
+        }));
 
       const nuevos = await guardarMensajes(normalizados);
       mensajesNuevos += nuevos;

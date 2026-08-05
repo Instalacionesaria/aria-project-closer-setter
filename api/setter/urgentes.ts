@@ -34,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     //
     // Esta llamada NO se puede evitar: `closer_contactos` solo cachea territorio del closer
     // (`zona_closer` se aplica DESPUÉS de agendar, §51.3), así que el pre-agenda no está ahí.
-    const conFallo = await contactosConTag(TAG_FALLO);
+    const { contactos: conFallo } = await contactosConTag(TAG_FALLO);
     const contactos = conFallo.filter((c) => c.tags.includes(TAGS.zonaSetter.valor));
 
     /**

@@ -1,78 +1,76 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import { fetchAgentesTexto, type AgenteTextoMetricas } from "./api";
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import {
+  fetchAgentesTexto,
+  fetchAjustesAgentes,
+  fetchAlertasAgentes,
+  registrarAjusteAgente,
+  resolverAlertasDeContacto,
+  type AgenteTextoMetricas,
+  type AgentId,
+  type AjusteAplicado,
+  type AlertCategoria,
+  type AlertSeveridad,
+  type CasoAlerta,
+  type CasoEstado,
+  type PatronAlerta,
+} from "./api";
 
 /**
- * Single source of verdad para Agents Audit (§ arquitectura relacional, 2026-07-10):
- * agentes, alertas (casos técnicos agrupados por patrón vía `errorCode`) y su vínculo
- * con las Intervenciones Urgentes de Setter/Closer (join por `contactName`).
+ * Auditoría de Agentes — el estado de la pestaña.
+ *
+ * ## Qué cambió el 2026-08-04 (pedido de Fabio)
+ *
+ * Hasta hoy este módulo era ~85% datos inventados: los 4 agentes con sus métricas, 55
+ * alertas con diagnósticos y evidencias literales, y 4 filas de historial. Todo eso se fue,
+ * por la misma razón por la que se fueron las semillas del closer: **con datos reales, un
+ * dato inventado no es una demo, es una mentira** — y ahora la pestaña entra en pruebas.
+ *
+ * Lo que queda de la semilla es el CATÁLOGO (id, nombre, objetivo, descripción de los 4
+ * agentes). Eso no son datos de demostración: son entidades reales del producto, y la regla
+ * de §50.10 ya los eximía del prefijo EJEMPLO por eso mismo.
+ *
+ * ## El estado normal es "vacío", y eso obliga a distinguir tres cosas
+ *
+ * El auditor está en cero a propósito (su portón exige tags que hoy ningún contacto tiene,
+ * ver §54). O sea que "sin datos" no es un caso raro: es lo que se va a ver durante días.
+ * Por eso `estado` distingue **cargando / listo / error** y desapareció el `.catch(() => {})`
+ * que había antes: con semilla era tolerable, sin semilla un backend caído se vería idéntico
+ * al estado normal esperado, que es el peor error posible en esta pantalla.
  */
 
-export type AgentId = "lead-flow-ai" | "appointment-flow-ai" | "lead-flow-voz" | "appointment-flow-voz";
-export type AgentKind = "text" | "voz";
-export type AlertStatus = "active" | "resolved_by_human" | "patched_by_tech";
-export type AlertCategory = "comportamiento" | "base_conocimiento" | "informacion_adicional";
-export type AlertSeverity = "rojo" | "amarillo";
+export type { AgentId, AlertCategoria, AlertSeveridad, CasoAlerta, CasoEstado, PatronAlerta, AjusteAplicado };
 
-export const CATEGORY_LABEL: Record<AlertCategory, string> = {
+export type AgentKind = "text" | "voz";
+
+export const CATEGORY_LABEL: Record<AlertCategoria, string> = {
   comportamiento: "Comportamiento",
   base_conocimiento: "Base de conocimiento",
   informacion_adicional: "Información adicional",
 };
 
-export interface AgentInfo {
+/* ================================================================== */
+/* El catálogo — lo único que sigue siendo local                       */
+/* ================================================================== */
+
+/**
+ * Quiénes son los 4 agentes. Sin métricas: acá no hay ni un número.
+ *
+ * `porQueNoHayAuditor` es el texto que ve el usuario en la tarjeta cuando ese agente
+ * todavía no tiene quién lo audite. Vive en el catálogo y no en la vista porque el motivo
+ * es distinto para cada uno y decirlo mal sería peor que no decirlo: el de setter no existe
+ * por una decisión de diseño, y los de voz por falta de fuente de datos.
+ */
+export interface AgentCatalogo {
   id: AgentId;
   type: AgentKind;
   icon: "bot" | "phone";
   name: string;
   goal: string;
   desc: string;
-  metric: string;
-  delta: { text: string; up: boolean };
-  subtext: string;
-  sentiment: { positivos: number; neutrales: number; molestos: number };
-  ops: { value: string; sub?: string; label: string }[];
-  /** 12 semanas — tasa de trabajo (línea sólida) y sentimiento positivo (línea punteada) del sparkline de detalle. */
-  history: { week: string; tasa: number; sentimientoPositivo: number }[];
+  porQueNoHayAuditor: string;
 }
 
-/** Evidencia de un agente de texto — recorte del chat. */
-export interface EvidenceChat {
-  kind: "chat";
-  userMsg: string;
-  aiMsg: string;
-}
-
-/** Evidencia de un agente de voz — recorte de la llamada (mismo shape que `CallRecord` del tab Llamada, §28.D). */
-export interface EvidenceCall {
-  kind: "call";
-  duracion: string;
-  resultado?: string;
-  resumenIA?: string;
-  audioUrl?: string;
-}
-
-export interface AgentAlert {
-  id: string;
-  agentId: AgentId;
-  /** Clave de agrupación — casos con el mismo errorCode se muestran/actúan como un solo grupo ("×N casos"). */
-  errorCode: string;
-  title: string;
-  category: AlertCategory;
-  severity: AlertSeverity;
-  /** Join key hacia closerStore/setterStore — ambos indexan contactos por name. */
-  contactName: string;
-  /** "Hace 2 horas" — display en la tarjeta de evidencia. */
-  timestamp: string;
-  /** "07 Jul" — display; se usa junto con `openedDaysAgo` para ordenar por antigüedad. */
-  openedAt: string;
-  openedDaysAgo: number;
-  status: AlertStatus;
-  diagnostico?: string;
-  correctionBlock?: string;
-  evidence?: EvidenceChat | EvidenceCall;
-}
-
-export const AGENTS: AgentInfo[] = [
+export const AGENTS_CATALOGO: AgentCatalogo[] = [
   {
     id: "lead-flow-ai",
     type: "text",
@@ -80,28 +78,9 @@ export const AGENTS: AgentInfo[] = [
     name: "Lead Flow AI",
     goal: "CONVERSACIONES → AGENDA",
     desc: "Contactos sin agendar · su trabajo: llevarlos a la cita",
-    metric: "23%",
-    delta: { text: "▲ +4 pts", up: true },
-    subtext: "49 de 214 agendaron",
-    sentiment: { positivos: 85, neutrales: 10, molestos: 5 },
-    ops: [
-      { value: "214", label: "Conversaciones" },
-      { value: "49", label: "Agendadas" },
-      { value: "23", label: "Sin Respuesta" },
-    ],
-    history: [
-      { week: "20 abr", tasa: 17, sentimientoPositivo: 78 },
-      { week: "05 may", tasa: 18, sentimientoPositivo: 79 },
-      { week: "12 may", tasa: 16, sentimientoPositivo: 77 },
-      { week: "19 may", tasa: 18, sentimientoPositivo: 80 },
-      { week: "26 may", tasa: 19, sentimientoPositivo: 81 },
-      { week: "02 jun", tasa: 19, sentimientoPositivo: 81 },
-      { week: "09 jun", tasa: 20, sentimientoPositivo: 82 },
-      { week: "16 jun", tasa: 20, sentimientoPositivo: 83 },
-      { week: "23 jun", tasa: 21, sentimientoPositivo: 83 },
-      { week: "30 jun", tasa: 22, sentimientoPositivo: 84 },
-      { week: "07 jul", tasa: 23, sentimientoPositivo: 85 },
-    ],
+    porQueNoHayAuditor:
+      "El auditor de pre-agenda todavía no existe. Auditar al Lead Flow con la rúbrica del closer " +
+      "daría veredictos sobre un trabajo distinto, así que no se hace.",
   },
   {
     id: "appointment-flow-ai",
@@ -110,28 +89,7 @@ export const AGENTS: AgentInfo[] = [
     name: "Appointment Flow AI",
     goal: "SHOW-UP DE SUS CITAS",
     desc: "Contactos agendados · su trabajo: asegurar que asistan",
-    metric: "68%",
-    delta: { text: "▼ -2 pts", up: false },
-    subtext: "58 de 86 se presentaron",
-    sentiment: { positivos: 70, neutrales: 20, molestos: 10 },
-    ops: [
-      { value: "86", label: "Conversaciones" },
-      { value: "58", label: "Agendadas" },
-      { value: "12", label: "Sin Respuesta" },
-    ],
-    history: [
-      { week: "20 abr", tasa: 71, sentimientoPositivo: 74 },
-      { week: "05 may", tasa: 71, sentimientoPositivo: 73 },
-      { week: "12 may", tasa: 70, sentimientoPositivo: 73 },
-      { week: "19 may", tasa: 70, sentimientoPositivo: 72 },
-      { week: "26 may", tasa: 69, sentimientoPositivo: 72 },
-      { week: "02 jun", tasa: 69, sentimientoPositivo: 71 },
-      { week: "09 jun", tasa: 70, sentimientoPositivo: 71 },
-      { week: "16 jun", tasa: 69, sentimientoPositivo: 70 },
-      { week: "23 jun", tasa: 68, sentimientoPositivo: 70 },
-      { week: "30 jun", tasa: 68, sentimientoPositivo: 70 },
-      { week: "07 jul", tasa: 68, sentimientoPositivo: 70 },
-    ],
+    porQueNoHayAuditor: "",
   },
   {
     id: "lead-flow-voz",
@@ -140,31 +98,9 @@ export const AGENTS: AgentInfo[] = [
     name: "Lead Flow Voz",
     goal: "% LLAMADOS → CITA EN 48H",
     desc: "Llama al lead recién capturado · califica y agenda en la llamada",
-    metric: "15%",
-    delta: { text: "▲ +2 pts", up: true },
-    subtext: "23 de 150 agendaron",
-    sentiment: { positivos: 60, neutrales: 30, molestos: 10 },
-    ops: [
-      { value: "150", label: "Llamados" },
-      { value: "315", sub: "2.1/cto", label: "Totales" },
-      { value: "45%", label: "Contestadas" },
-      { value: "25%", label: "Sin Respuesta" },
-      { value: "30%", label: "Buzón" },
-      { value: "320", label: "Minutos" },
-    ],
-    history: [
-      { week: "20 abr", tasa: 13, sentimientoPositivo: 55 },
-      { week: "05 may", tasa: 13, sentimientoPositivo: 56 },
-      { week: "12 may", tasa: 12, sentimientoPositivo: 55 },
-      { week: "19 may", tasa: 13, sentimientoPositivo: 57 },
-      { week: "26 may", tasa: 14, sentimientoPositivo: 57 },
-      { week: "02 jun", tasa: 14, sentimientoPositivo: 58 },
-      { week: "09 jun", tasa: 14, sentimientoPositivo: 58 },
-      { week: "16 jun", tasa: 15, sentimientoPositivo: 59 },
-      { week: "23 jun", tasa: 14, sentimientoPositivo: 59 },
-      { week: "30 jun", tasa: 15, sentimientoPositivo: 60 },
-      { week: "07 jul", tasa: 15, sentimientoPositivo: 60 },
-    ],
+    porQueNoHayAuditor:
+      "Las llamadas de los agentes de voz no llegan a la plataforma: GHL no expone el audio ni la " +
+      "transcripción. Hasta resolver de dónde salen, no hay nada que auditar.",
   },
   {
     id: "appointment-flow-voz",
@@ -173,308 +109,293 @@ export const AGENTS: AgentInfo[] = [
     name: "Appointment Flow Voz",
     goal: "% CONFIRMACIONES LOGRADAS",
     desc: "Confirma la sesión · recuerda el video pre-call",
-    metric: "82%",
-    delta: { text: "▲ +5 pts", up: true },
-    subtext: "49 de 60 confirmaron",
-    sentiment: { positivos: 90, neutrales: 5, molestos: 5 },
-    ops: [
-      { value: "60", label: "Llamados" },
-      { value: "126", sub: "2.1/cto", label: "Totales" },
-      { value: "70%", label: "Contestadas" },
-      { value: "10%", label: "Sin Respuesta" },
-      { value: "20%", label: "Buzón" },
-      { value: "85", label: "Minutos" },
-    ],
-    history: [
-      { week: "20 abr", tasa: 77, sentimientoPositivo: 86 },
-      { week: "05 may", tasa: 78, sentimientoPositivo: 87 },
-      { week: "12 may", tasa: 78, sentimientoPositivo: 87 },
-      { week: "19 may", tasa: 79, sentimientoPositivo: 88 },
-      { week: "26 may", tasa: 79, sentimientoPositivo: 88 },
-      { week: "02 jun", tasa: 80, sentimientoPositivo: 88 },
-      { week: "09 jun", tasa: 80, sentimientoPositivo: 89 },
-      { week: "16 jun", tasa: 81, sentimientoPositivo: 89 },
-      { week: "23 jun", tasa: 81, sentimientoPositivo: 89 },
-      { week: "30 jun", tasa: 82, sentimientoPositivo: 90 },
-      { week: "07 jul", tasa: 82, sentimientoPositivo: 90 },
-    ],
+    porQueNoHayAuditor:
+      "Las llamadas de los agentes de voz no llegan a la plataforma: GHL no expone el audio ni la " +
+      "transcripción. Hasta resolver de dónde salen, no hay nada que auditar.",
   },
 ];
 
-/**
- * Seed de alertas — 7 grupos calibrados para reproducir el banner "3 casos graves"
- * y los badges de las capturas de referencia exactamente (Lead Flow AI 2 rojos + 1 amarillo,
- * Appointment Flow AI 1 amarillo, Lead Flow Voz 1 rojo, Appointment Flow Voz sin grupos = "al día").
- *
- * `casesCount` (derivado por `groupAlerts`, ver abajo) NO tiene por qué igualar `evidence.length`:
- * la evidencia es una muestra demo, igual que `BUZON_COUNTS` en `SetterView.tsx` (§23 de CLAUDE.md) —
- * acá se modela con un campo `syntheticCases` que infla el conteo del grupo más allá de los alerts
- * realmente seedeados, documentado explícitamente.
- */
-function makeFillerAlerts(count: number, base: Omit<AgentAlert, "id" | "contactName" | "timestamp">, contactPool: string[]): AgentAlert[] {
-  return Array.from({ length: count }, (_, i) => ({
-    ...base,
-    id: `${base.errorCode}-filler-${i}`,
-    contactName: contactPool[i % contactPool.length],
-    timestamp: "Hace varios días",
-  }));
+/* Las métricas sembradas de los 4 agentes (`AGENTS`, con su sentiment, ops e history), las
+   55 alertas de `SEED_ALERTS` con sus evidencias literales, `makeFillerAlerts` y las 4 filas
+   de `SEED_ADJUSTMENTS` se ELIMINARON el 2026-08-04 (pedido de Fabio), igual que las
+   semillas EJEMPLO del closer el 2026-08-01.
+
+   `makeFillerAlerts` se borró entera en vez de quedar devolviendo `[]` como
+   `buildSeedContacts()`: aquella produce una estructura legítima que quedó vacía, y esta
+   existía SOLO para inflar el conteo de un grupo por encima de los casos que de verdad
+   había. Conservarla vacía sería conservar la invitación a volver a usarla.
+
+   `conMetricasReales()` se fue con ellas: existía para superponer lo medido sobre lo
+   sembrado, y sin semilla no hay nada que superponer. Con ella se fueron el
+   `if (analisis === 0) return agente` y el merge del sparkline por string de semana, que
+   nunca acertaba porque el backend emite semanas actuales y la semilla tenía abril–julio. */
+
+/** Un agente ya combinado: el catálogo + lo que se midió (o `null` donde no se midió nada). */
+export interface AgentInfo extends AgentCatalogo {
+  tieneAuditor: boolean;
+  /** Cuántos análisis sostienen los números. 0 = el auditor no corrió sobre este agente. */
+  analisis: number;
+  metric: string | null;
+  delta: { text: string; up: boolean } | null;
+  subtext: string | null;
+  sentiment: { positivos: number; neutrales: number; molestos: number } | null;
+  ops: { value: string | null; sub?: string; label: string }[];
+  history: { week: string; tasa: number | null; sentimientoPositivo: number }[];
 }
 
-const SEED_ALERTS: AgentAlert[] = [
-  // Lead Flow AI — "Promesa vacía — financiamiento" (rojo, ×15, abierto hace 2 días)
-  {
-    id: "promesa-financiamiento-1", agentId: "lead-flow-ai", errorCode: "promesa_vacia_financiamiento",
-    title: "Promesa vacía — financiamiento", category: "comportamiento", severity: "rojo",
-    contactName: "EJEMPLO CARLOS RUIZ", timestamp: "Hace 2 horas", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
-    diagnostico: "El agente promete condiciones de financiamiento (meses sin intereses) que no están confirmadas en la base de conocimiento — genera una expectativa que el equipo de cierre no puede sostener.",
-    correctionBlock: "No ofrezcas planes de financiamiento específicos sin verificarlos primero en la base de conocimiento. Si preguntan, responde que un asesor confirmará las opciones disponibles.",
-    evidence: { kind: "chat", userMsg: "¿Tienen meses sin intereses?", aiMsg: "Sí, tenemos hasta 12 meses sin intereses." },
-  },
-  {
-    id: "promesa-financiamiento-2", agentId: "lead-flow-ai", errorCode: "promesa_vacia_financiamiento",
-    title: "Promesa vacía — financiamiento", category: "comportamiento", severity: "rojo",
-    contactName: "EJEMPLO ANA SILVA", timestamp: "Hace 5 horas", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
-    diagnostico: "El agente promete condiciones de financiamiento (meses sin intereses) que no están confirmadas en la base de conocimiento — genera una expectativa que el equipo de cierre no puede sostener.",
-    correctionBlock: "No ofrezcas planes de financiamiento específicos sin verificarlos primero en la base de conocimiento. Si preguntan, responde que un asesor confirmará las opciones disponibles.",
-    evidence: { kind: "chat", userMsg: "Me interesa a plazos", aiMsg: "Podemos hacerlo a 12 meses sin intereses." },
-  },
-  ...makeFillerAlerts(13, {
-    agentId: "lead-flow-ai", errorCode: "promesa_vacia_financiamiento", title: "Promesa vacía — financiamiento",
-    category: "comportamiento", severity: "rojo", openedAt: "05 Jul", openedDaysAgo: 2, status: "active",
-  }, ["EJEMPLO CARLOS RUIZ", "EJEMPLO ANA SILVA"]),
-
-  // Lead Flow AI — "No detecta intención de pago" (rojo, ×9, abierto hace 1 día) — incluye a CARLA MENDOZA (Setter)
-  {
-    id: "no-detecta-pago-carla", agentId: "lead-flow-ai", errorCode: "no_detecta_intencion_pago",
-    title: "No detecta intención de pago", category: "base_conocimiento", severity: "rojo",
-    contactName: "EJEMPLO CARLA MENDOZA", timestamp: "Hace 3 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
-    diagnostico: "Fallo en webhook de Zapier al validar email — el agente no detecta que el intento de pago quedó pendiente de validación y deja la conversación pausada sin avisar al humano.",
-    correctionBlock: "Si el webhook de validación no responde en 30s, pausa el bot y notifica a Intervenciones Urgentes en vez de continuar la conversación como si nada.",
-    evidence: { kind: "chat", userMsg: "Ya pagué, ¿ahora qué sigo?", aiMsg: "¡Genial! Seguimos coordinando los detalles." },
-  },
-  ...makeFillerAlerts(8, {
-    agentId: "lead-flow-ai", errorCode: "no_detecta_intencion_pago", title: "No detecta intención de pago",
-    category: "base_conocimiento", severity: "rojo", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
-  }, ["EJEMPLO JORGE RUIZ", "EJEMPLO IGNACIO PRADA"]),
-
-  // Lead Flow AI — "Respuestas demasiado largas" (amarillo, ×22, abierto hace 4 días)
-  ...makeFillerAlerts(22, {
-    agentId: "lead-flow-ai", errorCode: "respuestas_demasiado_largas", title: "Respuestas demasiado largas",
-    category: "comportamiento", severity: "amarillo", openedAt: "03 Jul", openedDaysAgo: 4, status: "active",
-    diagnostico: "El agente redacta respuestas de más de 4 párrafos en WhatsApp — el prospecto pierde el hilo y tarda más en responder.",
-    correctionBlock: "Limita las respuestas a un máximo de 2 líneas cortas por mensaje. Si hay más información, ofrécela en un segundo mensaje solo si preguntan.",
-  }, ["EJEMPLO FERNANDO LOPEZ", "EJEMPLO ELENA MARTIN", "EJEMPLO MIGUEL RUIZ"]),
-
-  // Appointment Flow AI — "No detecta solicitud de pago" (amarillo, ×6) — incluye a ARIEL MENDEZ (Closer)
-  {
-    id: "no-detecta-solicitud-pago-ariel", agentId: "appointment-flow-ai", errorCode: "no_detecta_solicitud_pago",
-    title: "No detecta solicitud de pago", category: "comportamiento", severity: "amarillo",
-    contactName: "EJEMPLO ARIEL MENDEZ", timestamp: "Hace 1 hora", openedAt: "07 Jul", openedDaysAgo: 0, status: "active",
-    diagnostico: "El usuario solicitó el enlace de pago pero la IA no lo detectó ni lo envió — requiere intervención inmediata para no perder la venta.",
-    correctionBlock: "Cuando el mensaje del contacto contenga palabras como \"link\", \"pago\" o \"cómo pago\", envía el enlace de pago de inmediato en vez de continuar el guión estándar.",
-    evidence: { kind: "chat", userMsg: "¿Me pasás el link para pagar?", aiMsg: "¡Claro que sí! ¿Te gustaría agendar una llamada?" },
-  },
-  ...makeFillerAlerts(5, {
-    agentId: "appointment-flow-ai", errorCode: "no_detecta_solicitud_pago", title: "No detecta solicitud de pago",
-    category: "comportamiento", severity: "amarillo", openedAt: "07 Jul", openedDaysAgo: 0, status: "active",
-  }, ["EJEMPLO CARMEN MARTIN", "EJEMPLO CARLOS PEREZ"]),
-
-  // Lead Flow Voz — "Corta antes de que el cliente termine" (rojo, ×5, abierto hace 1 día) — 2 ejemplos reales de grabación/transcript
-  {
-    id: "corta-antes-tiempo-mateo", agentId: "lead-flow-voz", errorCode: "corta_antes_tiempo",
-    title: "Corta antes de que el cliente termine", category: "comportamiento", severity: "rojo",
-    contactName: "EJEMPLO MATEO DIAZ", timestamp: "Hace 4 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
-    diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
-    correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
-    evidence: { kind: "call", duracion: "01:48", resultado: "Contestó · cortada", resumenIA: "Contestó y estaba respondiendo la calificación de presupuesto cuando la llamada se cortó abruptamente a mitad de su frase — el agente no esperó la pausa natural antes de continuar.", audioUrl: "https://example.com/audio/lead-flow-voz-md-1.mp3" },
-  },
-  {
-    id: "corta-antes-tiempo-rodrigo", agentId: "lead-flow-voz", errorCode: "corta_antes_tiempo",
-    title: "Corta antes de que el cliente termine", category: "comportamiento", severity: "rojo",
-    contactName: "EJEMPLO RODRIGO SILVA", timestamp: "Hace 8 horas", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
-    diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
-    correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
-    evidence: { kind: "call", duracion: "02:05", resultado: "Contestó · cortada", resumenIA: "Estaba explicando por qué necesitaba pensar el precio con su socio cuando el agente lo interrumpió y cortó la llamada antes de que terminara la frase.", audioUrl: "https://example.com/audio/lead-flow-voz-rs-1.mp3" },
-  },
-  ...makeFillerAlerts(3, {
-    agentId: "lead-flow-voz", errorCode: "corta_antes_tiempo", title: "Corta antes de que el cliente termine",
-    category: "comportamiento", severity: "rojo", openedAt: "06 Jul", openedDaysAgo: 1, status: "active",
-    diagnostico: "El agente de voz tiene una latencia de espera muy corta y corta a los clientes cuando hacen pausas al hablar.",
-    correctionBlock: "Aumenta el tiempo de espera de fin de turno a 2.5 segundos.",
-  }, ["EJEMPLO SANTIAGO TORRES", "EJEMPLO RODRIGO SILVA"]),
-];
-
-// Filler alerts no llevan evidencia individual (`makeFillerAlerts` no la asigna) — solo inflan `casesCount`.
-
-export function groupAlerts(alerts: AgentAlert[]) {
-  const byKey = new Map<string, AgentAlert[]>();
-  for (const a of alerts) {
-    const key = `${a.agentId}::${a.errorCode}`;
-    if (!byKey.has(key)) byKey.set(key, []);
-    byKey.get(key)!.push(a);
-  }
-  return Array.from(byKey.entries()).map(([key, group]) => {
-    const first = group[0];
-    const hasActive = group.some((a) => a.status === "active");
-    const hasResolvedByHuman = group.some((a) => a.status === "resolved_by_human");
-    const allPatched = group.every((a) => a.status === "patched_by_tech");
+/**
+ * Combina catálogo + medición. **Nunca sustituye un `null` por otra cosa.**
+ *
+ * Es el reemplazo de `conMetricasReales`, y la diferencia es toda la tarea: aquella caía a
+ * un valor inventado cuando no había medición; esta deja el `null` y la vista decide cómo
+ * mostrar la ausencia.
+ */
+export function componerAgentes(
+  catalogo: AgentCatalogo[],
+  medidos: AgenteTextoMetricas[],
+  conAuditor: AgentId[],
+): AgentInfo[] {
+  return catalogo.map((base) => {
+    const m = medidos.find((x) => x.id === (base.id as AgenteTextoMetricas["id"]));
     return {
-      key,
-      agentId: first.agentId,
-      errorCode: first.errorCode,
-      title: first.title,
-      category: first.category,
-      severity: first.severity,
-      openedAt: first.openedAt,
-      openedDaysAgo: first.openedDaysAgo,
-      casesCount: group.length,
-      diagnostico: group.find((a) => a.diagnostico)?.diagnostico,
-      correctionBlock: group.find((a) => a.correctionBlock)?.correctionBlock,
-      evidence: group.filter((a) => a.evidence).map((a) => ({ contactName: a.contactName, timestamp: a.timestamp, status: a.status, ...a.evidence! })),
-      cases: group,
-      hasActive,
-      isOpen: hasActive || hasResolvedByHuman,
-      isFullyPatched: allPatched,
-      hasUnresolvedByHumanOnly: hasResolvedByHuman && !hasActive,
+      ...base,
+      tieneAuditor: conAuditor.includes(base.id),
+      analisis: m?.analisis ?? 0,
+      metric: m?.metric ?? null,
+      delta: m?.delta ?? null,
+      subtext: m?.subtext ?? null,
+      sentiment: m?.sentiment ?? null,
+      ops: m?.ops ?? [],
+      history: m?.history ?? [],
     };
   });
 }
 
-export type AlertGroupSummary = ReturnType<typeof groupAlerts>[number];
+/* ================================================================== */
+/* Agrupamiento                                                        */
+/* ================================================================== */
 
-export interface AdjustmentEntry {
-  date: string;
-  issue: string;
-  count: string;
-  agentIcon: string;
-  agentName: string;
-  category: string;
-  author: string;
-  diagnostico?: string;
-  correctionBlock?: string;
+export interface GrupoAlerta {
+  key: string;
+  patron: PatronAlerta;
+  casos: CasoAlerta[];
+  /** `casos.length` POR CONSTRUCCIÓN. Es lo que evita que vuelva el desfase de §32.D. */
+  casesCount: number;
+  hayActivos: boolean;
+  abierto: boolean;
+  todosParcheados: boolean;
+  soloResueltosPorHumano: boolean;
+  /** Días desde el caso más viejo del grupo. Para ordenar la cola por antigüedad. */
+  diasAbierto: number;
 }
 
-/** Historial de Ajustes — reproduce exactamente las capturas de referencia; "Marcar grupo resuelto" agrega filas nuevas encima. */
-const SEED_ADJUSTMENTS: AdjustmentEntry[] = [
-  {
-    date: "04 Jul 2026", issue: "Promesa vacía — bonos", count: "×8", agentIcon: "💬", agentName: "Lead Flow AI", category: "Base de conocimiento", author: "Jorge Q.",
-    diagnostico: "El agente ofrecía bonos de regalo (auditoría gratis, sesión extra) que no estaban aprobados en la oferta vigente, generando expectativas que el equipo de cierre no podía cumplir.",
-    correctionBlock: "No menciones bonos, regalos o extras que no estén listados explícitamente en la base de conocimiento del producto activo.",
-  },
-  {
-    date: "02 Jul 2026", issue: "Tono demasiado formal", count: "×34", agentIcon: "💬", agentName: "Lead Flow AI", category: "Comportamiento", author: "Jorge Q.",
-    diagnostico: "El agente respondía con un registro muy formal ('Estimado/a', párrafos largos) que no calzaba con el tono cercano de WhatsApp, bajando el engagement inicial.",
-    correctionBlock: "Usa un tono cercano y coloquial, como si fueras un vendedor humano por WhatsApp. Evita fórmulas formales de correo electrónico.",
-  },
-  {
-    date: "01 Jul 2026", issue: "Cuelga al buzón de voz", count: "×12", agentIcon: "📞", agentName: "Lead Flow Voz", category: "Comportamiento", author: "Jorge Q.",
-    diagnostico: "El agente de voz colgaba apenas detectaba el tono de buzón de voz, sin dejar un mensaje pregrabado — perdiendo la oportunidad de generar un callback.",
-    correctionBlock: "Si detectás buzón de voz, dejá el mensaje pregrabado estándar antes de colgar en vez de cortar inmediatamente.",
-  },
-  {
-    date: "28 Jun 2026", issue: "Falta de urgencia en cierre", count: "×15", agentIcon: "💬", agentName: "Appointment Flow AI", category: "Información adicional", author: "Ana S.",
-    diagnostico: "El agente no mencionaba la fecha límite de la oferta vigente al confirmar la cita, restando urgencia y aumentando el no-show.",
-    correctionBlock: "Al confirmar la cita, recordá siempre la vigencia de la oferta actual (fecha límite) para reforzar la urgencia de asistir.",
-  },
-];
+/**
+ * Los casos agrupados por patrón.
+ *
+ * El agrupamiento se hace ACÁ y no en SQL: con `casesCount = casos.length` por
+ * construcción, el conteo del grupo no puede desalinearse de la lista que se pagina, que es
+ * exactamente el malentendido que documentó §32.D ("×15 casos" mostrando 2 ejemplos). En
+ * SQL sería un `COUNT(*)` desacoplado de los casos que viajan.
+ */
+export function groupAlerts(patrones: PatronAlerta[], casos: CasoAlerta[], ahoraMs = Date.now()): GrupoAlerta[] {
+  const porClave = new Map<string, CasoAlerta[]>();
+  for (const c of casos) {
+    const key = `${c.agenteId}::${c.errorCode}`;
+    if (!porClave.has(key)) porClave.set(key, []);
+    porClave.get(key)!.push(c);
+  }
+
+  return patrones.map((patron) => {
+    const key = `${patron.agenteId}::${patron.errorCode}`;
+    const grupo = porClave.get(key) ?? [];
+    const hayActivos = grupo.some((c) => c.estado === "activo");
+    const hayResueltosPorHumano = grupo.some((c) => c.estado === "resuelto_por_humano");
+    const masViejo = grupo.reduce(
+      (min, c) => Math.min(min, Date.parse(c.analizadoEl) || Infinity),
+      Infinity,
+    );
+
+    return {
+      key,
+      patron,
+      casos: grupo,
+      casesCount: grupo.length,
+      hayActivos,
+      abierto: hayActivos || hayResueltosPorHumano,
+      todosParcheados: grupo.length > 0 && grupo.every((c) => c.estado === "parcheado"),
+      soloResueltosPorHumano: hayResueltosPorHumano && !hayActivos,
+      diasAbierto: Number.isFinite(masViejo) ? Math.floor((ahoraMs - masViejo) / 86_400_000) : 0,
+    };
+  });
+}
+
+/* ================================================================== */
+/* El provider                                                         */
+/* ================================================================== */
+
+export type EstadoCarga = "cargando" | "listo" | "error";
 
 interface AgentAuditStoreValue {
+  estado: EstadoCarga;
+  errorMensaje: string | null;
+  ventanaDias: number;
   agents: AgentInfo[];
-  alerts: AgentAlert[];
-  adjustments: AdjustmentEntry[];
-  resolveAlertsForContact: (contactName: string) => void;
-  patchAlertGroup: (agentId: AgentId, errorCode: string) => void;
+  patrones: PatronAlerta[];
+  casos: CasoAlerta[];
+  grupos: GrupoAlerta[];
+  ajustes: AjusteAplicado[];
+  /** Total de análisis en la ventana, sumando todos los agentes. 0 = el auditor no corrió. */
+  analisisTotales: number;
+  /** Vuelve a pedir todo. Lo usa el botón "Actualizar" del header. */
+  refrescar: () => Promise<void>;
+  /** La primera carga, disparada por la vista al montarse. Idempotente. */
+  cargarSiHaceFalta: () => Promise<void>;
+  marcarGrupoResuelto: (agenteId: AgentId, errorCode: string) => Promise<void>;
+  /**
+   * El closer tomó la conversación a mano. Por `ghlContactId`, NUNCA por nombre: el cruce
+   * por nombre venía roto desde que el closer indexa por id, y encima solo tocaba memoria.
+   */
+  resolverAlertasDeContacto: (ghlContactId: string | null) => Promise<void>;
 }
 
 const AgentAuditCtx = createContext<AgentAuditStoreValue | null>(null);
 
-/**
- * Superpone lo MEDIDO sobre lo que sembró Francisco, campo por campo.
- *
- * La regla es una sola: si la analizadora no midió algo, gana el valor de Francisco. Un
- * `null` significa "todavía no lo sé", no "es cero" — pintar un 0% recién medido sobre una
- * tarjeta que él dejó en 23% haría ver el agente como roto cuando en realidad nadie lo
- * evaluó todavía.
- *
- * El sparkline es el único que se mezcla punto a punto: las semanas realmente medidas pisan
- * su valor sembrado y el resto queda como estaba, así el gráfico se ve completo desde el
- * primer día y se vuelve real solo, semana a semana.
- */
-function conMetricasReales(base: AgentInfo[], medidos: AgenteTextoMetricas[]): AgentInfo[] {
-  return base.map((agente) => {
-    const m = medidos.find((x) => x.id === agente.id);
-    if (!m || m.analisis === 0) return agente;
-
-    const semanasReales = new Map(m.history.map((h) => [h.week, h]));
-
-    return {
-      ...agente,
-      metric: m.metric ?? agente.metric,
-      delta: m.delta ?? agente.delta,
-      subtext: m.subtext ?? agente.subtext,
-      sentiment: m.sentiment ?? agente.sentiment,
-      ops: agente.ops.map((caja) => {
-        const medido = m.ops.find((o) => o.label === caja.label);
-        return medido?.value ? { ...caja, value: medido.value } : caja;
-      }),
-      history: agente.history.map((semana) => semanasReales.get(semana.week) ?? semana),
-    };
-  });
-}
-
 export function AgentAuditProvider({ children }: { children: React.ReactNode }) {
-  const [alerts, setAlerts] = useState<AgentAlert[]>(SEED_ALERTS);
-  /**
-   * Arranca con lo de Francisco y se va reemplazando con lo medido. Los agentes de VOZ
-   * quedan intactos: los audita Fabio con sus propias analizadoras.
-   */
-  const [agents, setAgents] = useState<AgentInfo[]>(AGENTS);
+  const [estado, setEstado] = useState<EstadoCarga>("cargando");
+  const [errorMensaje, setErrorMensaje] = useState<string | null>(null);
+  const [ventanaDias, setVentanaDias] = useState(30);
+  const [agents, setAgents] = useState<AgentInfo[]>(() => componerAgentes(AGENTS_CATALOGO, [], []));
+  const [patrones, setPatrones] = useState<PatronAlerta[]>([]);
+  const [casos, setCasos] = useState<CasoAlerta[]>([]);
+  const [ajustes, setAjustes] = useState<AjusteAplicado[]>([]);
+  const [analisisTotales, setAnalisisTotales] = useState(0);
 
-  useEffect(() => {
-    let alive = true;
-    fetchAgentesTexto()
-      .then((res) => {
-        if (alive) setAgents(conMetricasReales(AGENTS, res.agentes));
-      })
-      .catch(() => {
-        /* sin backend, las tarjetas quedan con los valores sembrados */
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-  const [adjustments, setAdjustments] = useState<AdjustmentEntry[]>(SEED_ADJUSTMENTS);
+  // `marcarGrupoResuelto` necesita los casos vigentes sin volverse a crear cada vez que
+  // cambian — si dependiera de `casos`, cada refresco recrearía el callback y el `useMemo`
+  // del value se invalidaría con él.
+  const casosRef = useRef<CasoAlerta[]>([]);
+  casosRef.current = casos;
 
-  const resolveAlertsForContact = useCallback((contactName: string) => {
-    setAlerts((prev) =>
-      prev.map((a) => (a.contactName === contactName && a.status === "active" ? { ...a, status: "resolved_by_human" } : a)),
-    );
-  }, []);
-
-  const patchAlertGroup = useCallback((agentId: AgentId, errorCode: string) => {
-    setAlerts((prev) => {
-      const group = prev.filter((a) => a.agentId === agentId && a.errorCode === errorCode);
-      if (group.length === 0) return prev;
-      const agent = AGENTS.find((a) => a.id === agentId);
-      setAdjustments((adj) => [
-        {
-          date: "Hoy",
-          issue: group[0].title,
-          count: `×${group.length}`,
-          agentIcon: agent?.type === "voz" ? "📞" : "💬",
-          agentName: agent?.name ?? agentId,
-          category: CATEGORY_LABEL[group[0].category],
-          author: "Jorge Q.",
-          diagnostico: group.find((a) => a.diagnostico)?.diagnostico,
-          correctionBlock: group.find((a) => a.correctionBlock)?.correctionBlock,
-        },
-        ...adj,
+  const cargar = useCallback(async () => {
+    setEstado("cargando");
+    setErrorMensaje(null);
+    try {
+      const [texto, alertas, hist] = await Promise.all([
+        fetchAgentesTexto(),
+        fetchAlertasAgentes(),
+        fetchAjustesAgentes(),
       ]);
-      return prev.map((a) => (a.agentId === agentId && a.errorCode === errorCode ? { ...a, status: "patched_by_tech" } : a));
-    });
+      setVentanaDias(alertas.ventanaDias);
+      setAgents(componerAgentes(AGENTS_CATALOGO, texto.agentes, alertas.agentesConAuditor));
+      setPatrones(alertas.patrones);
+      setCasos(alertas.casos);
+      setAjustes(hist.ajustes);
+      setAnalisisTotales(Object.values(alertas.analisisPorAgente).reduce((a, b) => a + (b ?? 0), 0));
+      setEstado("listo");
+    } catch (e) {
+      // Antes esto era `.catch(() => {})` y la pestaña se veía idéntica con datos falsos.
+      // Ahora un backend caído se DICE: sin semilla, callarlo lo haría indistinguible del
+      // estado normal ("el auditor todavía no analizó nada"), que es el peor error acá.
+      setErrorMensaje((e as Error).message);
+      setEstado("error");
+    }
   }, []);
 
-  const value: AgentAuditStoreValue = { agents, alerts, adjustments, resolveAlertsForContact, patchAlertGroup };
+  /**
+   * **No se carga al montar el provider.** El provider vive en `App.tsx`, o sea en TODAS las
+   * sesiones, y CloserAI/SetterView lo consumen solo para `resolverAlertasDeContacto` — que
+   * no necesita ningún dato cargado. Pedir las tres respuestas en cada arranque le sumaría
+   * tres requests a un closer que quizá nunca abre esta pestaña.
+   *
+   * La carga la dispara la vista al montarse (`useCargaInicial`). `estado` arranca en
+   * "cargando" para que el primer pintado no muestre el texto de vacío antes de tiempo.
+   */
+  const yaCargo = useRef(false);
+  const cargarSiHaceFalta = useCallback(async () => {
+    if (yaCargo.current) return;
+    yaCargo.current = true;
+    await cargar();
+  }, [cargar]);
+
+  /**
+   * "Marcar grupo resuelto" — sin pintado optimista.
+   *
+   * Un ajuste es el registro permanente de un cambio al prompt: pintarlo antes de que el
+   * servidor lo confirme es el éxito falso que prohíbe la cabecera de `api.ts`. La vista
+   * deshabilita el botón mientras esto corre y muestra el error si lanza.
+   */
+  const marcarGrupoResuelto = useCallback(async (agenteId: AgentId, errorCode: string) => {
+    const delGrupo = casosRef.current.filter(
+      (c) => c.agenteId === agenteId && c.errorCode === errorCode && c.estado !== "parcheado",
+    );
+    if (delGrupo.length === 0) return; // early-return, regla 5 del patrón del closer
+
+    const r = await registrarAjusteAgente({ agenteId, errorCode, casosIds: delGrupo.map((c) => c.id) });
+
+    setAjustes((prev) => [r.ajuste, ...prev]); // la fila que DEVOLVIÓ el servidor, con su fecha real
+    const cerrados = new Set(delGrupo.map((c) => c.id));
+    setCasos((prev) => prev.map((c) => (cerrados.has(c.id) ? { ...c, estado: "parcheado" as const } : c)));
+  }, []);
+
+  /**
+   * Silencioso a propósito, y es la única excepción de este módulo.
+   *
+   * Se dispara como efecto secundario de "resolver intervención" en el Closer y el Setter,
+   * donde la acción principal es otra. Un toast de error acá sobre una escritura que el
+   * usuario no pidió explícitamente sería ruido; el estado real se ve al refrescar. Para el
+   * Setter es hoy un no-op garantizado: su auditor no existe, así que no hay hallazgos.
+   */
+  const resolverAlertas = useCallback(async (ghlContactId: string | null) => {
+    if (!ghlContactId) return;
+    try {
+      await resolverAlertasDeContacto(ghlContactId);
+      setCasos((prev) =>
+        prev.map((c) =>
+          c.ghlContactId === ghlContactId && c.estado === "activo"
+            ? { ...c, estado: "resuelto_por_humano" as const }
+            : c,
+        ),
+      );
+    } catch {
+      /* La cola de urgentes ya se actualizó por su cuenta; esto se corrige al refrescar. */
+    }
+  }, []);
+
+  const grupos = useMemo(() => groupAlerts(patrones, casos), [patrones, casos]);
+
+  const value = useMemo<AgentAuditStoreValue>(
+    () => ({
+      estado,
+      errorMensaje,
+      ventanaDias,
+      agents,
+      patrones,
+      casos,
+      grupos,
+      ajustes,
+      analisisTotales,
+      refrescar: cargar,
+      cargarSiHaceFalta,
+      marcarGrupoResuelto,
+      resolverAlertasDeContacto: resolverAlertas,
+    }),
+    [
+      estado,
+      errorMensaje,
+      ventanaDias,
+      agents,
+      patrones,
+      casos,
+      grupos,
+      ajustes,
+      analisisTotales,
+      cargar,
+      cargarSiHaceFalta,
+      marcarGrupoResuelto,
+      resolverAlertas,
+    ],
+  );
+
   return <AgentAuditCtx.Provider value={value}>{children}</AgentAuditCtx.Provider>;
 }
 

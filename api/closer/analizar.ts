@@ -9,9 +9,12 @@
  *   POST /api/closer/analizar { zona: "setter" }       → todos los de zona_setter
  *   POST /api/closer/analizar { ghlContactId: "…" }    → uno solo (el territorio se deduce
  *                                                         de sus tags, no hace falta decirlo)
+ *   POST /api/closer/analizar { …, forzar: true }      → ignora el debounce de 5 mensajes
+ *   POST /api/closer/analizar { …, dryRun: true }      → devuelve el veredicto SIN escribir
  *
  * ⚠️ ESCRIBE EN GHL. Un fallo detectado aplica `bot_pausado_fallo`, que dispara el workflow
- * que apaga al agente en la conversación de una persona real. No es un simulacro.
+ * que apaga al agente en la conversación de una persona real. No es un simulacro — salvo con
+ * `dryRun`, que es exactamente para eso.
  *
  * Es POST y no GET justamente por eso: un GET es lo que precargan los navegadores, los
  * crawlers y los previews de link. Esto no puede dispararse por mirar una URL.
@@ -28,21 +31,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   /**
-   * Misma credencial que el webhook. El endpoint escribe en GHL sobre contactos reales, así
-   * que no puede quedar abierto a cualquiera que descubra la URL.
+   * Misma credencial que el webhook, y con el mismo rigor.
+   *
+   * Antes era `if (secreto && …)`: sin `WEBHOOK_SECRET` configurado el endpoint quedaba
+   * ABIERTO, y este endpoint aplica tags y escribe notas en GHL sobre personas reales,
+   * además de gastar en el modelo. 503 y no 401 cuando falta la variable, porque el
+   * problema es configuración nuestra y no la credencial de quien llama — el mismo criterio
+   * que ya usaba `api/webhooks/ghl.ts`.
    */
   const secreto = process.env.WEBHOOK_SECRET;
-  if (secreto && req.headers["x-webhook-secret"] !== secreto) {
+  if (!secreto) {
+    console.error("[analizar] WEBHOOK_SECRET sin configurar: se rechaza todo hasta que exista.");
+    return res.status(503).json({ ok: false, error: "WEBHOOK_SECRET sin configurar en el servidor." });
+  }
+  if (req.headers["x-webhook-secret"] !== secreto) {
     return res.status(401).json({ ok: false, error: "Secreto inválido." });
   }
 
   try {
     const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
-    const { ghlContactId, zona } = cuerpo as Record<string, unknown>;
+    const { ghlContactId, zona, forzar, dryRun } = cuerpo as Record<string, unknown>;
+    const opts = { forzar: forzar === true, dryRun: dryRun === true, disparo: "manual" as const };
 
     if (typeof ghlContactId === "string" && ghlContactId) {
-      const resultado = await analizarYMarcar(ghlContactId);
-      return res.status(200).json({ ok: true, ghlModo: ghl().modo, ghlContactId, ...resultado });
+      const resultado = await analizarYMarcar(ghlContactId, opts);
+      return res.status(200).json({ ok: true, ghlModo: ghl().modo, ghlContactId, ...opts, ...resultado });
     }
 
     if (zona !== undefined && zona !== "closer" && zona !== "setter") {
@@ -50,14 +63,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const territorio: Territorio = zona === "setter" ? "setter" : "closer";
 
-    const { revisados, resultados } = await analizarTerritorio(territorio);
+    const { encontrados, revisados, omitidos, truncado, resultados } = await analizarTerritorio(territorio, opts);
     return res.status(200).json({
       ok: true,
       ghlModo: ghl().modo,
       territorio,
+      ...opts,
+      encontrados,
       revisados,
+      omitidos,
+      // Se dice cuando GHL devolvió el tope: "revisé el territorio" habiendo visto solo los
+      // primeros 50 sería una afirmación falsa.
+      truncado,
       // Cuántos terminaron en la cola roja de verdad, que es lo que se va a ver en el tool.
       marcados: resultados.filter((r) => r.fallo).length,
+      hallazgos: resultados.reduce((n, r) => n + (r.hallazgos ?? 0), 0),
       resultados,
     });
   } catch (e) {

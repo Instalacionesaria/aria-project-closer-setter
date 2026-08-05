@@ -1,53 +1,75 @@
 /**
- * El analizador de conversaciones. Uno solo, para los dos territorios.
+ * El auditor de conversaciones del agente de IA.
  *
- * Lee la conversación entre el agente de GHL y el contacto, la evalúa contra la rúbrica de
- * "la IA no atendió bien", y si encontró un fallo aplica `bot_pausado_fallo` + una nota
- * `[IA] …` con el motivo. Ese tag dispara el workflow que apaga al agente, y el par
- * tag+nota es lo que leen `/api/closer/urgentes` y `/api/setter/urgentes` para pintar la
- * cola roja de cada rol.
+ * Lee el chat entre el agente de GHL y el contacto, lo evalúa contra una rúbrica, y produce
+ * dos salidas que ANTES eran una sola y no debían serlo:
  *
- * ## Los CUATRO portones (leer antes de tocar nada acá)
+ *   · **Intervención** — hay daño en curso y un humano tiene que tomar la conversación ya.
+ *     Aplica `bot_pausado_fallo` + nota `[IA] …`, que es lo que enciende la cola roja.
+ *   · **Hallazgos** — qué se puede corregir en el PROMPT del agente. No interrumpe a nadie:
+ *     alimenta la lista de trabajo del técnico en Auditoría de Agentes.
  *
- * Cada uno evita una llamada al modelo, y los cuatro existen por una razón distinta. En
- * orden, de más barato a más caro de evaluar:
+ * Que fueran lo mismo es lo que hacía que un "podría ser más breve" le apagara el bot a una
+ * persona real.
+ *
+ * ## Los portones (leer antes de tocar nada)
+ *
+ * En orden, de más barato a más caro de evaluar. Cada uno evita gasto y existe por una
+ * razón distinta.
  *
  * 1. **Territorio = `zona_closer`.** Hoy este es el auditor de CHAT DEL CLOSER y nada más.
- *    Los otros tres que faltan —chat del setter, transcripciones de llamadas del closer y
- *    del setter— van a ser agentes propios, con su rúbrica y su tarjeta. Ver §53.
+ *    Los otros tres —chat del setter, y las transcripciones de llamadas de los dos— van a
+ *    ser agentes propios, con su rúbrica y su tarjeta (§53.4).
  *
- * 2. **El bot tiene que estar ATENDIENDO** (`botAtendiendo`, en `contrato.ts`). Este portón
- *    no existía y es el que causó el bug del 2026-08-04: el auditor analizaba cualquier
- *    contacto del territorio, tuviera agente o no. Con el bot apagado la conversación no
- *    tiene ni un mensaje de la IA, y el criterio 2 de la rúbrica es *"la IA dejó de responder
- *    o ignoró al usuario"* — **se cumple siempre**. Fabio Malpartida terminó en la cola roja
- *    con "la IA no respondió a los últimos mensajes" sobre una IA que nunca estuvo prendida.
+ * 2. **El bot tiene que estar ATENDIENDO** (`botAtendiendo`). Sin este portón, el criterio
+ *    "la IA dejó de responder" se cumple SIEMPRE que no hay agente, y eso produjo el falso
+ *    positivo del 2026-08-04.
  *
- * 3. **Ya marcado como fallo.** El bot ya está pausado y el caso ya está en la cola:
- *    re-analizarlo no cambiaría nada y duplicaría la nota.
+ *    ⚠️ **Hoy este portón bloquea al 100%, a propósito.** Verificado contra la cuenta:
+ *    `bot_activado` y `bot_reactivar` no los tiene NINGÚN contacto, y los workflows que los
+ *    aplicarían (🟦 08.1 / 08.2) están en borrador. Decisión de Fabio: se espera a Francisco
+ *    en vez de adivinar el estado del bot. `/api/agentes/auditor-estado` reporta el embudo
+ *    para que ese cero sea un reclamo concreto y no un misterio.
  *
- * 4. **La conversación tiene que contener al menos un mensaje DE LA IA.** Es el mismo
- *    chequeo que el portón 2, pero sobre los hechos en vez de sobre los tags — cubre el caso
- *    de un tag que miente (quedó puesto, el workflow no corrió, alguien lo editó a mano).
- *    Sin una sola línea "IA:" en el transcript no hay agente que auditar.
+ * 3. **Ya marcado como fallo.** El bot ya está pausado y el caso ya está en la cola.
+ *
+ * 4. **Debounce: 5 mensajes nuevos de la IA** (regla de Fabio, `AUDITOR_UMBRAL_IA`). No se
+ *    audita mensaje por mensaje; se espera a que haya conversación y se juzga entera con
+ *    contexto. Ver `decidirAnalisis` para por qué es una resta y no un contador.
+ *
+ * 5. **Tiene que haber al menos un mensaje DEL AGENTE en el transcript.** Es el mismo
+ *    chequeo que el portón 2 pero sobre los hechos en vez de los tags: cubre un tag que
+ *    quedó mintiendo porque un workflow no corrió o alguien lo editó a mano.
+ *
+ * ## Quién escribió qué
+ *
+ * "Outbound" NO quiere decir "IA": por el mismo canal salen el chatbot, un humano tipeando
+ * en GHL, y las plantillas de los workflows. La distinción vive en `src/lib/ghl/autoria.ts`
+ * y acá se usa para dos cosas — contar los mensajes del agente (el debounce) y etiquetar el
+ * transcript, para que el modelo no le impute al agente lo que escribió otro.
  *
  * ## Costo
  *
- * Cada análisis es UNA llamada a Opus 5 y el webhook la dispara en CADA mensaje, entrante y
- * saliente. El transcript se re-manda entero cada vez (hasta 40 mensajes), así que el costo
- * de una conversación crece con el CUADRADO de su longitud. Los portones de arriba son, en
- * la práctica, el control de gasto de este agente. Ver §53 para los números medidos.
+ * Una llamada al modelo por análisis. Antes se disparaba en CADA mensaje con el transcript
+ * entero, así que el costo de una conversación crecía con el CUADRADO de su longitud; con
+ * el debounce, una conversación de 20 mensajes pasa de ~20 llamadas a ~2. Ver §53.3.
  */
 
 import Anthropic from "@anthropic-ai/sdk";
 import { botAtendiendo, TAGS } from "../../src/lib/ghl/contrato.js";
+import { ETIQUETA_AUTOR, type AutorMensaje } from "../../src/lib/ghl/autoria.js";
+import { ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { autorDeMensajeGhl } from "./autoria.js";
+import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
+import { cargarPromptAgente, type PromptAgente } from "./promptAgente.js";
 import { ORG_ID, db } from "./repo.js";
 import {
   contactosConTag,
   conversacionDeContacto,
   esMensajeDeChat,
-  mensajesDeConversacion,
+  mensajesDeConversacionPaginado,
+  textoDeMensaje,
   type MensajeGhl,
 } from "./ghl/lectura.js";
 
@@ -60,24 +82,37 @@ const PREFIJO_NOTA = "[IA]";
 /** Solo se manda al modelo la cola de la conversación — lo viejo no explica el fallo de hoy. */
 const MAX_MENSAJES = 40;
 
+/** Páginas de GHL que pide el analizador. 3×100 cubre cualquier conversación real. */
+const PAGINAS_GHL = 3;
+
+/**
+ * A partir de cuántos minutos de silencio "la IA dejó de responder" deja de ser una
+ * conjetura. Se mide en código y se le pasa al modelo como dato: los modelos calculan mal
+ * el tiempo, y el criterio 2 es enteramente temporal.
+ */
+const UMBRAL_SILENCIO_MIN = 60;
+
+/** Tope de hallazgos por análisis. Se recorta en código: `maxItems` no existe en el esquema. */
+const MAX_HALLAZGOS = 3;
+
 export type Territorio = "closer" | "setter";
 
 /**
  * Los ids que usa la pestaña Auditoría de Agentes. Son los de Francisco (`AgentInfo.id`) y
  * NO se tocan: cada territorio audita a un agente distinto y su resultado va a su tarjeta.
- * Los agentes de VOZ (`lead-flow-voz`, `appointment-flow-voz`) no salen de acá — los audita
- * Fabio con sus propias analizadoras.
+ * Los agentes de VOZ (`lead-flow-voz`, `appointment-flow-voz`) no salen de acá — todavía no
+ * tienen fuente: GHL no expone las llamadas ni sus transcripciones (§53.4).
  */
 export type AgenteTextoId = "lead-flow-ai" | "appointment-flow-ai";
 
+/** Qué agentes tienen auditor CABLEADO hoy. Un solo lugar, para que los endpoints no diverjan. */
+export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = ["appointment-flow-ai"];
+
 /**
- * Qué hace el agente en cada etapa. NO agrega criterios a la rúbrica — los cinco son los
- * mismos para ambos roles. Solo le dice al auditor cuál era el trabajo del agente, que es
- * lo que permite juzgar bien "prometió algo incorrecto" o "insiste y no entiende": prometer
- * una fecha de cita significa algo distinto según si el agente estaba agendando o
- * acompañando una cita ya agendada.
- *
- * Sale de CLAUDE.md §1 y §11 (el embudo y los dos copilotos), no de una decisión mía.
+ * Qué hace el agente en cada etapa. NO agrega criterios a la rúbrica — son los mismos para
+ * ambos roles. Solo le dice al auditor cuál era el trabajo del agente, que es lo que permite
+ * juzgar bien "prometió algo incorrecto": prometer una fecha significa algo distinto según
+ * si el agente estaba agendando o acompañando una cita ya agendada.
  */
 const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteTextoId; contexto: string }> = {
   closer: {
@@ -96,171 +131,1020 @@ const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteTextoId; co
   },
 };
 
-const RUBRICA = `Eres un auditor de calidad de un agente de IA que atiende conversaciones de ventas por WhatsApp/chat.
-Tu tarea: determinar si la IA NO atendió bien al usuario, según estos criterios:
+/* ================================================================== */
+/* La rúbrica                                                          */
+/* ================================================================== */
 
-1. El usuario se frustró o se enojó y la IA no lo manejó.
-2. La IA dejó de responder o ignoró al usuario.
-3. La IA prometió algo incorrecto o se contradijo.
-4. El usuario dijo que no es lo que busca.
-5. El usuario insiste en algo y la IA no lo entiende.
+/**
+ * ## Qué cambió respecto de la versión original, y por qué
+ *
+ * La rúbrica vieja tenía cinco criterios sueltos y un booleano. Cinco defectos, todos
+ * verificados contra conversaciones reales:
+ *
+ * 1. Un solo `fallo` decidía a la vez "apagar el bot" y "hay algo que mejorar".
+ * 2. Ningún criterio exigía evidencia, así que un veredicto era infalsificable y los
+ *    motivos salían genéricos ("requiere intervención").
+ * 3. "Dejó de responder" es una afirmación temporal y el transcript no tenía ni una fecha.
+ * 4. No existía "no auditable": tres audios sin transcripción se juzgaban igual que veinte
+ *    mensajes de texto.
+ * 5. Un traspaso a un humano se leía como abandono del agente.
+ *
+ * Cada criterio pasa a tener una condición de DISPARO y una lista de DESCARTES. Los
+ * descartes son la parte que importa: son los que evitan que el modelo confirme el criterio
+ * por parecido semántico.
+ */
+const RUBRICA = `Sos un auditor de calidad de agentes de IA que atienden conversaciones de venta por
+WhatsApp. Tu trabajo tiene dos salidas distintas y no hay que mezclarlas:
 
-Si ocurre AL MENOS UNO de estos, la conversación falló y requiere intervención humana.
-Si NINGUNO ocurre, no falló.
+  A. INTERVENCIÓN: ¿hay que apagar al agente y que un humano tome esta conversación AHORA?
+     Esto le corta el bot a una persona real y le suma una tarea urgente al closer. Se
+     reserva para daño en curso.
+  B. HALLAZGOS: ¿qué le pasa al AGENTE que se pueda corregir en su prompt? Esto no
+     interrumpe a nadie: alimenta la lista de trabajo del técnico.
 
-Sé estricto pero justo: NO marques fallo por cosas normales (el usuario preguntando, negociando,
-pidiendo info, o la IA respondiendo correctamente). En la conversación, "USUARIO" es el contacto
-y "IA" es el agente automático.
+Una conversación puede tener hallazgos sin necesitar intervención, y puede necesitar
+intervención sin que el agente haya hecho nada mal.
 
-El motivo debe ser una sola frase en español, concreta y específica de ESTA conversación —
-es el texto que va a leer el closer humano en su cola de intervenciones urgentes.
+──────────────────────────────────────────────────────────────────────
+CÓMO LEER EL TRANSCRIPT
+──────────────────────────────────────────────────────────────────────
 
-Además, clasifica el SENTIMIENTO DEL CONTACTO (no el de la IA) a lo largo de la conversación:
-- "positivo": el contacto está receptivo, interesado o conforme.
-- "neutral": intercambio informativo, sin carga emocional en ninguna dirección.
-- "molesto": el contacto muestra fastidio, impaciencia, queja o enojo.
+Cada línea viene con fecha, hora y AUTOR REAL:
 
-El sentimiento es independiente del fallo: una conversación puede fallar con un contacto que
-siguió amable, y otra puede tener un contacto molesto sin que la IA haya hecho nada mal.`;
+  CONTACTO ............... la persona. Es a quien se atiende.
+  AGENTE IA .............. el agente automático que estás auditando.
+  ASESOR HUMANO .......... una persona del equipo escribiendo a mano.
+  AUTOMATIZACIÓN ......... una plantilla enviada por un flujo automatizado (recordatorios,
+                           confirmaciones). NO la escribió el agente.
+  ORIGEN NO IDENTIFICADO . el sistema no pudo atribuir este mensaje.
 
-/** El esquema es el contrato: el modelo no puede devolver otra forma. */
+REGLA DE ATRIBUCIÓN, INNEGOCIABLE: solo podés imputarle al agente lo que dice una línea
+"AGENTE IA". Si el problema lo causó una AUTOMATIZACIÓN, un ASESOR HUMANO o una línea de
+ORIGEN NO IDENTIFICADO, no es un hallazgo del agente — mencionalo en el diagnóstico si hace
+falta para entender la conversación, pero no lo reportes como falla suya ni propongas
+corregir su prompt por eso.
+
+Un texto entre corchetes como [nota de voz sin transcripción] es un mensaje que existió pero
+cuyo contenido no tenemos. No supongas qué decía.
+
+──────────────────────────────────────────────────────────────────────
+PRECONDICIÓN — CUÁNDO NO SE AUDITA
+──────────────────────────────────────────────────────────────────────
+
+Antes de evaluar nada, verificá que la conversación se pueda auditar. Si NO se puede,
+devolvé auditable=false con el motivo, hallazgos vacíos, requiere_intervencion=false, y nada
+más. No fuerces un veredicto.
+
+No es auditable cuando:
+  · No hay ninguna línea "AGENTE IA". Sin agente no hay nada que auditar, y bajo ninguna
+    circunstancia eso es una falla del agente: es la ausencia de un agente.
+  · Más de la mitad de los mensajes son [audio]/[imagen] sin texto.
+  · Hay menos de dos intercambios reales (menos de 2 del contacto o menos de 2 del agente).
+
+──────────────────────────────────────────────────────────────────────
+LOS CRITERIOS
+──────────────────────────────────────────────────────────────────────
+
+Cada criterio tiene una condición de DISPARO y una lista de DESCARTES. Si aplica cualquier
+descarte, el criterio NO se cumple, por más que el disparo parezca darse. Y cada hallazgo
+exige una CITA TEXTUAL del transcript: si no podés copiar la línea exacta que lo prueba, el
+hallazgo no existe y no lo reportás.
+
+1. FRUSTRACIÓN NO MANEJADA  (frustracion)
+   Disparo: el contacto expresa fastidio, queja, reproche o enojo, y la respuesta siguiente
+   del AGENTE IA lo ignora, lo repite con otras palabras, o sigue con su guion.
+   Descartes: · el agente reconoció el fastidio y cambió de enfoque, aunque no lo resolviera;
+              · quien respondió después fue un ASESOR HUMANO;
+              · el contacto está molesto con un tercero (el precio, la empresa, otra
+                persona), no con la atención del agente.
+
+2. ABANDONÓ LA CONVERSACIÓN  (dejo_de_responder)
+   Disparo: los TRES a la vez —
+     (a) el último mensaje del transcript es del CONTACTO;
+     (b) nadie respondió después: ni AGENTE IA, ni ASESOR HUMANO, ni AUTOMATIZACIÓN;
+     (c) el silencio supera el umbral que figura en HECHOS MEDIDOS.
+   Descartes: · alguien respondió después, aunque sea una AUTOMATIZACIÓN — eso es un
+                traspaso o un seguimiento, no un abandono;
+              · el silencio no llega al umbral: la conversación sigue viva;
+              · el último mensaje del contacto es un cierre que no pide respuesta
+                ("dale, gracias", "perfecto", "ahí lo veo").
+   NUNCA uses este criterio para decir que "el agente no estuvo presente" o que "no hubo
+   respuesta automática": la ausencia de agente ya se filtró en la precondición. Este
+   criterio es sobre un agente que SÍ estaba atendiendo y dejó colgada una pregunta concreta.
+
+3. PROMESA INCORRECTA O CONTRADICCIÓN  (promesa_incorrecta)
+   Disparo: el AGENTE IA afirma algo verificablemente falso, se contradice con algo que él
+   mismo dijo antes, o promete un precio, una fecha, un descuento, un plan de pago o una
+   condición que no le corresponde ofrecer.
+   Descartes: · la promesa la hizo una AUTOMATIZACIÓN o un ASESOR HUMANO;
+              · el agente aclaró o corrigió en el mismo tramo de la conversación;
+              · es una respuesta genérica y prudente ("un asesor lo va a confirmar").
+
+4. NO ES LO QUE BUSCA  (no_es_lo_que_busca)
+   Disparo: el contacto dice explícitamente que el producto, el precio o la modalidad no le
+   sirven, y el agente sigue empujando el mismo camino sin registrar la objeción.
+   Descartes: · el contacto está negociando o pidiendo información, que es comportamiento
+                normal de compra;
+              · el agente registró la objeción y ofreció una alternativa real.
+
+5. INSISTE Y NO LO ENTIENDE  (insiste_no_entiende)
+   Disparo: el contacto pide LO MISMO tres veces o más y el agente responde tres veces sin
+   darle lo que pide.
+   Descartes: · el agente pidió un dato que necesitaba para poder resolverlo;
+              · lo que pide está fuera de lo que el agente puede hacer y el agente lo dijo
+                con claridad (eso, si acaso, es el criterio 6).
+
+6. FUERA DE ALCANCE SIN SALIDA  (fuera_de_alcance)
+   Disparo: el contacto necesita algo que el agente no puede resolver y el agente ni lo
+   deriva a un humano ni dice qué va a pasar: lo deja en un callejón.
+   Descartes: · el agente derivó, o dijo explícitamente que un asesor iba a continuar.
+
+7. LE FALTÓ UN DATO QUE DEBERÍA TENER  (dato_faltante)
+   Disparo: el contacto pregunta algo razonable sobre el producto, el proceso o la
+   logística, y el agente no lo sabe o lo esquiva — cuando es información que debería estar
+   en su base de conocimiento.
+   Descartes: · es información que legítimamente depende del caso puntual y requiere a un
+                humano.
+
+──────────────────────────────────────────────────────────────────────
+INTERVENCIÓN HUMANA — CUÁNDO SÍ
+──────────────────────────────────────────────────────────────────────
+
+requiere_intervencion=true SOLO si se cumple al menos una:
+  · el contacto está claramente enojado o a punto de irse, y el agente no lo está manejando;
+  · el agente dio información incorrecta sobre dinero, fechas o condiciones, y el contacto
+    la está tomando por buena;
+  · el contacto pidió algo concreto tres o más veces sin obtenerlo;
+  · el contacto pidió expresamente hablar con una persona.
+
+NO es intervención: que el agente sea verboso, formal, repetitivo, poco cálido, o que se le
+escape una oportunidad de venta. Todo eso son hallazgos.
+
+Si requiere_intervencion es true, motivo_intervencion es UNA frase en español, concreta y
+específica de ESTA conversación — la va a leer el closer en su cola de urgencias y tiene que
+saber qué pasó sin abrir el chat. Nada de "requiere revisión".
+
+──────────────────────────────────────────────────────────────────────
+SEVERIDAD DE CADA HALLAZGO
+──────────────────────────────────────────────────────────────────────
+
+  rojo ...... le cuesta clientes o le da información falsa a la gente. Si se repite, hay que
+              corregir el prompt esta semana.
+  amarillo .. le baja la conversión o la calidad, sin daño directo.
+
+Un hallazgo puede ser rojo sin que la conversación requiera intervención (el daño ya ocurrió
+y el contacto se fue tranquilo), y puede haber intervención con hallazgos solo amarillos.
+
+CATEGORÍA de cada hallazgo:
+  comportamiento ....... cómo se comporta el agente (tono, largo, insistencia, manejo).
+  base_conocimiento .... le falta un dato o tiene uno equivocado.
+  informacion_adicional  debería estar diciendo algo que hoy no dice.
+
+──────────────────────────────────────────────────────────────────────
+LA CORRECCIÓN AL PROMPT
+──────────────────────────────────────────────────────────────────────
+
+Si recibiste un bloque <prompt_del_agente>:
+  · Citá en fragmento_prompt el texto EXACTO Y LITERAL del prompt que causa o permite la
+    falla. No lo parafrasees. Si no encontrás ningún fragmento que la explique, dejalo en
+    null — no inventes una cita.
+  · correccion_tipo="reemplazo" y en correccion escribí el texto que va EN LUGAR de ese
+    fragmento: listo para pegar, en el mismo idioma, tono y formato que el resto del prompt,
+    sin comentarios ni explicaciones alrededor.
+  · La corrección no puede contradecir otras partes del prompt. Si el conflicto es
+    inevitable, decilo en el diagnóstico.
+
+Si NO recibiste el prompt del agente:
+  · fragmento_prompt=null, correccion_tipo="agregado".
+  · En correccion escribí una instrucción autónoma, lista para agregar al prompt, que evite
+    esta falla. Empezá indicando a qué sección debería ir.
+
+En los dos casos: la corrección arregla el PATRÓN, no este caso puntual. No menciones al
+contacto ni cites la conversación adentro del bloque de corrección.
+
+──────────────────────────────────────────────────────────────────────
+EL CÓDIGO DE PATRÓN (error_code)
+──────────────────────────────────────────────────────────────────────
+
+Agrupa casos iguales bajo un mismo nombre, así el técnico ve "×15 casos" en vez de quince
+problemas sueltos. En <patrones_conocidos> tenés los que ya se detectaron: SI TU HALLAZGO ES
+EL MISMO PATRÓN, REUSÁ ESE CÓDIGO EXACTO, aunque vos lo hubieras nombrado distinto. Inventá
+uno nuevo solo si de verdad no existe.
+
+Formato: minúsculas, guiones bajos, 3 a 48 caracteres, sin acentos ni espacios. Describe la
+FALLA, no la conversación: "promete_financiamiento_inexistente", no "caso_juan_perez". El
+titulo es ese mismo patrón en lenguaje humano, 6 palabras o menos.
+
+Reportá como máximo ${MAX_HALLAZGOS} hallazgos, los más importantes.
+
+──────────────────────────────────────────────────────────────────────
+SENTIMIENTO DEL CONTACTO
+──────────────────────────────────────────────────────────────────────
+
+Del CONTACTO, no del agente, a lo largo de toda la conversación:
+  positivo · receptivo, interesado, conforme
+  neutral  · intercambio informativo, sin carga emocional
+  molesto  · fastidio, impaciencia, queja o enojo
+
+Es independiente del resto: una conversación puede fallar con un contacto que se mantuvo
+amable, y otra puede tener un contacto molesto sin que el agente haya hecho nada mal.`;
+
+const CRITERIOS = [
+  "frustracion",
+  "dejo_de_responder",
+  "promesa_incorrecta",
+  "no_es_lo_que_busca",
+  "insiste_no_entiende",
+  "fuera_de_alcance",
+  "dato_faltante",
+  "ninguno",
+] as const;
+
+/**
+ * El esquema es el contrato: el modelo no puede devolver otra forma.
+ *
+ * Tres restricciones reales de structured outputs que hay que respetar:
+ *   · `maxItems` no está soportado — el tope de hallazgos se recorta en código.
+ *   · `additionalProperties: false` es obligatorio en CADA objeto, incluidos los anidados.
+ *   · Nada de `minLength`/`pattern`. El formato de `error_code` lo valida el CHECK de
+ *     Postgres y lo normaliza `normalizarErrorCode` antes de insertar.
+ *
+ * `fragmento_prompt` va en `required` con tipo nullable en vez de ser opcional: una clave
+ * opcional en un esquema estricto es más frágil que una obligatoria que puede ser null.
+ */
 const ESQUEMA_VEREDICTO = {
   type: "object",
   properties: {
-    fallo: { type: "boolean", description: "true si se cumplió al menos un criterio de la rúbrica" },
-    criterio: {
+    auditable: { type: "boolean" },
+    motivo_no_auditable: {
       type: "string",
-      enum: [
-        "frustracion",
-        "dejo_de_responder",
-        "promesa_incorrecta",
-        "no_es_lo_que_busca",
-        "insiste_no_entiende",
-        "ninguno",
-      ],
+      enum: ["", "sin_mensajes_del_agente", "mayormente_audio", "conversacion_muy_corta"],
     },
-    motivo: { type: "string", description: "Una frase en español explicando el fallo. Vacío si no hubo fallo." },
-    sentimiento: {
-      type: "string",
-      enum: ["positivo", "neutral", "molesto"],
-      description: "Cómo se fue sintiendo el CONTACTO (no la IA) a lo largo de la conversación.",
+    requiere_intervencion: { type: "boolean" },
+    motivo_intervencion: { type: "string" },
+    criterio_principal: { type: "string", enum: [...CRITERIOS] },
+    sentimiento: { type: "string", enum: ["positivo", "neutral", "molesto"] },
+    hallazgos: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          error_code: { type: "string" },
+          titulo: { type: "string" },
+          categoria: {
+            type: "string",
+            enum: ["comportamiento", "base_conocimiento", "informacion_adicional"],
+          },
+          severidad: { type: "string", enum: ["rojo", "amarillo"] },
+          criterio: { type: "string", enum: [...CRITERIOS] },
+          diagnostico: { type: "string" },
+          fragmento_prompt: { type: ["string", "null"] },
+          prompt_seccion: { type: ["string", "null"] },
+          correccion_tipo: { type: "string", enum: ["reemplazo", "agregado"] },
+          correccion: { type: "string" },
+          evidencia_usuario: { type: "string" },
+          evidencia_ia: { type: "string" },
+        },
+        required: [
+          "error_code",
+          "titulo",
+          "categoria",
+          "severidad",
+          "criterio",
+          "diagnostico",
+          "fragmento_prompt",
+          "prompt_seccion",
+          "correccion_tipo",
+          "correccion",
+          "evidencia_usuario",
+          "evidencia_ia",
+        ],
+        additionalProperties: false,
+      },
     },
   },
-  required: ["fallo", "criterio", "motivo", "sentimiento"],
+  required: [
+    "auditable",
+    "motivo_no_auditable",
+    "requiere_intervencion",
+    "motivo_intervencion",
+    "criterio_principal",
+    "sentimiento",
+    "hallazgos",
+  ],
   additionalProperties: false,
 } as const;
 
 export type Sentimiento = "positivo" | "neutral" | "molesto";
+export type Severidad = "rojo" | "amarillo";
+export type CategoriaHallazgo = "comportamiento" | "base_conocimiento" | "informacion_adicional";
 
-export interface Veredicto {
-  fallo: boolean;
+export interface Hallazgo {
+  errorCode: string;
+  titulo: string;
+  categoria: CategoriaHallazgo;
+  severidad: Severidad;
   criterio: string;
-  motivo: string;
-  /** Alimenta el panel de tres tramos de Auditoría de Agentes. Es del CONTACTO, no de la IA. */
-  sentimiento: Sentimiento;
+  diagnostico: string;
+  /** Cita literal del prompt del agente. `null` = el auditor no lo tenía o no encontró el fragmento. */
+  fragmentoPrompt: string | null;
+  promptSeccion: string | null;
+  correccionTipo: "reemplazo" | "agregado";
+  correccion: string;
+  evidenciaUsuario: string;
+  evidenciaIa: string;
 }
 
-/** Transcript cronológico (GHL devuelve del más reciente al más antiguo). */
-export function armarTranscript(mensajes: MensajeGhl[]): string {
+export interface Veredicto {
+  auditable: boolean;
+  motivoNoAuditable: string;
+  requiereIntervencion: boolean;
+  motivoIntervencion: string;
+  criterioPrincipal: string;
+  /** Del CONTACTO, no de la IA. Alimenta el panel de tres tramos de Auditoría de Agentes. */
+  sentimiento: Sentimiento;
+  hallazgos: Hallazgo[];
+}
+
+/* ================================================================== */
+/* El transcript y los hechos medidos                                  */
+/* ================================================================== */
+
+export interface MensajeClasificado {
+  autor: AutorMensaje;
+  texto: string;
+  /** epoch ms. 0 si GHL no mandó fecha. */
+  cuando: number;
+  /** `true` si el mensaje existió pero no tenemos su contenido (audio, imagen). */
+  sinTexto: boolean;
+}
+
+const partesFechaHora = new Intl.DateTimeFormat("es-PE", {
+  timeZone: ZONA_HORARIA_ORG,
+  day: "2-digit",
+  month: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
+/**
+ * `dd/MM HH:mm` en la zona de la org, compuesto y rellenado a mano.
+ *
+ * Ni `format()` ni `formatToParts()` alcanzan solos: con `es-PE`, pedir fecha y hora juntas
+ * hace que el locale elija su propio esqueleto e IGNORE el `2-digit` del día y el mes —
+ * devuelve `4/8, 13:00`. El `padStart` no es paranoia: el sello lo lee un modelo que tiene
+ * que comparar horas entre líneas, y un ancho variable es exactamente lo que lo confunde.
+ * Del formateador se usa solo la conversión de zona horaria, que es lo que sí hace bien.
+ */
+function selloDeTiempo(d: Date): string {
+  const p = Object.fromEntries(partesFechaHora.formatToParts(d).map((x) => [x.type, x.value]));
+  const dd = (v: string | undefined) => String(v ?? "").padStart(2, "0");
+  return `${dd(p.day)}/${dd(p.month)} ${dd(p.hour)}:${dd(p.minute)}`;
+}
+
+/**
+ * Los mensajes de GHL, en orden cronológico y con su autor resuelto.
+ *
+ * GHL los devuelve del más reciente al más antiguo. Se invierte, se descartan los eventos
+ * del sistema, y se recorta a los últimos `MAX_MENSAJES` — lo viejo no explica el fallo de
+ * hoy y el transcript es lo que domina el costo del análisis.
+ */
+export function clasificarMensajes(mensajes: MensajeGhl[]): MensajeClasificado[] {
   return [...mensajes]
     .filter(esMensajeDeChat)
     .reverse()
     .slice(-MAX_MENSAJES)
-    .map((m) => `${m.direction === "inbound" ? "USUARIO" : "IA"}: ${(m.body ?? "").trim()}`)
-    .join("\n");
+    .map((m) => ({
+      autor: autorDeMensajeGhl(m),
+      texto: textoDeMensaje(m),
+      cuando: m.dateAdded ? Date.parse(m.dateAdded) : 0,
+      sinTexto: !(m.body ?? "").trim(),
+    }));
 }
 
 /**
- * Evalúa un transcript contra la rúbrica.
+ * El transcript que ve el modelo: una línea por mensaje, con fecha, hora y autor real.
  *
- * Structured outputs (`output_config.format`) en vez de pedir "responde solo con JSON" y
- * parsear con un regex: la forma la garantiza la API, así que no hay respuesta a medio
- * parsear que haya que tratar como "no falló" por las dudas.
- *
- * `effort: "low"` porque esto es una clasificación contra cinco criterios explícitos, y el
- * webhook que la llama tiene presupuesto de tiempo acotado. Se deja el pensamiento adaptativo
- * encendido (el default del modelo) en vez de apagarlo — apagarlo agrega modos de fallo que
- * no compensan lo poco que ahorra acá.
+ * Se ETIQUETA en vez de filtrar. El razonamiento completo está en `autoria.ts`, pero el
+ * resumen es que sin ver la plantilla de workflow que enojó al contacto, el auditor le
+ * atribuye el enojo al agente y escribe un motivo falso en la nota `[IA]`.
  */
-export async function evaluarConversacion(
-  transcript: string,
-  territorio: Territorio = "closer",
-): Promise<Veredicto | null> {
-  if (!transcript.trim()) return null;
-  if (!process.env.ANTHROPIC_API_KEY) return null;
+export function armarTranscript(clasificados: MensajeClasificado[], truncado = false): string {
+  const lineas = clasificados.map((m) => {
+    const sello = m.cuando ? `[${selloDeTiempo(new Date(m.cuando))}] ` : "";
+    return `${sello}${ETIQUETA_AUTOR[m.autor]}: ${m.texto}`;
+  });
+  if (truncado) {
+    lineas.unshift("[…la conversación es más larga; se muestran solo los mensajes más recientes]");
+  }
+  return lineas.join("\n");
+}
+
+/**
+ * Los hechos que el modelo NO tiene que estimar.
+ *
+ * "Dejó de responder" es una afirmación temporal, y los modelos calculan mal el tiempo. Se
+ * mide acá y se le pasa como dato, con la instrucción de no recalcularlo.
+ */
+export function hechosMedidos(clasificados: MensajeClasificado[], ahoraMs = Date.now()): string {
+  const cuenta = (a: AutorMensaje) => clasificados.filter((m) => m.autor === a).length;
+  const ultimo = clasificados[clasificados.length - 1];
+  const ultimoAgente = [...clasificados].reverse().find((m) => m.autor === "agente_ia");
+  const sinTexto = clasificados.filter((m) => m.sinTexto).length;
+
+  const hace = (ms: number | undefined) => {
+    if (!ms) return "sin fecha";
+    const min = Math.max(0, Math.round((ahoraMs - ms) / 60_000));
+    if (min < 60) return `hace ${min} min`;
+    const h = Math.floor(min / 60);
+    return h < 48 ? `hace ${h} h ${min % 60} min` : `hace ${Math.floor(h / 24)} días`;
+  };
+
+  // ¿Quedó una pregunta del contacto sin que nadie —ni el agente, ni un humano, ni una
+  // plantilla— dijera nada después? Es la condición (b) del criterio 2, y es un hecho
+  // estructural del arreglo, no una interpretación.
+  const respondieronDespues = ultimo ? ultimo.autor !== "contacto" : false;
+
+  return [
+    "HECHOS MEDIDOS (calculados por el sistema — no los recalcules, no los contradigas):",
+    `- Mensajes en el transcript: ${clasificados.length} (contacto ${cuenta("contacto")} · ` +
+      `agente IA ${cuenta("agente_ia")} · asesor humano ${cuenta("asesor")} · ` +
+      `automatización ${cuenta("workflow")} · sin identificar ${cuenta("desconocido")})`,
+    `- Último mensaje: de ${ultimo ? ETIQUETA_AUTOR[ultimo.autor] : "—"}, ${hace(ultimo?.cuando)}`,
+    `- Último mensaje del AGENTE IA: ${ultimoAgente ? hace(ultimoAgente.cuando) : "nunca escribió"}`,
+    `- ¿Alguien respondió después del último mensaje del contacto?: ${respondieronDespues ? "SÍ" : "NO"}`,
+    `- Mensajes sin texto (audio/imagen): ${sinTexto} de ${clasificados.length}`,
+    `- Umbral de silencio para "dejó de responder": ${UMBRAL_SILENCIO_MIN} minutos`,
+  ].join("\n");
+}
+
+/* ================================================================== */
+/* La llamada al modelo                                                */
+/* ================================================================== */
+
+export type ResultadoEvaluacion = { ok: true; veredicto: Veredicto } | { ok: false; motivo: string };
+
+const normalizarErrorCode = (crudo: string): string =>
+  crudo
+    .normalize("NFD")
+    // Los diacríticos combinantes, por code point y no como literales: un editor que
+    // normalice el archivo dejaría la clase de caracteres vacía sin que nada falle.
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+
+/** Patrones ya vistos, para que el modelo reuse el código en vez de inventar uno por caso. */
+async function patronesConocidos(agenteId: AgenteTextoId): Promise<string> {
+  const { data } = await db()
+    .from("closer_hallazgo_agente")
+    .select("error_code, titulo")
+    .eq("agente_id", agenteId)
+    .order("detectado_el", { ascending: false })
+    .limit(200);
+
+  const vistos = new Map<string, string>();
+  for (const f of (data ?? []) as { error_code: string; titulo: string }[]) {
+    if (!vistos.has(f.error_code)) vistos.set(f.error_code, f.titulo);
+  }
+  if (vistos.size === 0) return "(todavía no se detectó ningún patrón — este sería el primero)";
+  return [...vistos.entries()].map(([code, titulo]) => `- ${code}: ${titulo}`).join("\n");
+}
+
+/**
+ * Evalúa una conversación contra la rúbrica.
+ *
+ * `max_tokens` es 8000 y no 2000. El techo cubre **pensamiento + texto**, y con el
+ * pensamiento adaptativo encendido (el default del modelo) un veredicto que ahora incluye
+ * diagnóstico y corrección redactada se pasaba de largo: el JSON salía cortado, `JSON.parse`
+ * lanzaba, el `catch` de arriba lo convertía en "sin veredicto" y nadie se enteraba. Por eso
+ * también se chequea `stop_reason` explícitamente en vez de dejar que reviente el parser.
+ */
+export async function evaluarConversacion(opts: {
+  transcript: string;
+  hechos: string;
+  territorio: Territorio;
+  prompt: PromptAgente;
+  patrones: string;
+}): Promise<ResultadoEvaluacion> {
+  if (!opts.transcript.trim()) return { ok: false, motivo: "transcript vacío" };
+  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: "sin ANTHROPIC_API_KEY" };
+
+  const sinPrompt =
+    "No tenés acceso al prompt del agente auditado. Poné fragmento_prompt en null y escribí " +
+    'la corrección como una instrucción autónoma para agregar (correccion_tipo="agregado").';
 
   const cliente = new Anthropic();
   const respuesta = await cliente.messages.create({
     model: process.env.CLAUDE_MODEL || "claude-opus-5",
-    max_tokens: 2000,
-    system: `${TERRITORIOS[territorio].contexto}\n\n${RUBRICA}`,
+    max_tokens: 8000,
+    system: [
+      { type: "text" as const, text: TERRITORIOS[opts.territorio].contexto },
+      {
+        type: "text" as const,
+        text: opts.prompt.presente
+          ? `<prompt_del_agente version="${opts.prompt.hash}" archivo="${opts.prompt.ruta}">\n${opts.prompt.texto}\n</prompt_del_agente>`
+          : sinPrompt,
+      },
+      { type: "text" as const, text: RUBRICA },
+      {
+        type: "text" as const,
+        text: `<patrones_conocidos>\n${opts.patrones}\n</patrones_conocidos>`,
+        // El system es idéntico entre análisis del mismo agente. Con el prompt adentro son
+        // varios miles de tokens: cachearlo cuesta una línea y el día que suba el volumen
+        // se paga solo.
+        cache_control: { type: "ephemeral" as const },
+      },
+    ],
     output_config: {
-      effort: "low",
+      effort: env.auditorEsfuerzo(),
       format: { type: "json_schema", schema: ESQUEMA_VEREDICTO },
     },
-    messages: [{ role: "user", content: `Conversación a auditar:\n\n${transcript}` }],
-  });
+    messages: [{ role: "user", content: `${opts.hechos}\n\nConversación a auditar:\n\n${opts.transcript}` }],
+  } as Anthropic.MessageCreateParamsNonStreaming);
 
   // Las clasificadoras pueden declinar. No es un fallo del agente de ventas: no se marca nada.
-  if (respuesta.stop_reason === "refusal") return null;
+  if (respuesta.stop_reason === "refusal") return { ok: false, motivo: "el modelo declinó responder" };
+  if (respuesta.stop_reason === "max_tokens") {
+    return { ok: false, motivo: "el veredicto salió truncado (max_tokens) — subir el techo" };
+  }
 
   const texto = respuesta.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text;
-  if (!texto) return null;
+  if (!texto) return { ok: false, motivo: "el modelo no devolvió texto" };
 
-  const crudo = JSON.parse(texto) as Partial<Veredicto>;
+  let crudo: any;
+  try {
+    crudo = JSON.parse(texto);
+  } catch {
+    return { ok: false, motivo: "el veredicto no era JSON válido" };
+  }
+
   const sentimientos: Sentimiento[] = ["positivo", "neutral", "molesto"];
+  const auditable = Boolean(crudo.auditable);
+
+  const hallazgos: Hallazgo[] = auditable
+    ? ((crudo.hallazgos ?? []) as any[])
+        .map((h) => ({
+          errorCode: normalizarErrorCode(String(h.error_code ?? "")),
+          titulo: String(h.titulo ?? "").slice(0, 120),
+          categoria: h.categoria as CategoriaHallazgo,
+          severidad: (h.severidad === "rojo" ? "rojo" : "amarillo") as Severidad,
+          criterio: String(h.criterio ?? "ninguno"),
+          diagnostico: String(h.diagnostico ?? ""),
+          fragmentoPrompt: typeof h.fragmento_prompt === "string" ? h.fragmento_prompt : null,
+          promptSeccion: typeof h.prompt_seccion === "string" ? h.prompt_seccion : null,
+          correccionTipo: (h.correccion_tipo === "reemplazo" ? "reemplazo" : "agregado") as Hallazgo["correccionTipo"],
+          correccion: String(h.correccion ?? ""),
+          evidenciaUsuario: String(h.evidencia_usuario ?? ""),
+          evidenciaIa: String(h.evidencia_ia ?? ""),
+        }))
+        // Un error_code que no sobrevive la normalización violaría el CHECK de Postgres y
+        // tumbaría el INSERT entero. Se descarta el hallazgo, no el análisis.
+        .filter((h) => /^[a-z0-9_]{3,48}$/.test(h.errorCode) && h.titulo)
+        .slice(0, MAX_HALLAZGOS)
+    : [];
+
   return {
-    fallo: Boolean(crudo.fallo),
-    criterio: typeof crudo.criterio === "string" ? crudo.criterio : "ninguno",
-    motivo: typeof crudo.motivo === "string" ? crudo.motivo : "",
-    // El esquema ya lo garantiza; el default existe solo por si algún día se relaja.
-    sentimiento: sentimientos.includes(crudo.sentimiento as Sentimiento)
-      ? (crudo.sentimiento as Sentimiento)
-      : "neutral",
+    ok: true,
+    veredicto: {
+      auditable,
+      motivoNoAuditable: String(crudo.motivo_no_auditable ?? ""),
+      // Una conversación no auditable no puede pedir intervención: no se juzgó nada.
+      requiereIntervencion: auditable && Boolean(crudo.requiere_intervencion),
+      motivoIntervencion: String(crudo.motivo_intervencion ?? ""),
+      criterioPrincipal: CRITERIOS.includes(crudo.criterio_principal) ? crudo.criterio_principal : "ninguno",
+      sentimiento: sentimientos.includes(crudo.sentimiento) ? crudo.sentimiento : "neutral",
+      hallazgos,
+    },
   };
 }
 
-export interface ResultadoAnalisis {
-  analizado: boolean;
-  /** Por qué no se analizó, cuando `analizado` es false. */
-  motivo?: string;
-  /** Territorio detectado por sus tags. Ausente si no pertenece a ninguno. */
-  territorio?: Territorio;
-  fallo?: boolean;
-  criterio?: string;
-  sentimiento?: Sentimiento;
-  /** Si la fila de estadística llegó a la base. Falso no invalida el análisis. */
-  guardado?: boolean;
-  /** Si el tag llegó de verdad a GHL (false en modo stub). */
-  tagAplicado?: boolean;
-}
+/* ================================================================== */
+/* Persistencia                                                        */
+/* ================================================================== */
 
-/** Persiste el veredicto para que la pestaña de Auditoría de Agentes pueda agregarlo. */
+/** Persiste el veredicto. Devuelve el id del análisis, o null si no se pudo guardar. */
 async function guardarAnalisis(e: {
   agenteId: AgenteTextoId;
   ghlContactId: string;
-  conversationId: string;
+  conversationId: string | null;
   veredicto: Veredicto;
-}): Promise<boolean> {
+  iaEnCache: number;
+  promptHash: string;
+  disparo: "webhook" | "manual" | "linea_base";
+}): Promise<string | null> {
   try {
-    const { error } = await db()
+    const { data, error } = await db()
       .from("closer_analisis_agente")
       .insert({
         org_id: ORG_ID,
         agente_id: e.agenteId,
         ghl_contact_id: e.ghlContactId,
         conversation_id: e.conversationId,
-        fallo: e.veredicto.fallo,
-        criterio: e.veredicto.criterio,
-        motivo: e.veredicto.motivo || null,
+        // `fallo` es lo que enciende la cola roja, así que espeja la INTERVENCIÓN, no los
+        // hallazgos. Un hallazgo rojo no le apaga el bot a nadie.
+        fallo: e.veredicto.requiereIntervencion,
+        criterio: e.veredicto.criterioPrincipal,
+        motivo: e.veredicto.motivoIntervencion || null,
         sentimiento: e.veredicto.sentimiento,
         modelo: process.env.CLAUDE_MODEL || "claude-opus-5",
-      });
-    if (error) console.warn("[analizador] no se pudo guardar el análisis:", error.message);
-    return !error;
+        ia_cache_al_analizar: e.iaEnCache,
+        prompt_hash: e.promptHash,
+        auditable: e.veredicto.auditable,
+        disparo: e.disparo,
+      })
+      .select("id")
+      .single();
+
+    if (error) {
+      console.warn("[analizador] no se pudo guardar el análisis:", error.message);
+      return null;
+    }
+    return (data as { id: string }).id;
   } catch (err) {
     console.warn("[analizador] no se pudo guardar el análisis:", (err as Error).message);
-    return false;
+    return null;
+  }
+}
+
+async function guardarHallazgos(
+  analisisId: string,
+  agenteId: AgenteTextoId,
+  ghlContactId: string,
+  hallazgos: Hallazgo[],
+  promptHash: string,
+  cuando: string,
+): Promise<number> {
+  if (hallazgos.length === 0) return 0;
+  const { data, error } = await db()
+    .from("closer_hallazgo_agente")
+    .insert(
+      hallazgos.map((h) => ({
+        org_id: ORG_ID,
+        analisis_id: analisisId,
+        agente_id: agenteId,
+        ghl_contact_id: ghlContactId,
+        error_code: h.errorCode,
+        titulo: h.titulo,
+        categoria: h.categoria,
+        severidad: h.severidad,
+        criterio: h.criterio,
+        diagnostico: h.diagnostico || null,
+        fragmento_prompt: h.fragmentoPrompt,
+        prompt_seccion: h.promptSeccion,
+        correccion_tipo: h.correccionTipo,
+        correccion: h.correccion || null,
+        prompt_hash: promptHash,
+        evidencia_usuario: h.evidenciaUsuario || null,
+        evidencia_ia: h.evidenciaIa || null,
+        evidencia_el: cuando,
+      })),
+    )
+    .select("id");
+
+  if (error) {
+    console.warn("[analizador] no se pudieron guardar los hallazgos:", error.message);
+    return 0;
+  }
+  return data?.length ?? 0;
+}
+
+/* ================================================================== */
+/* El debounce                                                         */
+/* ================================================================== */
+
+export interface DecisionAuditor {
+  correr: boolean;
+  motivo: string;
+  iaAhora: number;
+  lineaBase: number;
+  delta: number;
+  /** `true` = conversación vieja sin actividad: se siembra la línea base sin llamar al modelo. */
+  soloSembrar: boolean;
+}
+
+/**
+ * ¿Toca analizar? La regla de Fabio: esperar a que la IA mande 5 mensajes y recién ahí
+ * auditar la conversación completa con contexto.
+ *
+ * **No hay contador. Se resta.**
+ *
+ *   delta = (mensajes con autor='agente_ia' AHORA) − (ese conteo guardado al analizar)
+ *
+ * Una columna incremental en `closer_contactos` sería más directa y peor: la 013 acaba de
+ * declarar muertas tres columnas denormalizadas de esa misma tabla justamente porque se
+ * desactualizaban, y un contador se desincroniza con un backfill o con el borrado de
+ * gemelos de `ingesta.ts`. La resta se auto-cura: las dos puntas salen de la misma fuente,
+ * así que si aparecen o desaparecen mensajes se mueven juntas.
+ *
+ * Tampoco se cuenta contra GHL: serían 2 llamadas por evento incluso cuando la respuesta es
+ * "no analizar", y el presupuesto de GHL es más escaso que los centavos del modelo (§51.4).
+ *
+ * **El agujero, dicho en voz alta:** una conversación donde la IA manda 4 mensajes y el
+ * contacto se va enojado nunca se audita. Es consecuencia matemática de la regla, no un bug
+ * tapable. La salida es `POST /api/closer/analizar {forzar:true}`, que ignora el debounce.
+ */
+export async function decidirAnalisis(ghlContactId: string): Promise<DecisionAuditor> {
+  const umbral = env.auditorUmbralIa();
+
+  const { count } = await db()
+    .from("closer_mensajes")
+    .select("id", { count: "exact", head: true })
+    .eq("ghl_contact_id", ghlContactId)
+    .eq("autor", "agente_ia");
+  const iaAhora = count ?? 0;
+
+  const { data: ultimo } = await db()
+    .from("closer_analisis_agente")
+    .select("ia_cache_al_analizar")
+    .eq("ghl_contact_id", ghlContactId)
+    .order("analizado_el", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const lineaBase = Number(ultimo?.ia_cache_al_analizar ?? 0);
+  const delta = iaAhora - lineaBase;
+
+  if (delta < umbral) {
+    return {
+      correr: false,
+      motivo: `debounce: faltan ${umbral - delta} mensajes de la IA (${delta}/${umbral})`,
+      iaAhora,
+      lineaBase,
+      delta,
+      soloSembrar: false,
+    };
+  }
+
+  /**
+   * Arranque en frío. Un contacto que ya tenía 30 mensajes cuando se activó esto supera el
+   * umbral de una: si la conversación está viva, es lo que se quiere (un veredicto sobre lo
+   * que está pasando). Si lleva semanas muerta, no — se siembra la línea base sin gastar.
+   * Con 7 contactos da igual; el guard existe para el día del backfill de 2.000.
+   */
+  if (lineaBase === 0 && delta > umbral) {
+    const { data: contacto } = await db()
+      .from("closer_contactos")
+      .select("last_message_ghl_at")
+      .eq("ghl_contact_id", ghlContactId)
+      .maybeSingle();
+
+    const ultimoMs = contacto?.last_message_ghl_at ? Date.parse(contacto.last_message_ghl_at as string) : 0;
+    const diasSinActividad = ultimoMs ? (Date.now() - ultimoMs) / 86_400_000 : Infinity;
+    if (diasSinActividad > env.auditorDiasArranque()) {
+      return {
+        correr: false,
+        motivo: `conversación sin actividad hace ${Math.round(diasSinActividad)} días: se siembra la línea base`,
+        iaAhora,
+        lineaBase,
+        delta,
+        soloSembrar: true,
+      };
+    }
+  }
+
+  return { correr: true, motivo: "", iaAhora, lineaBase, delta, soloSembrar: false };
+}
+
+/* ================================================================== */
+/* El flujo completo                                                   */
+/* ================================================================== */
+
+export interface ResultadoAnalisis {
+  analizado: boolean;
+  /** Por qué no se analizó, cuando `analizado` es false. */
+  motivo?: string;
+  territorio?: Territorio;
+  auditable?: boolean;
+  /** `true` = se pidió intervención humana. Es lo que enciende la cola roja. */
+  fallo?: boolean;
+  criterio?: string;
+  sentimiento?: Sentimiento;
+  hallazgos?: number;
+  /** Si la fila de estadística llegó a la base. Falso no invalida el análisis. */
+  guardado?: boolean;
+  /** Si el tag llegó de verdad a GHL (false en modo stub). */
+  tagAplicado?: boolean;
+  /** Solo en `dryRun`: el veredicto completo, sin haber escrito nada. */
+  veredicto?: Veredicto;
+  debounce?: { iaAhora: number; lineaBase: number; delta: number };
+}
+
+export interface OpcionesAnalisis {
+  /** Ignora el debounce. Para el disparo manual. */
+  forzar?: boolean;
+  /** Evalúa y devuelve el veredicto SIN escribir nada: ni tag, ni nota, ni filas. */
+  dryRun?: boolean;
+  disparo?: "webhook" | "manual";
+}
+
+/**
+ * Analiza la conversación de un contacto y, si hace falta, la manda a la cola roja.
+ *
+ * Devuelve siempre — nunca lanza. Lo llama el webhook, que debe responder 200 aunque el
+ * análisis no se pueda hacer: un error acá no puede provocar que GHL reintente el evento ni
+ * que desactive el workflow.
+ */
+export async function analizarYMarcar(
+  ghlContactId: string,
+  opts: OpcionesAnalisis = {},
+): Promise<ResultadoAnalisis> {
+  const disparo = opts.disparo ?? "webhook";
+  try {
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return { analizado: false, motivo: "sin ANTHROPIC_API_KEY" };
+    }
+
+    // Territorio + estado actual en una sola lectura del contacto.
+    const contacto = await ghl().obtenerContacto(ghlContactId);
+    if (!contacto) return { analizado: false, motivo: "GHL no devolvió el contacto" };
+
+    const tags = contacto.tags ?? [];
+
+    /* ── Portón 1: territorio ─────────────────────────────────────────── */
+    const territorio = territorioDe(tags);
+    if (!territorio) {
+      return { analizado: false, motivo: "sin territorio (ni zona_closer ni zona_setter)" };
+    }
+    if (!AUDITORES_ACTIVOS.includes(TERRITORIOS[territorio].agenteId)) {
+      // Auditar pre-agenda con la rúbrica de post-agenda daría veredictos malos sobre un
+      // trabajo distinto, y encima gastando. El auditor del setter será su propio agente.
+      return { analizado: false, motivo: "el auditor de chat del setter todavía no existe", territorio };
+    }
+
+    /* ── Portón 2: el bot tiene que estar atendiendo ──────────────────── */
+    if (!botAtendiendo(tags)) {
+      return {
+        analizado: false,
+        motivo: "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",
+        territorio,
+      };
+    }
+
+    /* ── Portón 3: ya está en la cola ─────────────────────────────────── */
+    if (tags.includes(TAG_FALLO)) {
+      return { analizado: false, motivo: "ya marcado como fallo", territorio };
+    }
+
+    /* ── Portón 4: el debounce ────────────────────────────────────────── */
+    const decision = await decidirAnalisis(ghlContactId);
+    const debounce = { iaAhora: decision.iaAhora, lineaBase: decision.lineaBase, delta: decision.delta };
+
+    if (!decision.correr && !opts.forzar) {
+      if (decision.soloSembrar && !opts.dryRun) {
+        await guardarAnalisis({
+          agenteId: TERRITORIOS[territorio].agenteId,
+          ghlContactId,
+          conversationId: null,
+          veredicto: {
+            auditable: false,
+            motivoNoAuditable: "conversacion_muy_corta",
+            requiereIntervencion: false,
+            motivoIntervencion: "",
+            criterioPrincipal: "ninguno",
+            sentimiento: "neutral",
+            hallazgos: [],
+          },
+          iaEnCache: decision.iaAhora,
+          promptHash: "linea_base",
+          disparo: "linea_base",
+        });
+      }
+      return { analizado: false, motivo: decision.motivo, territorio, debounce };
+    }
+
+    /**
+     * El candado, ANTES de gastar. Los webhooks de entrante y saliente llegan casi juntos
+     * todo el tiempo y los dos verían el mismo delta. No se libera al terminar: si el
+     * análisis explota, la resta sigue por encima del umbral y el próximo mensaje reintenta.
+     */
+    if (!opts.dryRun) {
+      const { data: gano } = await db().rpc("closer_auditor_claim", {
+        p_contact_id: ghlContactId,
+        p_ventana_segundos: env.auditorClaimSegundos(),
+      });
+      if (gano === false) {
+        return { analizado: false, motivo: "otro análisis de este contacto está corriendo", territorio, debounce };
+      }
+    }
+
+    const conversationId = await conversacionDeContacto(ghlContactId);
+    if (!conversationId) return { analizado: false, motivo: "sin conversación", territorio, debounce };
+
+    const { mensajes, truncado } = await mensajesDeConversacionPaginado(conversationId, {
+      limite: 100,
+      paginas: PAGINAS_GHL,
+    });
+    const clasificados = clasificarMensajes(mensajes);
+
+    /* ── Portón 5: los hechos, no los tags ────────────────────────────── */
+    if (!clasificados.some((m) => m.autor === "agente_ia")) {
+      return {
+        analizado: false,
+        motivo: "la conversación no tiene ningún mensaje del agente: no hay nada que auditar",
+        territorio,
+        debounce,
+      };
+    }
+
+    const agenteId = TERRITORIOS[territorio].agenteId;
+    const prompt = cargarPromptAgente(agenteId);
+
+    const evaluacion = await evaluarConversacion({
+      transcript: armarTranscript(clasificados, truncado),
+      hechos: hechosMedidos(clasificados),
+      territorio,
+      prompt,
+      patrones: await patronesConocidos(agenteId),
+    });
+
+    if (!evaluacion.ok) {
+      return { analizado: false, motivo: evaluacion.motivo, territorio, debounce };
+    }
+    const veredicto = evaluacion.veredicto;
+
+    if (opts.dryRun) {
+      return {
+        analizado: true,
+        territorio,
+        auditable: veredicto.auditable,
+        fallo: veredicto.requiereIntervencion,
+        criterio: veredicto.criterioPrincipal,
+        sentimiento: veredicto.sentimiento,
+        hallazgos: veredicto.hallazgos.length,
+        veredicto,
+        debounce,
+      };
+    }
+
+    /**
+     * Se guarda SIEMPRE, pida intervención o no. El panel de sentimiento de Auditoría de
+     * Agentes se calcula sobre todos los análisis: el "85% positivos" sale justamente de
+     * las conversaciones que NO fallaron. Guardar solo los fallos dejaría ese panel midiendo
+     * únicamente lo que salió mal.
+     */
+    const analisisId = await guardarAnalisis({
+      agenteId,
+      ghlContactId,
+      conversationId,
+      veredicto,
+      iaEnCache: decision.iaAhora,
+      promptHash: prompt.hash,
+      disparo,
+    });
+
+    if (analisisId && veredicto.hallazgos.length > 0) {
+      await guardarHallazgos(
+        analisisId,
+        agenteId,
+        ghlContactId,
+        veredicto.hallazgos,
+        prompt.hash,
+        new Date().toISOString(),
+      );
+    }
+
+    const base: ResultadoAnalisis = {
+      analizado: true,
+      territorio,
+      auditable: veredicto.auditable,
+      criterio: veredicto.criterioPrincipal,
+      sentimiento: veredicto.sentimiento,
+      hallazgos: veredicto.hallazgos.length,
+      guardado: Boolean(analisisId),
+      debounce,
+    };
+
+    if (!veredicto.requiereIntervencion) return { ...base, fallo: false };
+
+    /**
+     * La nota va PRIMERO. Es el tag el que dispara el workflow y hace aparecer al contacto
+     * en la cola; si se aplicara antes, existiría una ventana en la que el closer ve la
+     * urgencia sin el motivo y lee el texto genérico.
+     */
+    const idempotencyKey = `analisis:${ghlContactId}:${conversationId}`;
+    await ghl().escribirNota({
+      ghlContactId,
+      cuerpo: `${PREFIJO_NOTA} ${veredicto.motivoIntervencion}`,
+      idempotencyKey: `${idempotencyKey}:nota`,
+    });
+
+    const aplicacion = await ghl().aplicarTags({
+      ghlContactId,
+      tags: [TAG_FALLO],
+      idempotencyKey: `${idempotencyKey}:tag`,
+    });
+
+    return {
+      ...base,
+      fallo: true,
+      // Se reporta lo que REALMENTE pasó, no lo que se intentó (§ puerto: `aplicado`).
+      tagAplicado: aplicacion.ok ? aplicacion.aplicado : false,
+    };
+  } catch (e) {
+    return { analizado: false, motivo: (e as Error).message };
   }
 }
 
@@ -279,123 +1163,8 @@ export function territorioDe(tags: readonly string[]): Territorio | null {
 }
 
 /**
- * Analiza la conversación de un contacto y, si falló, lo manda a la cola roja.
- *
- * Devuelve siempre — nunca lanza. Lo llama el webhook, que debe responder 200 aunque el
- * análisis no se pueda hacer: un error acá no puede provocar que GHL reintente el evento ni
- * que desactive el workflow.
- */
-export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAnalisis> {
-  try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return { analizado: false, motivo: "sin ANTHROPIC_API_KEY" };
-    }
-
-    // Territorio + estado actual en una sola lectura del contacto.
-    const contacto = await ghl().obtenerContacto(ghlContactId);
-    if (!contacto) return { analizado: false, motivo: "GHL no devolvió el contacto" };
-
-    const tags = contacto.tags ?? [];
-
-    /* ── Portón 1: territorio ─────────────────────────────────────────── */
-    const territorio = territorioDe(tags);
-    if (!territorio) {
-      return { analizado: false, motivo: "sin territorio (ni zona_closer ni zona_setter)" };
-    }
-    if (territorio !== "closer") {
-      // El auditor de chat del SETTER va a ser su propio agente (§53). Hasta que exista, este
-      // no lo cubre: auditar pre-agenda con la rúbrica de post-agenda daría veredictos malos
-      // sobre un trabajo distinto, y encima gastando.
-      return { analizado: false, motivo: "el auditor de chat del setter todavía no existe", territorio };
-    }
-
-    /* ── Portón 2: el bot tiene que estar atendiendo ──────────────────── */
-    if (!botAtendiendo(tags)) {
-      return {
-        analizado: false,
-        motivo: "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",
-        territorio,
-      };
-    }
-
-    /* ── Portón 3: ya está en la cola ─────────────────────────────────── */
-    if (tags.includes(TAG_FALLO)) {
-      return { analizado: false, motivo: "ya marcado como fallo", territorio };
-    }
-
-    const conversationId = await conversacionDeContacto(ghlContactId);
-    if (!conversationId) return { analizado: false, motivo: "sin conversación", territorio };
-
-    const transcript = armarTranscript(await mensajesDeConversacion(conversationId));
-
-    /* ── Portón 4: los hechos, no los tags ────────────────────────────── */
-    if (!transcript.includes("IA:")) {
-      return {
-        analizado: false,
-        motivo: "la conversación no tiene ningún mensaje del agente: no hay nada que auditar",
-        territorio,
-      };
-    }
-
-    const veredicto = await evaluarConversacion(transcript, territorio);
-    if (!veredicto) return { analizado: false, motivo: "sin veredicto del modelo", territorio };
-
-    /**
-     * Se guarda SIEMPRE, falle o no. El panel de sentimiento de Auditoría de Agentes se
-     * calcula sobre todos los análisis: el "85% positivos" sale justamente de las
-     * conversaciones que NO fallaron. Guardar solo los fallos dejaría ese panel midiendo
-     * únicamente lo que salió mal.
-     *
-     * Si la escritura falla no se corta el flujo: perder una fila de estadística es mucho
-     * menos grave que no pausar un bot que está maltratando a un contacto.
-     */
-    const guardado = await guardarAnalisis({
-      agenteId: TERRITORIOS[territorio].agenteId,
-      ghlContactId,
-      conversationId,
-      veredicto,
-    });
-
-    if (!veredicto.fallo) {
-      return { analizado: true, territorio, fallo: false, criterio: veredicto.criterio, sentimiento: veredicto.sentimiento, guardado };
-    }
-
-    /**
-     * La nota va PRIMERO. Es el tag el que dispara el workflow y hace aparecer al contacto
-     * en la cola; si se aplicara antes, existiría una ventana en la que el closer ve la
-     * urgencia sin el motivo y lee el texto genérico.
-     */
-    const idempotencyKey = `analisis:${ghlContactId}:${conversationId}`;
-    await ghl().escribirNota({
-      ghlContactId,
-      cuerpo: `${PREFIJO_NOTA} ${veredicto.motivo}`,
-      idempotencyKey: `${idempotencyKey}:nota`,
-    });
-
-    const aplicacion = await ghl().aplicarTags({
-      ghlContactId,
-      tags: [TAG_FALLO],
-      idempotencyKey: `${idempotencyKey}:tag`,
-    });
-
-    return {
-      analizado: true,
-      territorio,
-      fallo: true,
-      criterio: veredicto.criterio,
-      sentimiento: veredicto.sentimiento,
-      guardado,
-      // Se reporta lo que REALMENTE pasó, no lo que se intentó (§ puerto: `aplicado`).
-      tagAplicado: aplicacion.ok ? aplicacion.aplicado : false,
-    };
-  } catch (e) {
-    return { analizado: false, motivo: (e as Error).message };
-  }
-}
-
-/**
  * Pasada manual sobre los contactos de un territorio. La usa el endpoint de disparo manual;
- * el camino normal es el webhook, que analiza de a un contacto por mensaje nuevo.
+ * el camino normal es el webhook.
  *
  * **Los candidatos se filtran ACÁ, antes de llamar a `analizarYMarcar`.** Esa función vuelve
  * a pedirle el contacto a GHL para decidir, así que sin este filtro un barrido sobre 200
@@ -405,19 +1174,28 @@ export async function analizarYMarcar(ghlContactId: string): Promise<ResultadoAn
  * En serie y no en paralelo: `Promise.all` sobre cientos de contactos dispara cientos de
  * llamadas al modelo a la vez. Es un disparo manual — que tarde no molesta a nadie.
  */
-export async function analizarTerritorio(territorio: Territorio): Promise<{
+export async function analizarTerritorio(
+  territorio: Territorio,
+  opts: OpcionesAnalisis = {},
+): Promise<{
   territorio: Territorio;
   encontrados: number;
   revisados: number;
   omitidos: number;
+  /** `true` = GHL devolvió el tope y puede haber más contactos sin revisar. */
+  truncado: boolean;
   resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis>;
 }> {
-  const contactos = await contactosConTag(TERRITORIOS[territorio].tag);
+  const { contactos, truncado } = await contactosConTag(TERRITORIOS[territorio].tag);
   const candidatos = contactos.filter((c) => botAtendiendo(c.tags) && !c.tags.includes(TAG_FALLO));
 
   const resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis> = [];
   for (const c of candidatos) {
-    resultados.push({ contactId: c.id, nombre: c.nombre, ...(await analizarYMarcar(c.id)) });
+    resultados.push({
+      contactId: c.id,
+      nombre: c.nombre,
+      ...(await analizarYMarcar(c.id, { ...opts, disparo: "manual" })),
+    });
   }
 
   return {
@@ -425,6 +1203,7 @@ export async function analizarTerritorio(territorio: Territorio): Promise<{
     encontrados: contactos.length,
     revisados: candidatos.length,
     omitidos: contactos.length - candidatos.length,
+    truncado,
     resultados,
   };
 }

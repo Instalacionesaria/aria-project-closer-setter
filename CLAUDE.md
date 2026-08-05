@@ -1220,6 +1220,12 @@ prueba, y la cuarta lo mandó a la cola roja. Se limpió: tag quitado en GHL y l
 
 ### 53.2 Los cuatro portones
 
+> ⚠️ **Superado por §54 (mismo día).** Los portones pasaron de cuatro a cinco (se sumó el
+> debounce), el 4 dejó de ser un `includes("IA:")` y se descubrió que el portón 2, tal como
+> quedó acá, **bloquea al 100% de los contactos**: los tags que exige no existen en la
+> cuenta. Lo de abajo se conserva porque explica el bug original; para el estado actual,
+> leer §54.
+
 En orden, de más barato a más caro de evaluar. Cada uno evita una llamada al modelo.
 
 | # | Portón | Por qué |
@@ -1292,6 +1298,205 @@ Lo que hay que tener en cuenta al construirlos:
   de dónde sale el audio o el texto — es integración, no prompt.
 - **`closer_analisis_agente.agente_id`** ya distingue por agente, así que los cuatro pueden
   convivir en la misma tabla y cada uno alimenta su propia tarjeta.
+
+## 54. El auditor, de verdad: autoría, debounce, el prompt adentro y la pestaña cableada (2026-08-04)
+
+Segunda pasada sobre el auditor, el mismo día. La primera (§53) arregló el falso positivo y,
+sin quererlo, dejó al agente apagado del todo. Esta lo deja listo para funcionar y conecta su
+salida a la pestaña Auditoría de Agentes, que hasta hoy era ~85% datos inventados.
+
+### 54.1 Lo que se verificó contra producción antes de tocar nada
+
+**Moisés no fue una falla del arreglo de §53.** El contacto `3na3jqlQDaOCCd91C2D3` se creó a
+las 21:41:46Z, conversó con el agente hasta las 21:48, y su `bot_pausado_fallo` quedó puesto
+a las **21:55:04Z**. El arreglo se commiteó a las **22:10:37Z** — quince minutos después. Era
+residuo pre-arreglo, igual que Fabio; se limpió el tag.
+
+Y la cola roja de `mi-dia.ts:121` se arma **solo con el tag**, sin necesidad de que exista
+una fila de análisis, así que cualquier residuo reaparece con el texto genérico.
+
+**Lo grave:** `bot_activado` y `bot_reactivar` **no los tiene ningún contacto de la cuenta**
+(0 de 0), y los workflows que los aplicarían —`🟦 08.1 Apagar App Flow Agent`,
+`🟦 08.2 Reactivar App Flow Agent`, `🟨 04.1/04.2`— están en **borrador**. El único publicado
+de esa familia (`🟦 05.2a … Activar Agente Appflow`) no aplica el tag: Moisés pasó por él y no
+lo tiene. O sea que el portón 2 bloquea al 100%.
+
+Y sin embargo el bot **sí atiende**: la conversación de Moisés es un intercambio completo con
+Appointment Flow AI.
+
+**Decisión de Fabio: se mantiene el portón por tags y se espera a Francisco.** El auditor
+queda en cero a propósito. Lo que se agrega es que ese cero deje de ser un silencio.
+
+### 54.2 "Outbound" no quiere decir "IA"
+
+Medido contra la API real, por el mismo canal salen cuatro cosas distintas:
+
+| Firma | Quién es |
+|---|---|
+| `source:"app"`, **sin** `userId` | el chatbot de GHL |
+| `source:"app"`, **con** `userId` | un humano tipeando en la UI de GHL |
+| `source:"workflow"`, con `userId` | plantilla automatizada (su `userId` es el de quien la ARMÓ) |
+| `source:"api"`, con y sin `userId` | integraciones — ambiguo |
+
+`armarTranscript` etiquetaba **todo** outbound como `IA:`, así que el auditor juzgaba
+plantillas de workflow y mensajes del closer como si los hubiera escrito el agente.
+
+`src/lib/ghl/autoria.ts` (nuevo, isomorfo) resuelve el autor real. **El ambiguo va a
+`desconocido`, nunca a `agente_ia`**: llamar IA a lo que no lo es puede mandar a una persona
+real a la cola roja por algo que escribió un humano —el bug de §53 con otro disfraz—,
+mientras que el falso negativo solo atrasa un análisis. Válvulas sin deploy:
+`AUDITOR_FUENTES_IA` y `AUDITOR_USER_IDS_IA`.
+
+**El transcript etiqueta en vez de filtrar**, y eso no es cosmético: la bronca del contacto
+suele responder a una plantilla, y sin verla el auditor se la imputa al agente; un
+`ASESOR HUMANO` posterior convierte "dejó de responder" en un traspaso; y si la promesa
+incorrecta la hizo un workflow, la corrección va al workflow y no al prompt.
+
+`closer_mensajes.autor` es una denormalización **consciente**, contra la regla de §52: su
+origen no vuelve a estar disponible sin repedir la conversación entera. `NULL` (ingerido
+antes de 014) y `'desconocido'` (vinieron las señales y no alcanzaron) son cosas distintas a
+propósito. Ojo: **el webhook estándar de GHL casi nunca manda `source`**, así que sus
+salientes caen en `desconocido` hasta que la reconciliación los reemplaza por su gemelo real.
+Con la app cerrada, el contador no avanza.
+
+### 54.3 Los cinco portones
+
+| # | Portón | Nota |
+|---|---|---|
+| 1 | `zona_closer` únicamente | Igual que §53 |
+| 2 | `botAtendiendo(tags)` | **Hoy bloquea al 100%**, ver 54.1 |
+| 3 | Ya tiene `bot_pausado_fallo` | Igual que §53 |
+| 4 | **Debounce: 5 mensajes nuevos de la IA** | Nuevo (`AUDITOR_UMBRAL_IA`) |
+| 5 | Hay ≥1 mensaje clasificado como `agente_ia` | Era `includes("IA:")`, que con la etiqueta nueva `AGENTE IA:` seguiría matcheando por accidente |
+
+**El debounce no tiene contador: es una resta.** `(mensajes con autor='agente_ia' ahora) −
+(ese conteo guardado en el último análisis)`. Una columna incremental se desincroniza con un
+backfill o con el borrado de gemelos de `ingesta.ts`; la resta se auto-cura porque las dos
+puntas salen de la misma fuente. Tampoco se cuenta contra GHL: serían 2 llamadas por evento
+incluso cuando la respuesta es "no analizar".
+
+`closer_auditor_claim` (RPC, 120s) evita que los webhooks de entrante y saliente —que llegan
+casi juntos— disparen dos análisis. **No se libera al terminar**: si el análisis explota, la
+resta sigue por encima del umbral y el próximo mensaje reintenta.
+
+**El agujero, dicho en voz alta:** una conversación donde la IA manda **4** mensajes y el
+contacto se va enojado nunca se audita. Es consecuencia matemática de la regla, no un bug
+tapable. La salida es `POST /api/closer/analizar {forzar:true}`.
+
+Ahorro: una conversación de 20 mensajes con 10 de la IA pasa de ~20 llamadas al modelo a ~2.
+
+### 54.4 El prompt del agente, adentro del auditor
+
+Pedido de Fabio: que el veredicto no diga solo *"prometió un financiamiento que no existe"*
+sino *"esta línea del prompt lo permite, reemplazala por esta otra"*.
+
+El prompt vive en `docs/prompts/<agente>.md` (decisión de Fabio: archivo en el repo).
+**Todavía no existe** — `api/_lib/promptAgente.ts` está escrito para que su ausencia sea un
+estado normal: sin archivo, `fragmento_prompt` queda `null` y la corrección se emite como
+instrucción autónoma para agregar. Cuando aparezca, no hay que tocar código.
+
+Dos trampas resueltas: `@vercel/nft` no traza lecturas dinámicas, así que el `.md` **no entra
+al bundle** sin `includeFiles: "docs/prompts/**"` en `vercel.json` (modo de fallo peligroso:
+anda en local, desaparece en producción sin ruido — por eso el diagnóstico reporta
+`presente`). Y se versiona por **hash del contenido**, no por commit: el archivo puede no
+cambiar entre commits, y el hash es lo que permite avisar *"el prompt cambió desde que se
+detectó esto"*.
+
+### 54.5 La rúbrica
+
+Separa **INTERVENCIÓN** (apagar el bot ahora, daño en curso) de **HALLAZGOS** (qué corregir
+en el prompt). Que fueran lo mismo es lo que hacía que un "podría ser más breve" le apagara
+el bot a una persona real. `closer_analisis_agente.fallo` espeja la intervención, así que las
+dos colas rojas siguen funcionando igual.
+
+Además: precondición explícita (`auditable`), **7 criterios cada uno con disparo y lista de
+DESCARTES**, cita textual obligatoria por hallazgo, y una regla de atribución innegociable
+(solo se le imputa al agente lo que dice una línea `AGENTE IA`).
+
+Los hechos temporales se **miden en código** y se inyectan como datos —cuántos mensajes por
+autor, hace cuánto fue el último de cada uno, si alguien respondió después del contacto, el
+umbral de silencio—. Los modelos calculan mal el tiempo y el criterio 2 es enteramente
+temporal.
+
+**`max_tokens` pasó de 2000 a 8000.** El techo cubre pensamiento + texto: con el pensamiento
+adaptativo encendido y un veredicto que ahora incluye diagnóstico y corrección, el JSON salía
+cortado, `JSON.parse` lanzaba y el `catch` lo reportaba como "sin veredicto" sin decir por
+qué. Ahora se chequea `stop_reason === "max_tokens"` explícitamente.
+
+Los hallazgos van a **tabla hija** (`closer_hallazgo_agente`) y no a columnas del análisis:
+una conversación puede tener varios, los hallazgos MUTAN cuando un técnico los parchea, y
+`closer_analisis_agente` es un registro de mediciones que sostiene la serie de 12 semanas.
+
+### 54.6 Por qué está en cero — `GET /api/agentes/auditor-estado`
+
+Cero llamadas a GHL y cero escrituras: los portones 1-3 son funciones puras de `tags`, que ya
+están cacheados. Devuelve el embudo portón por portón, el conteo de cada tag de bot, los
+salientes de 7 días por autoría, si el prompt existe, y un `loQueFalta[]` en castellano llano.
+
+Eso es lo que Fabio le manda a Francisco: no "no funciona", sino *"0 de 8 contactos tienen
+`bot_activado`; lo aplica el 08.1, que está en borrador"*.
+
+Dos renglones son alarmas tempranas: `desconocido` alto significa que el bot firma distinto a
+lo esperado; `sinClasificar` clavado significa que la reconciliación no corre.
+
+También hay `POST /api/closer/analizar {dryRun:true}`: devuelve el veredicto **sin escribir
+nada**. Es la única forma de probar la rúbrica contra conversaciones reales sin tocarle el
+bot a nadie.
+
+### 54.7 La pestaña, sin semillas
+
+Se fueron: las métricas sembradas de los 4 agentes, las 55 alertas con sus evidencias
+literales, `makeFillerAlerts`, las 4 filas de historial y `conMetricasReales`. Queda el
+**catálogo** (id, nombre, objetivo, descripción): los agentes no son datos de demostración,
+son entidades reales del producto — §50.10 ya los eximía del prefijo EJEMPLO por eso.
+
+`makeFillerAlerts` se borró **entera** en vez de quedar devolviendo `[]` como
+`buildSeedContacts()`: aquella produce una estructura legítima que quedó vacía, esta existía
+solo para inflar conteos por encima de la realidad.
+
+Endpoints nuevos: `GET /api/agentes/alertas` (patrones y casos en **dos listas** — el
+diagnóstico y la corrección son del PATRÓN, repetirlos ×15 es la duplicación de la semilla) y
+`GET/POST /api/agentes/ajustes`. El agrupamiento se queda en el cliente para que
+`casesCount === casos.length` **por construcción**: así no puede volver el desfase de §32.D.
+
+Tres cosas que se arreglaron de paso:
+
+- **"Abrir Ficha" estaba roto en dos niveles.** Cruzaba por nombre (el `Record` se indexa por
+  `ghlContactId` desde que se borraron las semillas) y además nunca le pasaba el
+  `ghlContactId` al drawer, que es lo que dispara los fetches de chat, notas e historial.
+  Aunque el join hubiera acertado, la ficha habría abierto vacía sobre una persona real.
+- **El `.catch(() => {})`** se fue. Con semilla era tolerable; sin semilla, un backend caído
+  se vería idéntico al estado normal esperado, que es el peor error posible en esta pantalla.
+  Ahora hay `cargando / listo / error` y los tres se ven distintos.
+- **`tasa` viaja `null`** mientras siga siendo el mismo número que `sentimientoPositivo`. Con
+  la semilla no se notaba; sin ella serían dos trazos superpuestos que se leen como bug.
+
+La carga la dispara la **vista**, no el provider: este vive en `App.tsx` y pedir sus tres
+respuestas en cada arranque le sumaría tres requests a quien nunca abre la pestaña.
+
+Textos muertos que se fueron: "(incluye voz)", "Queda guardado para siempre", el microtexto
+que PROMETÍA la reapertura (ahora `reincidenteDesde` es un hecho derivado por query), el botón
+"Escuchar grabación" sin backend, y las marcas del sparkline en posiciones inventadas
+`[len-2, len-6]` — ahora salen de la fecha real del ajuste. "Ver en GHL" pasó de `<span>`
+inerte a enlace real, con la URL armada en el servidor porque el `locationId` es secreto.
+
+**Los `%` de sentimiento siguen sin ser botones, a propósito.** §6.D pide que abran la lista
+de contactos con la FRASE DISPARADORA, y el auditor no emite ninguna: hoy solo se podría
+listar el último mensaje, que es literalmente lo que esa spec prohíbe. Se les quitó el estilo
+de hover para que no finjan una interacción que no existe.
+
+### 54.8 Lo que queda pendiente
+
+- **Publicar los workflows de GHL** que aplican `bot_activado` / `bot_reactivar`. Hasta
+  entonces el auditor no corre. Es lo único que separa a todo esto de estar funcionando.
+- **Pegar el prompt** del Appointment Flow AI en `docs/prompts/appointment-flow-ai.md`.
+- **`quitarTags` en el puerto de GHL.** Resolver una intervención marca el hallazgo como
+  `resuelto_por_humano` y lo persiste, pero **no saca el tag**, así que el contacto vuelve a
+  Urgentes en el próximo tick. Es cambio de producto.
+- **Quién aplica `bot_pausado_fallo` a contactos sin territorio.** Hay 3 casos que el auditor
+  no pudo haber tagueado. Va como pregunta en el diagnóstico.
+- **La firma del autor de los ajustes** es `AUTOR_POR_DEFECTO` ("Jorge Q.", el closer), pero
+  quien aplica un ajuste al prompt es el técnico. Dato falso, solo que menos visible.
 
 ## 49. Cómo trabajar en este repo
 

@@ -28,7 +28,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import type { AgenteTextoId } from "../_lib/analizador.js";
+import { AUDITORES_ACTIVOS, type AgenteTextoId } from "../_lib/analizador.js";
 import { db } from "../_lib/repo.js";
 import { env } from "../_lib/env.js";
 import { ghl } from "../_lib/ghl/index.js";
@@ -45,8 +45,15 @@ export interface AgenteTextoMetricas {
   sentiment: { positivos: number; neutrales: number; molestos: number } | null;
   /** `null` en una caja = "no lo sé, dejá el valor que ya estaba". */
   ops: { label: string; value: string | null }[];
-  /** Solo las semanas realmente medidas. La vista las superpone sobre las sembradas. */
-  history: { week: string; tasa: number; sentimientoPositivo: number }[];
+  /**
+   * Solo las semanas realmente medidas.
+   *
+   * `tasa` viaja en `null` a propósito mientras no se pueda reconstruir hacia atrás (ver
+   * `historialDe`). Antes se mandaba el mismo número que `sentimientoPositivo`: con la
+   * semilla puesta no se notaba, pero sin semilla son dos trazos superpuestos en el
+   * sparkline, que se lee como un bug de render y no como "esto todavía no se mide".
+   */
+  history: { week: string; tasa: number | null; sentimientoPositivo: number }[];
   /** Cuántos análisis sostienen estos números. 0 = todavía no se midió nada. */
   analisis: number;
 }
@@ -123,9 +130,10 @@ async function historialDe(agenteId: AgenteTextoId) {
       const d = new Date(`${clave}T00:00:00Z`);
       return {
         week: `${String(d.getUTCDate()).padStart(2, "0")} ${MESES[d.getUTCMonth()]}`,
-        // La tasa por semana todavía no se puede reconstruir hacia atrás desde las citas:
-        // se reporta el sentimiento positivo, que sí está medido en cada análisis.
-        tasa: pct(acc.positivos, acc.total),
+        // La tasa por semana todavía no se puede reconstruir hacia atrás desde las citas.
+        // Va `null` y la vista NO dibuja esa línea — antes se mandaba el sentimiento
+        // positivo en su lugar, o sea el mismo número dos veces disfrazado de dos series.
+        tasa: null,
         sentimientoPositivo: pct(acc.positivos, acc.total),
       };
     });
@@ -226,6 +234,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ok: true,
       ghlModo: ghl().modo,
       ventanaDias: DIAS_VENTANA,
+      /**
+       * Qué agentes tienen auditor cableado. Sale de la MISMA constante que usa el
+       * analizador y que repite `/api/agentes/alertas`: un solo lugar donde se decide, para
+       * que dos endpoints no puedan decir cosas distintas sobre lo mismo.
+       */
+      agentesConAuditor: AUDITORES_ACTIVOS,
       /**
        * Se dice explícitamente para que "sin métrica de show-up" no se lea como un bug del
        * endpoint: es que nadie está marcando la asistencia en GHL.

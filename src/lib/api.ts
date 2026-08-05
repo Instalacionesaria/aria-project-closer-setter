@@ -167,11 +167,21 @@ export function fetchUrgentesSetter(): Promise<{ count: number; urgentes: Urgent
   return pedir(`/api/setter/urgentes`);
 }
 
+/* ================================================================== */
+/* Auditoría de Agentes                                                */
+/* ================================================================== */
+
+export type AgentId = "lead-flow-ai" | "appointment-flow-ai" | "lead-flow-voz" | "appointment-flow-voz";
+export type AlertCategoria = "comportamiento" | "base_conocimiento" | "informacion_adicional";
+export type AlertSeveridad = "rojo" | "amarillo";
+export type CasoEstado = "activo" | "resuelto_por_humano" | "parcheado";
+
 /**
- * Métricas medidas de un agente de TEXTO, para la pestaña Auditoría de Agentes.
+ * Métricas medidas de un agente de TEXTO.
  *
- * Todo campo puede venir `null`: significa "todavía no lo medí", y la vista conserva el
- * valor que sembró Francisco en vez de pintar un cero que no midió nadie.
+ * Todo campo puede venir `null`: significa "todavía no lo medí". Desde que se quitaron las
+ * semillas eso YA NO se traduce en "conservá el valor sembrado" —no hay ninguno— sino en
+ * "no renderices ese elemento" (§4.10). Un `null` y un cero no son el mismo hecho.
  */
 export interface AgenteTextoMetricas {
   id: "lead-flow-ai" | "appointment-flow-ai";
@@ -180,14 +190,138 @@ export interface AgenteTextoMetricas {
   subtext: string | null;
   sentiment: { positivos: number; neutrales: number; molestos: number } | null;
   ops: { label: string; value: string | null }[];
-  history: { week: string; tasa: number; sentimientoPositivo: number }[];
+  /** `tasa: null` mientras no se pueda reconstruir hacia atrás — la vista no dibuja esa línea. */
+  history: { week: string; tasa: number | null; sentimientoPositivo: number }[];
   /** Cuántos análisis sostienen estos números. 0 = todavía no se midió nada. */
   analisis: number;
 }
 
-/** Lo que midieron las dos analizadoras de agentes de texto. Los de voz no salen de acá. */
-export function fetchAgentesTexto(): Promise<{ ventanaDias: number; agentes: AgenteTextoMetricas[] }> {
+export interface AgentesTextoResponse {
+  ventanaDias: number;
+  /** Qué agentes tienen auditor cableado hoy. Los demás muestran su estado explícito. */
+  agentesConAuditor: AgentId[];
+  agentes: AgenteTextoMetricas[];
+}
+
+/** Lo que midieron las analizadoras de agentes de texto. Los de voz no tienen fuente todavía. */
+export function fetchAgentesTexto(): Promise<AgentesTextoResponse> {
   return pedir(`/api/agentes/texto`);
+}
+
+/**
+ * El PATRÓN: lo que comparten todos los casos con el mismo `errorCode`.
+ *
+ * Los textos salen del hallazgo MÁS RECIENTE del patrón y viajan UNA vez — repetirlos en
+ * cada caso es la duplicación que tenía la semilla, y elegir "el primero que tenga algo"
+ * (lo que hacía `groupAlerts`) con datos reales significa "uno cualquiera".
+ */
+export interface PatronAlerta {
+  agenteId: AgentId;
+  errorCode: string;
+  titulo: string;
+  categoria: AlertCategoria;
+  severidad: AlertSeveridad;
+  diagnostico: string | null;
+  /**
+   * DISCRIMINANTE ESTRUCTURAL: presente = el auditor tenía el prompt del agente y citó texto
+   * literal; ausente = no lo tenía y la corrección es una instrucción para agregar. Nunca un
+   * booleano `esNuevo`.
+   */
+  fragmentoPrompt: string | null;
+  promptSeccion: string | null;
+  correccionTipo: "reemplazo" | "agregado" | null;
+  correccion: string | null;
+  promptRef: { archivo: string; seccion: string | null } | null;
+  /** El prompt cambió desde que se detectó esto: el fragmento citado puede ya no existir. */
+  promptDesactualizado: boolean;
+  /** ISO del hallazgo del que salieron los textos de arriba. */
+  textoDe: string;
+  ajustadoEl: string | null;
+  /** ISO del primer hallazgo POSTERIOR al ajuste. Derivado por query, no un flag que mantener. */
+  reincidenteDesde: string | null;
+}
+
+/** Un CASO: una conversación concreta que cayó en el patrón. Sin los textos pesados. */
+export interface CasoAlerta {
+  id: string;
+  agenteId: AgentId;
+  errorCode: string;
+  /** LA clave del join hacia el closer. Reemplaza al cruce por nombre, que estaba roto. */
+  ghlContactId: string;
+  /** `null` cuando la caché no lo tiene — la fila no inventa "Sin nombre" (§4.10). */
+  nombre: string | null;
+  /** ISO. La vista compone "hace 2 horas"; el servidor no compone texto de tiempo. */
+  analizadoEl: string;
+  estado: CasoEstado;
+  evidencia?: { tipo: "chat"; mensajeUsuario: string; mensajeIa: string };
+  /** Armada en el servidor: el `locationId` de GHL no viaja al browser. */
+  ghlUrl: string | null;
+}
+
+export interface AlertasResponse {
+  ventanaDias: number;
+  agentesConAuditor: AgentId[];
+  /** Análisis (fallen o no) por agente. 0 = el auditor no corrió sobre nadie. */
+  analisisPorAgente: Partial<Record<AgentId, number>>;
+  patrones: PatronAlerta[];
+  casos: CasoAlerta[];
+}
+
+export function fetchAlertasAgentes(dias = 30): Promise<AlertasResponse> {
+  return pedir(`/api/agentes/alertas?dias=${dias}`);
+}
+
+/**
+ * El closer tomó la conversación a mano: los hallazgos activos de ese contacto pasan a
+ * `resuelto_por_humano`.
+ *
+ * Por `ghlContactId`, nunca por nombre — el cruce por nombre estaba roto desde que el closer
+ * indexa por id, y encima solo vivía en memoria.
+ *
+ * No quita el tag `bot_pausado_fallo` en GHL (el puerto no tiene `quitarTags`), así que el
+ * contacto sigue apareciendo en Urgentes hasta que alguien lo saque allá.
+ */
+export function resolverAlertasDeContacto(ghlContactId: string): Promise<{ resueltos: number }> {
+  return pedir(`/api/agentes/alertas`, conJson({ ghlContactId }));
+}
+
+export interface AjusteAplicado {
+  id: string;
+  agenteId: AgentId;
+  errorCode: string;
+  titulo: string;
+  categoria: string;
+  /** Cuántos casos cerró ESTE ajuste. Hecho de la escritura, no un recuento vivo. */
+  casosCerrados: number;
+  diagnostico: string | null;
+  fragmentoPrompt: string | null;
+  correccion: string | null;
+  promptHash: string | null;
+  /** Lo firma el SERVIDOR. El cliente nunca lo manda. */
+  autor: string;
+  /** ISO real de la base. Nunca el literal "Hoy". */
+  aplicadoEl: string;
+}
+
+export function fetchAjustesAgentes(agenteId?: AgentId): Promise<{ count: number; ajustes: AjusteAplicado[] }> {
+  return pedir(`/api/agentes/ajustes${agenteId ? `?agenteId=${agenteId}` : ""}`);
+}
+
+/**
+ * "Marcar grupo resuelto". Lanza si el servidor lo rechaza — que lance es el punto: la vista
+ * no puede pintar la fila en el historial hasta que esto resuelva, o mostraría como guardado
+ * algo que no se guardó.
+ *
+ * Se mandan los casos que el técnico tenía EN PANTALLA, no "todos los de este errorCode":
+ * entre abrir el drawer y apretar el botón pudo entrar uno nuevo, y cerrarlo sin haberlo
+ * visto es justo lo que el botón promete no hacer.
+ */
+export function registrarAjusteAgente(body: {
+  agenteId: AgentId;
+  errorCode: string;
+  casosIds: string[];
+}): Promise<{ ajuste: AjusteAplicado; casosCerrados: number }> {
+  return pedir(`/api/agentes/ajustes`, conJson(body));
 }
 
 /** Un mensaje real de la conversación de GHL, normalizado para el Chat. */

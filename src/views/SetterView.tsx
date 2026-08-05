@@ -934,7 +934,7 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
 function SetterViewInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
   const [tab, setTab] = useState<Tab>("inicio");
   const { contacts, openContactName, openGhlContactId, openContact, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useSetter();
-  const { resolveAlertsForContact } = useAgentAudit();
+  const { resolverAlertasDeContacto } = useAgentAudit();
   const setterContact = contacts[openContactName ?? ""] ?? null;
 
   useEffect(() => {
@@ -962,7 +962,9 @@ function SetterViewInner({ onScreenChange }: { onScreenChange?: (label: string) 
         onResolveIntervention={() => {
           if (!openContactName) return;
           resolveIntervention(openContactName);
-          resolveAlertsForContact(openContactName);
+          // No-op mientras el auditor de chat del setter no exista (§53.4): no hay hallazgos
+          // de `lead-flow-ai` que resolver. Queda cableado para cuando se construya.
+          void resolverAlertasDeContacto(openGhlContactId);
         }}
         onBotStateChange={(estado, evento, autor) => openContactName && setBotEstado(openContactName, estado, evento, autor)}
         onPin={() => openContactName && pinTask(openContactName)}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import {
   Bot,
   PhoneCall,
@@ -11,6 +11,9 @@ import {
   Smile,
   Meh,
   Frown,
+  ArrowDown,
+  RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
@@ -18,58 +21,119 @@ import { useClosurer } from "../lib/closerStore";
 import { useSetter } from "../lib/setterStore";
 import {
   useAgentAudit,
-  groupAlerts,
   CATEGORY_LABEL,
   type AgentInfo,
   type AgentId,
-  type AlertGroupSummary,
-  type AdjustmentEntry,
+  type AjusteAplicado,
+  type AlertCategoria,
+  type AlertSeveridad,
+  type GrupoAlerta,
 } from "../lib/agentAuditStore";
 
 type Filter = "todos" | "text" | "voz";
 
-const SENTIMENT_BTN =
-  "flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-muted/30 hover:bg-muted/60 border border-border/40 hover:border-border transition-all text-left group/btn shadow-sm hover:shadow";
-const SENTIMENT_LABEL =
-  "text-[9px] font-bold text-muted-foreground uppercase tracking-widest group-hover/btn:text-foreground transition-colors";
+const SENTIMENT_ROW =
+  "flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40 text-left shadow-sm";
+const SENTIMENT_LABEL = "text-[9px] font-bold text-muted-foreground uppercase tracking-widest";
 const OP_CARD =
   "flex flex-col gap-1 p-4 rounded-2xl border border-border/80 dark:border-border bg-muted/90 dark:bg-muted/40 hover:bg-muted transition-colors shadow";
+const PANEL_VACIO =
+  "text-sm text-muted-foreground border border-dashed border-border/60 rounded-2xl p-6 leading-relaxed";
+const ROTULO = "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground";
 
-/** Grupos "abiertos" (con al menos un caso activo o resuelto por humano, pendiente de parche) para un agente. */
-function openGroupsFor(groups: AlertGroupSummary[], agentId: AgentId) {
-  return groups.filter((g) => g.agentId === agentId && g.isOpen);
+/* ------------------------------------------------------------------ */
+/* Formato                                                             */
+/* ------------------------------------------------------------------ */
+
+/** "hace 2 horas" / "hace 3 días". El servidor manda ISO y la vista compone (§ contrato de api.ts). */
+function hace(iso: string): string {
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60_000));
+  if (min < 1) return "recién";
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} día${d > 1 ? "s" : ""}`;
 }
 
-/** Orden de la lista de trabajo del técnico: severidad (rojo primero), luego antigüedad descendente. */
-function sortWorkQueue(groups: AlertGroupSummary[]) {
-  return [...groups].sort((a, b) => {
-    if (a.severity !== b.severity) return a.severity === "rojo" ? -1 : 1;
-    return b.openedDaysAgo - a.openedDaysAgo;
+const fechaCorta = (iso: string) =>
+  new Date(iso).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" });
+
+const diasTexto = (d: number) => (d === 0 ? "menos de 1 día" : `${d} día${d > 1 ? "s" : ""}`);
+
+/** Grupos abiertos de un agente: con al menos un caso activo o resuelto por humano sin parchear. */
+const gruposAbiertosDe = (grupos: GrupoAlerta[], agentId: AgentId) =>
+  grupos.filter((g) => g.patron.agenteId === agentId && g.abierto);
+
+/** Orden de la lista de trabajo: severidad (rojo primero), después antigüedad descendente. */
+const ordenarCola = (grupos: GrupoAlerta[]) =>
+  [...grupos].sort((a, b) => {
+    if (a.patron.severidad !== b.patron.severidad) return a.patron.severidad === "rojo" ? -1 : 1;
+    return b.diasAbierto - a.diasAbierto;
   });
+
+/* ------------------------------------------------------------------ */
+/* Piezas chicas                                                       */
+/* ------------------------------------------------------------------ */
+
+function SeverityDot({ severity }: { severity: AlertSeveridad }) {
+  return <div className={cn("w-2 h-2 rounded-full shrink-0", severity === "rojo" ? "bg-rose-500" : "bg-amber-500")} />;
+}
+
+function CategoryChip({ category }: { category: AlertCategoria }) {
+  return (
+    <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-1 rounded-md tracking-widest uppercase shrink-0">
+      {CATEGORY_LABEL[category] ?? category}
+    </span>
+  );
 }
 
 /* ------------------------------------------------------------------ */
-/* Tarjeta de agente (grid)                                            */
+/* Tarjeta de agente                                                   */
 /* ------------------------------------------------------------------ */
 
-function AgentCard({ agent, groups, onClick }: { agent: AgentInfo; groups: AlertGroupSummary[]; onClick: () => void }) {
-  const open = openGroupsFor(groups, agent.id);
-  const rojos = open.filter((g) => g.severity === "rojo").length;
-  const amarillos = open.filter((g) => g.severity === "amarillo").length;
-  const alDia = open.length === 0;
+/**
+ * Una tarjeta puede estar en tres estados y los tres se ven distinto a propósito:
+ *
+ *   · **Sin auditor** — no hay quién lo evalúe todavía. Se explica el motivo, que es
+ *     distinto para el de setter (decisión de diseño) que para los de voz (falta la fuente).
+ *     No se atenúa: atenuarla la haría leer como "deshabilitada por un bug".
+ *   · **Con auditor y sin análisis** — el estado normal de hoy. Un guion, no un `0%`: un
+ *     cero afirma una medición que nadie hizo.
+ *   · **Con datos** — como siempre.
+ */
+function AgentCard({
+  agent,
+  grupos,
+  onClick,
+}: {
+  agent: AgentInfo;
+  grupos: GrupoAlerta[];
+  onClick: () => void;
+}) {
+  const abiertos = gruposAbiertosDe(grupos, agent.id);
+  const rojos = abiertos.filter((g) => g.patron.severidad === "rojo").length;
+  const amarillos = abiertos.filter((g) => g.patron.severidad === "amarillo").length;
+  const sinDatos = agent.analisis === 0;
 
   return (
     <div
-      onClick={onClick}
-      className="text-card-foreground relative overflow-hidden border border-border/80 dark:border-border rounded-[2rem] bg-card shadow-lg hover:shadow-xl transition-all duration-500 flex flex-col group/card cursor-pointer"
+      onClick={agent.tieneAuditor ? onClick : undefined}
+      className={cn(
+        "text-card-foreground relative overflow-hidden border border-border/80 dark:border-border rounded-[2rem] bg-card shadow-lg transition-all duration-500 flex flex-col group/card",
+        agent.tieneAuditor ? "hover:shadow-xl cursor-pointer" : "cursor-default",
+      )}
     >
-      {/* Alert badge / al día */}
+      {/* Badge de esquina */}
       <div className="absolute top-6 right-6 flex items-center gap-2 group/alert z-10">
-        {alDia ? (
+        {!agent.tieneAuditor ? null : sinDatos ? (
           <div className="flex gap-1.5 items-center bg-muted/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-border/50 shadow-sm">
-            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-              ✓ AL DÍA
-            </span>
+            {/* Ni "✓ AL DÍA" verde (afirma salud que nadie midió) ni contadores en cero. */}
+            <span className="text-[10px] font-bold text-muted-foreground">SIN DATOS</span>
+          </div>
+        ) : abiertos.length === 0 ? (
+          <div className="flex gap-1.5 items-center bg-muted/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-border/50 shadow-sm">
+            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✓ AL DÍA</span>
           </div>
         ) : (
           <div className="flex gap-1.5 items-center bg-muted/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-border/50 shadow-sm hover:shadow transition-all hover:border-border">
@@ -90,7 +154,7 @@ function AgentCard({ agent, groups, onClick }: { agent: AgentInfo; groups: Alert
         )}
       </div>
 
-      {/* Header */}
+      {/* Header — siempre presente: los agentes son entidades reales del producto (§50.10) */}
       <div className="p-8 pb-4 flex items-start gap-4">
         <div className="w-12 h-12 rounded-2xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20 text-violet-600 dark:text-violet-400 shadow-sm shrink-0">
           {agent.icon === "bot" ? <Bot className="w-5 h-5" /> : <PhoneCall className="w-5 h-5" />}
@@ -98,114 +162,181 @@ function AgentCard({ agent, groups, onClick }: { agent: AgentInfo; groups: Alert
         <div className="pt-1">
           <h3 className="text-lg font-semibold tracking-tight leading-none mb-1.5">{agent.name}</h3>
           <div className="text-[10px] font-bold text-foreground uppercase tracking-widest mb-1">{agent.goal}</div>
-          <p className="text-[11px] text-muted-foreground font-medium max-w-[240px] leading-relaxed mb-1.5">{agent.desc}</p>
+          <p className="text-[11px] text-muted-foreground font-medium max-w-[240px] leading-relaxed mb-1.5">
+            {agent.desc}
+          </p>
         </div>
       </div>
 
-      {/* Body */}
       <div className="px-8 pb-8 flex flex-col gap-8">
-        <div className="flex items-start justify-between my-2">
-          <div className="flex flex-col">
-            <div className="flex items-baseline gap-3">
-              <span className="text-6xl font-semibold tracking-tighter text-foreground leading-none">{agent.metric}</span>
-              <span
-                className={cn(
-                  "text-[10px] font-bold flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted/50",
-                  agent.delta.up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
-                )}
-              >
-                {agent.delta.text}
-              </span>
-            </div>
-            <div className="text-xs font-medium text-muted-foreground mt-3 flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30" />
-              {agent.subtext}
-            </div>
+        {!agent.tieneAuditor ? (
+          <div className={PANEL_VACIO}>
+            <div className="font-semibold text-foreground mb-1.5">Sin auditor conectado</div>
+            {agent.porQueNoHayAuditor}
           </div>
-
-          {/* Sentiment */}
-          <div className="flex gap-4 items-center h-[90px]">
-            <div className="w-1.5 h-full rounded-full flex flex-col overflow-hidden bg-muted">
-              <div className="bg-emerald-500 w-full" style={{ height: `${agent.sentiment.positivos}%` }} />
-              <div className="bg-amber-400 w-full" style={{ height: `${agent.sentiment.neutrales}%` }} />
-              <div className="bg-rose-500 w-full" style={{ height: `${agent.sentiment.molestos}%` }} />
-            </div>
-            <div className="flex flex-col justify-between h-full py-0.5">
-              <span className={SENTIMENT_BTN}>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.positivos}%</span>
-                <span className={SENTIMENT_LABEL}>Positivos</span>
-              </span>
-              <span className={SENTIMENT_BTN}>
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.neutrales}%</span>
-                <span className={SENTIMENT_LABEL}>Neutrales</span>
-              </span>
-              <span className={SENTIMENT_BTN}>
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.molestos}%</span>
-                <span className={SENTIMENT_LABEL}>Molestos</span>
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="shrink-0 h-[1px] w-full bg-border/40" />
-
-        {/* Ops */}
-        <div className="flex flex-col gap-4">
-          <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Operativos · Últimos 30 días</div>
-          <div className="grid grid-cols-3 gap-2.5">
-            {agent.ops.map((op, i) => (
-              <div key={i} className={OP_CARD}>
-                {op.sub ? (
-                  <span className="text-lg font-semibold text-foreground flex items-baseline gap-1">
-                    {op.value}
-                    <span className="text-[10px] text-muted-foreground font-medium">{op.sub}</span>
+        ) : (
+          <>
+            <div className="flex items-start justify-between my-2">
+              <div className="flex flex-col">
+                <div className="flex items-baseline gap-3">
+                  {/* `—` en un cuerpo más chico: un guion de 6xl grita una ausencia. */}
+                  <span
+                    className={cn(
+                      "font-semibold tracking-tighter leading-none",
+                      agent.metric ? "text-6xl text-foreground" : "text-4xl text-muted-foreground/50",
+                    )}
+                  >
+                    {agent.metric ?? "—"}
                   </span>
-                ) : (
-                  <span className="text-lg font-semibold text-foreground">{op.value}</span>
+                  {agent.delta && (
+                    <span
+                      className={cn(
+                        "text-[10px] font-bold flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted/50",
+                        agent.delta.up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+                      )}
+                    >
+                      {agent.delta.text}
+                    </span>
+                  )}
+                </div>
+                {agent.subtext && (
+                  <div className="text-xs font-medium text-muted-foreground mt-3 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/30" />
+                    {agent.subtext}
+                  </div>
                 )}
-                <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{op.label}</span>
               </div>
-            ))}
-          </div>
-        </div>
+
+              {agent.sentiment && (
+                <div className="flex gap-4 items-center h-[90px]">
+                  <div className="w-1.5 h-full rounded-full flex flex-col overflow-hidden bg-muted">
+                    <div className="bg-emerald-500 w-full" style={{ height: `${agent.sentiment.positivos}%` }} />
+                    <div className="bg-amber-400 w-full" style={{ height: `${agent.sentiment.neutrales}%` }} />
+                    <div className="bg-rose-500 w-full" style={{ height: `${agent.sentiment.molestos}%` }} />
+                  </div>
+                  {/*
+                    Etiquetas, no botones. El drill-down de §6.D pide la FRASE DISPARADORA y
+                    el auditor no emite ninguna: hoy solo se podría listar el último mensaje,
+                    que es literalmente lo que esa spec prohíbe. Se les quitó el hover para
+                    que no finjan una interacción que no existe.
+                  */}
+                  <div className="flex flex-col justify-between h-full py-0.5">
+                    <span className={SENTIMENT_ROW}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.positivos}%</span>
+                      <span className={SENTIMENT_LABEL}>Positivos</span>
+                    </span>
+                    <span className={SENTIMENT_ROW}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                      <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.neutrales}%</span>
+                      <span className={SENTIMENT_LABEL}>Neutrales</span>
+                    </span>
+                    <span className={SENTIMENT_ROW}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                      <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.molestos}%</span>
+                      <span className={SENTIMENT_LABEL}>Molestos</span>
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="shrink-0 h-[1px] w-full bg-border/40" />
+
+            {sinDatos ? (
+              <div className={PANEL_VACIO}>
+                <div className="font-semibold text-foreground mb-1.5">Auditor conectado · sin análisis todavía</div>
+                Ninguna conversación pasó por la rúbrica en el período.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Operativos</div>
+                <div className={cn("grid gap-2.5", agent.ops.length > 3 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-3")}>
+                  {agent.ops
+                    .filter((op) => op.value !== null)
+                    .map((op, i) => (
+                      <div key={i} className={OP_CARD}>
+                        <span className="text-lg font-semibold text-foreground flex items-baseline gap-1">
+                          {op.value}
+                          {op.sub && <span className="text-[10px] text-muted-foreground font-medium">{op.sub}</span>}
+                        </span>
+                        <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                          {op.label}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* Sparkline SVG (12 semanas) — sin librería de charts, polyline a mano */
+/* Sparkline                                                           */
 /* ------------------------------------------------------------------ */
 
 /**
- * Marcas de ajustes (§6.D de CLAUDE.md, "sparkline 2 líneas con marcas de ajustes") — puntos
- * en la línea de tasa donde el técnico aplicó un ajuste. Sin fechas exactas por semana en el
- * historial, se ubican en las últimas semanas del rango (donde de hecho ocurrieron los ajustes
- * recientes) en vez de inventar un mapeo fecha→semana preciso.
+ * Marcas de los ajustes aplicados, ubicadas por su FECHA real.
+ *
+ * Antes estaban en las posiciones fijas `[len-2, len-6]` — inventadas, y por lo tanto una
+ * afirmación falsa sobre cuándo se corrigió algo. Ahora cada ajuste cae en la semana que le
+ * corresponde y, si quedó fuera de la ventana del gráfico, simplemente no hay marca.
  */
-function adjustmentMarkerIndices(historyLength: number, adjustmentCount: number): number[] {
-  if (adjustmentCount <= 0) return [];
-  const indices = [historyLength - 2, historyLength - 6];
-  return indices.filter((i) => i >= 0).slice(0, adjustmentCount);
+function indicesDeAjustes(history: AgentInfo["history"], ajustes: AjusteAplicado[]): number[] {
+  if (history.length === 0) return [];
+  const semanas = history.map((h) => h.week);
+  const indices = new Set<number>();
+  for (const a of ajustes) {
+    const etiqueta = new Date(a.aplicadoEl)
+      .toLocaleDateString("es-PE", { day: "2-digit", month: "short" })
+      .replace(".", "");
+    const i = semanas.findIndex((s) => s.toLowerCase() === etiqueta.toLowerCase());
+    if (i >= 0) indices.add(i);
+  }
+  return [...indices];
 }
 
-function Sparkline({ history, adjustmentCount = 0 }: { history: AgentInfo["history"]; adjustmentCount?: number }) {
+function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajustes: AjusteAplicado[] }) {
   const W = 680;
   const H = 160;
   const PAD = 12;
-  const max = 100;
-  const min = 0;
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  /**
+   * Con 0 puntos `stepX` sería negativo (`length - 1 = -1`) y el gráfico se dibujaría al
+   * revés; con 1 punto no hay línea que trazar. Los dos casos son el estado normal mientras
+   * el auditor no haya corrido, así que se dicen en vez de renderizar un SVG roto.
+   */
+  if (history.length === 0) {
+    return (
+      <p className={PANEL_VACIO}>
+        Sin semanas medidas todavía. El gráfico empieza a dibujarse con el primer análisis.
+      </p>
+    );
+  }
+  if (history.length === 1) {
+    return (
+      <p className={PANEL_VACIO}>
+        Una sola semana medida ({history[0].week}: {history[0].sentimientoPositivo}% positivo). Hace falta una
+        segunda para ver una tendencia.
+      </p>
+    );
+  }
+
   const stepX = (W - PAD * 2) / (history.length - 1);
   const xAt = (i: number) => PAD + i * stepX;
-  const y = (v: number) => H - PAD - ((v - min) / (max - min)) * (H - PAD * 2);
-  const tasaPoints = history.map((h, i) => `${xAt(i)},${y(h.tasa)}`).join(" ");
-  const sentPoints = history.map((h, i) => `${xAt(i)},${y(h.sentimientoPositivo)}`).join(" ");
-  const markers = adjustmentMarkerIndices(history.length, adjustmentCount);
+  const y = (v: number) => H - PAD - (v / 100) * (H - PAD * 2);
 
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  // La tasa solo se dibuja si el servidor la mandó. Mientras sea `null` (no se puede
+  // reconstruir hacia atrás) dibujarla sería trazar dos veces la misma serie.
+  const hayTasa = history.some((h) => h.tasa !== null);
+  const sentPoints = history.map((h, i) => `${xAt(i)},${y(h.sentimientoPositivo)}`).join(" ");
+  const tasaPoints = hayTasa ? history.map((h, i) => `${xAt(i)},${y(h.tasa ?? 0)}`).join(" ") : "";
+  const marcas = indicesDeAjustes(history, ajustes);
 
   const handleMove = (e: MouseEvent<SVGSVGElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -222,11 +353,19 @@ function Sparkline({ history, adjustmentCount = 0 }: { history: AgentInfo["histo
     <div className="space-y-2 relative">
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="w-4 h-0.5 bg-foreground inline-block" /> Tasa de trabajo
+          <span className="w-4 h-0.5 bg-teal-500 inline-block" style={{ borderTop: "2px dashed" }} /> Sentimiento
+          positivo
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-4 h-0.5 bg-teal-500 inline-block" style={{ borderTop: "2px dashed" }} /> Sentimiento positivo
-        </span>
+        {hayTasa && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-4 h-0.5 bg-foreground inline-block" /> Tasa de trabajo
+          </span>
+        )}
+        {marcas.length > 0 && (
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-violet-500 inline-block" /> Ajuste aplicado
+          </span>
+        )}
       </div>
       <div className="relative">
         <svg
@@ -236,93 +375,118 @@ function Sparkline({ history, adjustmentCount = 0 }: { history: AgentInfo["histo
           onMouseLeave={() => setHoverIdx(null)}
         >
           {hoverIdx !== null && (
-            <line x1={xAt(hoverIdx)} x2={xAt(hoverIdx)} y1={0} y2={H} stroke="currentColor" strokeWidth={1} className="text-border" />
+            <line
+              x1={xAt(hoverIdx)}
+              x2={xAt(hoverIdx)}
+              y1={0}
+              y2={H}
+              stroke="currentColor"
+              strokeWidth={1}
+              className="text-border"
+            />
           )}
           <polyline points={sentPoints} fill="none" stroke="#14b8a6" strokeWidth={2} strokeDasharray="4 4" />
-          <polyline points={tasaPoints} fill="none" stroke="currentColor" strokeWidth={2} className="text-foreground" />
+          {hayTasa && (
+            <polyline points={tasaPoints} fill="none" stroke="currentColor" strokeWidth={2} className="text-foreground" />
+          )}
           {history.map((h, i) => (
             <circle key={`s-${i}`} cx={xAt(i)} cy={y(h.sentimientoPositivo)} r={2.5} fill="#14b8a6" />
           ))}
-          {history.map((h, i) => (
-            <circle key={`t-${i}`} cx={xAt(i)} cy={y(h.tasa)} r={2.5} className="fill-foreground" />
-          ))}
-          {markers.map((i) => (
-            <circle key={`adj-${i}`} cx={xAt(i)} cy={y(history[i].tasa)} r={3.5} fill="#8b5cf6" stroke="white" strokeWidth={1.5}>
+          {marcas.map((i) => (
+            <circle
+              key={`adj-${i}`}
+              cx={xAt(i)}
+              cy={y(history[i].sentimientoPositivo)}
+              r={3.5}
+              fill="#8b5cf6"
+              stroke="white"
+              strokeWidth={1.5}
+            >
               <title>Ajuste aplicado</title>
             </circle>
           ))}
           {hovered && (
-            <>
-              <circle cx={xAt(hoverIdx!)} cy={y(hovered.sentimientoPositivo)} r={5} fill="white" stroke="#14b8a6" strokeWidth={2} />
-              <circle cx={xAt(hoverIdx!)} cy={y(hovered.tasa)} r={5} fill="white" stroke="currentColor" className="text-foreground" strokeWidth={2} />
-            </>
+            <circle
+              cx={xAt(hoverIdx!)}
+              cy={y(hovered.sentimientoPositivo)}
+              r={5}
+              fill="white"
+              stroke="#14b8a6"
+              strokeWidth={2}
+            />
           )}
         </svg>
         {hovered && (
           <div
             className="absolute top-2 z-10 pointer-events-none bg-popover text-popover-foreground border border-border rounded-lg shadow-lg px-3 py-2 text-xs whitespace-nowrap"
-            style={{ left: `${tooltipLeftPct}%`, transform: tooltipAlignRight ? "translateX(-100%)" : "translateX(8px)" }}
+            style={{
+              left: `${tooltipLeftPct}%`,
+              transform: tooltipAlignRight ? "translateX(-100%)" : "translateX(8px)",
+            }}
           >
             <div className="font-semibold mb-1">{hovered.week}</div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Tasa de trabajo:</span>
-              <span className="font-bold">{hovered.tasa}%</span>
-            </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-muted-foreground">Sentimiento positivo:</span>
               <span className="font-bold text-teal-600 dark:text-teal-400">{hovered.sentimientoPositivo}%</span>
             </div>
+            {hovered.tasa !== null && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-muted-foreground">Tasa de trabajo:</span>
+                <span className="font-bold">{hovered.tasa}%</span>
+              </div>
+            )}
           </div>
         )}
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground px-1">
-        {history.filter((_, i) => i % 2 === 0 || i === history.length - 1).map((h, i) => (
-          <span key={i}>{h.week}</span>
-        ))}
+        {history
+          .filter((_, i) => i % 2 === 0 || i === history.length - 1)
+          .map((h, i) => (
+            <span key={i}>{h.week}</span>
+          ))}
       </div>
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/* Detalle de agente                                                    */
+/* Detalle de agente                                                   */
 /* ------------------------------------------------------------------ */
-
-function SeverityDot({ severity }: { severity: "rojo" | "amarillo" }) {
-  return <div className={cn("w-2 h-2 rounded-full shrink-0", severity === "rojo" ? "bg-rose-500" : "bg-amber-500")} />;
-}
-
-function CategoryChip({ category }: { category: keyof typeof CATEGORY_LABEL }) {
-  return (
-    <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-1 rounded-md tracking-widest uppercase shrink-0">
-      {CATEGORY_LABEL[category]}
-    </span>
-  );
-}
 
 function AgentDetailView({
   agent,
-  groups,
-  adjustments,
+  grupos,
+  ajustes,
+  ventanaDias,
   onBack,
   onOpenGroup,
   onOpenAdjustment,
 }: {
   agent: AgentInfo;
-  groups: AlertGroupSummary[];
-  adjustments: AdjustmentEntry[];
+  grupos: GrupoAlerta[];
+  ajustes: AjusteAplicado[];
+  ventanaDias: number;
   onBack: () => void;
   onOpenGroup: (agentId: AgentId, errorCode: string) => void;
-  onOpenAdjustment: (entry: AdjustmentEntry) => void;
+  onOpenAdjustment: (entry: AjusteAplicado) => void;
 }) {
-  const open = sortWorkQueue(openGroupsFor(groups, agent.id));
-  const rojos = open.filter((g) => g.severity === "rojo").length;
-  const amarillos = open.filter((g) => g.severity === "amarillo").length;
-  const resueltosEnPeriodo = adjustments.filter((a) => a.agentName === agent.name).length;
-  const agentAdjustments = adjustments.filter((a) => a.agentName === agent.name);
+  const abiertos = ordenarCola(gruposAbiertosDe(grupos, agent.id));
+  const rojos = abiertos.filter((g) => g.patron.severidad === "rojo").length;
+  const amarillos = abiertos.filter((g) => g.patron.severidad === "amarillo").length;
+  // Se cruza por ID, no por el nombre visible: el join por string de display era el mismo
+  // error de modelado que rompió "Abrir Ficha".
+  const delAgente = ajustes.filter((a) => a.agenteId === agent.id);
 
-  const SentimentIcon = agent.sentiment.positivos >= 70 ? Smile : agent.sentiment.positivos >= 40 ? Meh : Frown;
-  const sentimentColor = agent.sentiment.positivos >= 70 ? "text-emerald-500 border-emerald-200" : agent.sentiment.positivos >= 40 ? "text-amber-500 border-amber-200" : "text-rose-500 border-rose-200";
+  const pos = agent.sentiment?.positivos ?? null;
+  const SentimentIcon = pos === null ? Meh : pos >= 70 ? Smile : pos >= 40 ? Meh : Frown;
+  const sentimentColor =
+    pos === null
+      ? "text-muted-foreground/40 border-border"
+      : pos >= 70
+        ? "text-emerald-500 border-emerald-200"
+        : pos >= 40
+          ? "text-amber-500 border-amber-200"
+          : "text-rose-500 border-rose-200";
 
   return (
     <div className="space-y-8">
@@ -345,79 +509,110 @@ function AgentDetailView({
         </div>
         <div className="flex items-center gap-3 bg-card border border-border/60 rounded-2xl px-4 py-2.5 shadow-sm">
           <div className="text-right">
-            <div className="text-lg font-semibold">{agent.metric}</div>
+            <div className={cn("text-lg font-semibold", !agent.metric && "text-muted-foreground/50")}>
+              {agent.metric ?? "—"}
+            </div>
             <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{agent.goal}</div>
           </div>
-          <div className="w-[1px] h-8 bg-border/50" />
-          <div className={cn("w-9 h-9 rounded-full border-2 flex items-center justify-center shrink-0", sentimentColor)}>
-            <SentimentIcon className="w-4 h-4" />
-          </div>
-          <div className="flex flex-col gap-0.5">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Sentimiento</span>
-            <div className="flex items-center gap-1.5 text-[10px] font-semibold">
-              <span className="text-emerald-600">{agent.sentiment.positivos}%</span>
-              <span className="text-amber-600">{agent.sentiment.neutrales}%</span>
-              <span className="text-rose-600">{agent.sentiment.molestos}%</span>
-            </div>
-          </div>
+          {agent.sentiment && (
+            <>
+              <div className="w-[1px] h-8 bg-border/50" />
+              <div className={cn("w-9 h-9 rounded-full border-2 flex items-center justify-center shrink-0", sentimentColor)}>
+                <SentimentIcon className="w-4 h-4" />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Sentimiento</span>
+                <div className="flex items-center gap-1.5 text-[10px] font-semibold">
+                  <span className="text-emerald-600">{agent.sentiment.positivos}%</span>
+                  <span className="text-amber-600">{agent.sentiment.neutrales}%</span>
+                  <span className="text-rose-600">{agent.sentiment.molestos}%</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
 
       <div className="border border-border/60 rounded-2xl bg-card p-6 shadow-sm">
-        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-4">Evolución de la tasa (12 semanas)</div>
-        <Sparkline history={agent.history} adjustmentCount={agentAdjustments.length} />
+        <div className={cn(ROTULO, "mb-4")}>
+          Evolución del sentimiento{agent.history.length > 1 ? ` (${agent.history.length} semanas)` : ""}
+        </div>
+        <Sparkline history={agent.history} ajustes={delAgente} />
       </div>
 
-      <div>
-        <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em] mb-3">Operativos · Últimos 30 días</div>
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
-          {agent.ops.map((op, i) => (
-            <div key={i} className={OP_CARD}>
-              <span className="text-lg font-semibold text-foreground flex items-baseline gap-1">
-                {op.value}
-                {op.sub && <span className="text-[10px] text-muted-foreground font-medium">{op.sub}</span>}
-              </span>
-              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{op.label}</span>
-            </div>
-          ))}
+      {agent.ops.some((op) => op.value !== null) && (
+        <div>
+          <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em] mb-3">
+            Operativos · Últimos {ventanaDias} días
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+            {agent.ops
+              .filter((op) => op.value !== null)
+              .map((op, i) => (
+                <div key={i} className={OP_CARD}>
+                  <span className="text-lg font-semibold text-foreground flex items-baseline gap-1">
+                    {op.value}
+                    {op.sub && <span className="text-[10px] text-muted-foreground font-medium">{op.sub}</span>}
+                  </span>
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{op.label}</span>
+                </div>
+              ))}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground">
-        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> {rojos} rojos abiertos</span>
-        <span className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> {amarillos} amarillos</span>
-        <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">✓ {resueltosEnPeriodo} resueltos en el período</span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> {rojos} rojos abiertos
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> {amarillos} amarillos
+        </span>
+        <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+          ✓ {delAgente.length} ajustes aplicados
+        </span>
       </div>
 
       <div>
-        <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground mb-3">Lista de trabajo del técnico</div>
-        {open.length === 0 ? (
-          <p className="text-sm text-muted-foreground border border-dashed border-border/60 rounded-2xl p-6 text-center">
-            Sin casos abiertos — agente al día.
+        <div className={cn(ROTULO, "mb-3")}>Lista de trabajo del técnico</div>
+        {abiertos.length === 0 ? (
+          <p className={PANEL_VACIO}>
+            {agent.analisis === 0
+              ? "Todavía no hay conversaciones analizadas para este agente, así que no hay casos que revisar."
+              : `Sin casos abiertos. Las ${agent.analisis} conversaciones analizadas en los últimos ${ventanaDias} días pasaron la rúbrica.`}
           </p>
         ) : (
           <div className="border border-border/60 rounded-2xl bg-card divide-y divide-border/50 shadow-sm overflow-hidden">
-            {open.map((g) => (
+            {abiertos.map((g) => (
               <button
                 key={g.key}
-                onClick={() => onOpenGroup(g.agentId, g.errorCode)}
+                onClick={() => onOpenGroup(g.patron.agenteId, g.patron.errorCode)}
                 className="w-full flex items-center justify-between gap-4 p-4 hover:bg-muted/30 transition-colors text-left"
               >
                 <div className="flex items-center gap-3 min-w-0">
-                  <SeverityDot severity={g.severity} />
+                  <SeverityDot severity={g.patron.severidad} />
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-foreground truncate flex items-center gap-2">
-                      {g.title}
-                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">×{g.casesCount}</span>
+                      {g.patron.titulo}
+                      <span className="text-[10px] font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                        ×{g.casesCount}
+                      </span>
+                      {g.patron.reincidenteDesde && (
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
+                          Reincidente
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-muted-foreground">
-                      abierto hace {g.openedDaysAgo === 0 ? "menos de 1 día" : `${g.openedDaysAgo} día${g.openedDaysAgo > 1 ? "s" : ""}`}
-                      {g.hasUnresolvedByHumanOnly && <span className="ml-2 text-emerald-600 dark:text-emerald-400">· salvado por humano</span>}
+                      abierto hace {diasTexto(g.diasAbierto)}
+                      {g.soloResueltosPorHumano && (
+                        <span className="ml-2 text-emerald-600 dark:text-emerald-400">· salvado por humano</span>
+                      )}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
-                  <CategoryChip category={g.category} />
+                  <CategoryChip category={g.patron.categoria} />
                   <ChevronRight className="w-4 h-4 text-muted-foreground" />
                 </div>
               </button>
@@ -427,31 +622,29 @@ function AgentDetailView({
       </div>
 
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Historial de ajustes de este agente</div>
-          <button onClick={onBack} className="text-xs font-medium text-violet-600 dark:text-violet-400 hover:underline">
-            Ver historial completo ›
-          </button>
-        </div>
-        {agentAdjustments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin ajustes registrados todavía.</p>
+        <div className={cn(ROTULO, "mb-3")}>Historial de ajustes de este agente</div>
+        {delAgente.length === 0 ? (
+          <p className={PANEL_VACIO}>Este agente no tiene ajustes registrados.</p>
         ) : (
           <div className="border border-border/60 rounded-2xl bg-card divide-y divide-border/50 shadow-sm overflow-hidden">
-            {agentAdjustments.map((row, i) => (
+            {delAgente.map((row) => (
               <button
-                key={i}
+                key={row.id}
                 onClick={() => onOpenAdjustment(row)}
                 className="w-full flex items-center gap-4 p-4 hover:bg-muted/30 transition-colors text-left"
               >
                 <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
                   <span className="text-emerald-600 dark:text-emerald-400 text-xs">✓</span>
                 </div>
-                <span className="text-xs text-muted-foreground w-24 shrink-0">{row.date}</span>
+                <span className="text-xs text-muted-foreground w-28 shrink-0">{fechaCorta(row.aplicadoEl)}</span>
                 <span className="font-semibold text-sm text-foreground flex-1">
-                  {row.issue} <span className="text-muted-foreground font-normal ml-1 bg-muted px-1.5 py-0.5 rounded text-[10px]">{row.count}</span>
+                  {row.titulo}
+                  <span className="text-muted-foreground font-normal ml-1 bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                    ×{row.casosCerrados}
+                  </span>
                 </span>
-                <CategoryChip category={Object.keys(CATEGORY_LABEL).find((k) => CATEGORY_LABEL[k as keyof typeof CATEGORY_LABEL] === row.category) as keyof typeof CATEGORY_LABEL} />
-                <span className="text-xs text-muted-foreground shrink-0">{row.author}</span>
+                <CategoryChip category={row.categoria as AlertCategoria} />
+                <span className="text-xs text-muted-foreground shrink-0">{row.autor}</span>
                 <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
               </button>
             ))}
@@ -463,30 +656,137 @@ function AgentDetailView({
 }
 
 /* ------------------------------------------------------------------ */
-/* Drawer de grupo de alerta                                            */
+/* Bloque de corrección al prompt                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * DICE AHORA → DEBERÍA DECIR.
+ *
+ * Apilado y no en dos columnas: el drawer es `max-w-md`, y partirlo dejaría ~200px de ancho
+ * para texto monoespaciado con líneas de prompt.
+ *
+ * `whitespace-pre-wrap` no es cosmético. Un fragmento real de prompt tiene viñetas, saltos y
+ * sangría; sin esto llega al técnico como un chorizo de una línea que no se puede pegar de
+ * vuelta. Con el `correctionBlock` sembrado —una frase— no se notaba.
+ */
+function BloqueCorreccion({ patron }: { patron: GrupoAlerta["patron"] }) {
+  const [copiado, setCopiado] = useState(false);
+
+  if (!patron.correccion) {
+    return (
+      <p className={PANEL_VACIO}>
+        Este caso no dejó una corrección propuesta. Revisá el diagnóstico y la evidencia para decidir el ajuste.
+      </p>
+    );
+  }
+
+  const copiar = () => {
+    const partes = [
+      `# ${patron.titulo}  (${patron.errorCode})`,
+      patron.promptRef ? `Archivo: ${patron.promptRef.archivo}${patron.promptSeccion ? ` · § ${patron.promptSeccion}` : ""}` : "",
+      patron.fragmentoPrompt ? `\n## Dice ahora\n${patron.fragmentoPrompt}` : "",
+      `\n## Debería decir\n${patron.correccion}`,
+    ].filter(Boolean);
+    navigator.clipboard?.writeText(partes.join("\n"));
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 1600);
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className={ROTULO}>
+          {patron.ajustadoEl ? `Corrección aplicada el ${fechaCorta(patron.ajustadoEl)}` : "Corrección propuesta al prompt"}
+        </div>
+        {patron.promptRef && (
+          <span className="text-[10px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[55%]">
+            {patron.promptRef.archivo}
+            {patron.promptSeccion ? ` · § ${patron.promptSeccion}` : ""}
+          </span>
+        )}
+      </div>
+
+      {patron.promptDesactualizado && (
+        <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          El prompt cambió desde que se detectó esto: el fragmento citado puede ya no existir. Conviene revalidarlo
+          antes de aplicar la corrección.
+        </p>
+      )}
+
+      {patron.fragmentoPrompt ? (
+        <>
+          <div className="rounded-xl border-l-4 border-rose-500 bg-rose-500/5 p-3">
+            <div className="text-[9px] font-bold uppercase tracking-widest text-rose-700 dark:text-rose-400 mb-1.5">
+              Dice ahora
+            </div>
+            <div className="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words">
+              {patron.fragmentoPrompt}
+            </div>
+          </div>
+          <div className="flex justify-center">
+            <ArrowDown className="w-4 h-4 text-muted-foreground" />
+          </div>
+        </>
+      ) : (
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          El auditor no tenía el prompt del agente cuando detectó esto, así que no hay un fragmento que citar. La
+          corrección de abajo es una instrucción para <strong>agregar</strong>.
+        </p>
+      )}
+
+      <div className="rounded-xl border-l-4 border-emerald-500 bg-emerald-500/5 p-3">
+        <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-1.5">
+          {patron.correccionTipo === "reemplazo" ? "Debería decir" : "Agregar al prompt"}
+        </div>
+        <div className="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words">{patron.correccion}</div>
+      </div>
+
+      <button
+        onClick={copiar}
+        className="w-full flex items-center justify-center gap-2 h-10 rounded-md bg-foreground text-background text-sm font-semibold hover:opacity-90 transition-opacity"
+      >
+        <Copy className="w-3.5 h-3.5" /> {copiado ? "¡Copiado!" : "Copiar corrección"}
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Drawer de grupo                                                     */
 /* ------------------------------------------------------------------ */
 
 function AlertGroupDrawer({
-  group,
+  grupo,
   onClose,
   onPatch,
   onOpenContact,
 }: {
-  group: AlertGroupSummary;
+  grupo: GrupoAlerta;
   onClose: () => void;
-  onPatch: () => void;
-  onOpenContact: (name: string) => void;
+  onPatch: () => Promise<void>;
+  onOpenContact: (caso: GrupoAlerta["casos"][number]) => void;
 }) {
-  const [evidenceIdx, setEvidenceIdx] = useState(0);
-  const [copied, setCopied] = useState(false);
-  const evidence = group.evidence;
-  const current = evidence[evidenceIdx];
+  const [idx, setIdx] = useState(0);
+  const [guardando, setGuardando] = useState(false);
+  const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
 
-  const copyBlock = () => {
-    if (!group.correctionBlock) return;
-    navigator.clipboard?.writeText(group.correctionBlock);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1600);
+  const conEvidencia = grupo.casos.filter((c) => c.evidencia);
+  const actual = conEvidencia[idx];
+  const porCerrar = grupo.casos.filter((c) => c.estado !== "parcheado").length;
+
+  const guardar = async () => {
+    setGuardando(true);
+    setErrorGuardar(null);
+    try {
+      await onPatch();
+    } catch (e) {
+      // El drawer queda abierto con el error: pintar la fila del historial antes de que el
+      // servidor confirme sería el éxito falso que prohíbe la cabecera de api.ts.
+      setErrorGuardar((e as Error).message);
+    } finally {
+      setGuardando(false);
+    }
   };
 
   return (
@@ -495,10 +795,10 @@ function AlertGroupDrawer({
       <div className="relative w-full max-w-md bg-popover text-popover-foreground h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
         <div className="flex items-center justify-between p-5 border-b border-border/50">
           <div className="flex items-center gap-2">
-            <SeverityDot severity={group.severity} />
-            <CategoryChip category={group.category} />
+            <SeverityDot severity={grupo.patron.severidad} />
+            <CategoryChip category={grupo.patron.categoria} />
             <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-1 rounded-full">
-              abierto hace {group.openedDaysAgo === 0 ? "menos de 1 día" : `${group.openedDaysAgo} día${group.openedDaysAgo > 1 ? "s" : ""}`}
+              abierto hace {diasTexto(grupo.diasAbierto)}
             </span>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
@@ -508,102 +808,107 @@ function AlertGroupDrawer({
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           <div>
-            <h3 className="text-lg font-semibold">{group.title}</h3>
-            <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">×{group.casesCount} casos</span>
+            <h3 className="text-lg font-semibold">{grupo.patron.titulo}</h3>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                ×{grupo.casesCount} casos
+              </span>
+              <span className="text-[10px] font-mono text-muted-foreground">{grupo.patron.errorCode}</span>
+            </div>
           </div>
 
-          {group.diagnostico && (
+          {/* Reemplaza al microtexto que PROMETÍA la reapertura. Ahora se dice solo cuando pasó. */}
+          {grupo.patron.reincidenteDesde && grupo.patron.ajustadoEl && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              Este patrón volvió a aparecer el {fechaCorta(grupo.patron.reincidenteDesde)}, después del ajuste del{" "}
+              {fechaCorta(grupo.patron.ajustadoEl)}. El ajuste anterior no lo corrigió.
+            </p>
+          )}
+
+          {grupo.patron.diagnostico && (
             <div className="space-y-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Diagnóstico</div>
-              <p className="text-sm text-foreground/90 bg-muted/40 border border-border/50 rounded-xl p-3.5 leading-relaxed">{group.diagnostico}</p>
+              <div className={ROTULO}>Diagnóstico</div>
+              <p className="text-sm text-foreground/90 bg-muted/40 border border-border/50 rounded-xl p-3.5 leading-relaxed">
+                {grupo.patron.diagnostico}
+              </p>
             </div>
           )}
 
-          {group.correctionBlock && (
-            <div className="space-y-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Bloque de corrección</div>
-              <div className="bg-[#0a0a0a] text-white rounded-xl p-3.5 text-sm font-mono leading-relaxed">{group.correctionBlock}</div>
-              <button
-                onClick={copyBlock}
-                className="w-full flex items-center justify-center gap-2 h-10 rounded-md bg-foreground text-background text-sm font-semibold hover:opacity-90 transition-opacity"
-              >
-                <Copy className="w-3.5 h-3.5" /> {copied ? "¡Copiado!" : "Copiar bloque"}
-              </button>
-            </div>
-          )}
+          <BloqueCorreccion patron={grupo.patron} />
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Evidencia</div>
-              <span className="text-[10px] text-muted-foreground">
-                Muestra {evidence.length > 0 ? evidenceIdx + 1 : 0} de {group.casesCount}
-              </span>
+              <div className={ROTULO}>Evidencia</div>
+              {conEvidencia.length > 0 && (
+                <span className="text-[10px] text-muted-foreground">
+                  Muestra {idx + 1} de {conEvidencia.length}
+                </span>
+              )}
             </div>
-            {evidence.length === 0 ? (
-              <p className="text-sm text-muted-foreground italic text-center py-6 border border-dashed border-border/50 rounded-xl">
-                No hay ejemplos para mostrar.
+            {conEvidencia.length === 0 ? (
+              <p className={PANEL_VACIO}>
+                Los análisis de este patrón no dejaron el par de mensajes. Abrí la ficha del contacto para ver la
+                conversación completa.
               </p>
             ) : (
               <div className="border border-border/50 rounded-xl p-3.5 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold flex items-center gap-2">
-                    {current.contactName}
-                    {current.status === "resolved_by_human" && (
+                    {actual.nombre ?? "Contacto sin nombre en la caché"}
+                    {actual.estado === "resuelto_por_humano" && (
                       <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
                         Salvado por humano
                       </span>
                     )}
                   </span>
-                  <span className="text-xs text-muted-foreground">{current.timestamp}</span>
+                  <span className="text-xs text-muted-foreground">{hace(actual.analizadoEl)}</span>
                 </div>
-                {current.kind === "call" ? (
-                  <div className="space-y-2.5">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <PhoneCall className="w-3.5 h-3.5" />
-                      <span>Duración {current.duracion}</span>
-                      {current.resultado && <span>· {current.resultado}</span>}
-                    </div>
-                    {current.resumenIA && (
-                      <div className="bg-muted/50 border border-border/50 rounded-lg px-3 py-2.5 text-sm leading-relaxed">
-                        <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Transcript (resumen IA)</div>
-                        {current.resumenIA}
-                      </div>
-                    )}
-                    {current.audioUrl && (
-                      <button className="w-full flex items-center justify-center gap-2 h-9 rounded-md border border-border/60 text-sm font-medium hover:bg-muted/40 transition-colors">
-                        <PhoneCall className="w-3.5 h-3.5" /> Escuchar grabación
-                      </button>
-                    )}
+
+                <div className="space-y-2">
+                  <div className="bg-muted rounded-lg px-3 py-2 text-sm w-fit max-w-[85%] whitespace-pre-wrap">
+                    {actual.evidencia!.mensajeUsuario}
                   </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="bg-muted rounded-lg px-3 py-2 text-sm w-fit max-w-[85%]">{current.userMsg}</div>
-                    <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200/60 dark:border-emerald-500/20 rounded-lg px-3 py-2 text-sm w-fit max-w-[85%] ml-auto">
-                      <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-1">Agente IA</div>
-                      {current.aiMsg}
+                  <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200/60 dark:border-emerald-500/20 rounded-lg px-3 py-2 text-sm w-fit max-w-[85%] ml-auto whitespace-pre-wrap">
+                    <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-1">
+                      Agente IA
                     </div>
+                    {actual.evidencia!.mensajeIa}
                   </div>
-                )}
+                </div>
+
                 <div className="flex items-center justify-between pt-1">
-                  <button onClick={() => onOpenContact(current.contactName)} className="text-xs font-semibold text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1">
+                  <button
+                    onClick={() => onOpenContact(actual)}
+                    className="text-xs font-semibold text-violet-600 dark:text-violet-400 hover:underline flex items-center gap-1"
+                  >
                     Abrir Ficha <ChevronRight className="w-3 h-3" />
                   </button>
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <ExternalLink className="w-3 h-3" /> Ver en GHL
-                  </span>
+                  {/* Antes era un <span> inerte. La URL la arma el servidor: el locationId no viaja al browser. */}
+                  {actual.ghlUrl && (
+                    <a
+                      href={actual.ghlUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" /> Ver en GHL
+                    </a>
+                  )}
                 </div>
-                {evidence.length > 1 && (
+
+                {conEvidencia.length > 1 && (
                   <div className="flex items-center justify-center gap-3 pt-1">
                     <button
-                      onClick={() => setEvidenceIdx((i) => Math.max(0, i - 1))}
-                      disabled={evidenceIdx === 0}
+                      onClick={() => setIdx((i) => Math.max(0, i - 1))}
+                      disabled={idx === 0}
                       className="p-1 rounded-full hover:bg-muted disabled:opacity-30 disabled:pointer-events-none"
                     >
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => setEvidenceIdx((i) => Math.min(evidence.length - 1, i + 1))}
-                      disabled={evidenceIdx === evidence.length - 1}
+                      onClick={() => setIdx((i) => Math.min(conEvidencia.length - 1, i + 1))}
+                      disabled={idx === conEvidencia.length - 1}
                       className="p-1 rounded-full hover:bg-muted disabled:opacity-30 disabled:pointer-events-none"
                     >
                       <ChevronRight className="w-4 h-4" />
@@ -616,15 +921,18 @@ function AlertGroupDrawer({
         </div>
 
         <div className="p-5 border-t border-border/50 space-y-2">
+          {errorGuardar && (
+            <p className="text-[11px] text-rose-600 dark:text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+              No se pudo guardar el ajuste: {errorGuardar}
+            </p>
+          )}
           <button
-            onClick={onPatch}
-            className="w-full h-11 rounded-md bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold transition-colors"
+            onClick={guardar}
+            disabled={guardando || porCerrar === 0}
+            className="w-full h-11 rounded-md bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold transition-colors"
           >
-            Marcar grupo resuelto — cierra los ×{group.casesCount} casos
+            {guardando ? "Guardando…" : `Marcar grupo resuelto — cierra los ×${porCerrar} casos`}
           </button>
-          <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-            Si el patrón reaparece tras resolverse, se reabre marcado como "el ajuste anterior no funcionó"
-          </p>
         </div>
       </div>
     </div>
@@ -632,10 +940,18 @@ function AlertGroupDrawer({
 }
 
 /* ------------------------------------------------------------------ */
-/* Detalle de un ajuste ya aplicado (fila del Historial)                */
+/* Detalle de un ajuste ya aplicado                                    */
 /* ------------------------------------------------------------------ */
 
-function AdjustmentDetailDrawer({ entry, onClose }: { entry: AdjustmentEntry; onClose: () => void }) {
+function AdjustmentDetailDrawer({
+  entry,
+  agentName,
+  onClose,
+}: {
+  entry: AjusteAplicado;
+  agentName: string;
+  onClose: () => void;
+}) {
   return (
     <div className="fixed inset-0 z-[70] flex justify-end">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] animate-in fade-in duration-150" onClick={onClose} />
@@ -645,7 +961,9 @@ function AdjustmentDetailDrawer({ entry, onClose }: { entry: AdjustmentEntry; on
             <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center">
               <span className="text-emerald-600 dark:text-emerald-400 text-[10px]">✓</span>
             </div>
-            <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-1 rounded-full">{entry.date}</span>
+            <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-1 rounded-full">
+              {fechaCorta(entry.aplicadoEl)}
+            </span>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="w-4 h-4" />
@@ -654,34 +972,47 @@ function AdjustmentDetailDrawer({ entry, onClose }: { entry: AdjustmentEntry; on
 
         <div className="flex-1 overflow-y-auto p-5 space-y-6">
           <div className="space-y-2">
-            <h3 className="text-lg font-semibold">{entry.issue}</h3>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">{entry.count} casos</span>
-              <div className="inline-flex items-center rounded-full border text-foreground border-border/50 font-medium text-xs px-2 py-0.5">
-                {entry.agentIcon} {entry.agentName}
-              </div>
-              <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-1 rounded-md tracking-widest uppercase">
-                {entry.category}
+            <h3 className="text-lg font-semibold">{entry.titulo}</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                ×{entry.casosCerrados} casos cerrados
               </span>
+              <div className="inline-flex items-center rounded-full border text-foreground border-border/50 font-medium text-xs px-2 py-0.5">
+                {agentName}
+              </div>
+              <CategoryChip category={entry.categoria as AlertCategoria} />
             </div>
           </div>
 
           {entry.diagnostico && (
             <div className="space-y-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Diagnóstico</div>
-              <p className="text-sm text-foreground/90 bg-muted/40 border border-border/50 rounded-xl p-3.5 leading-relaxed">{entry.diagnostico}</p>
+              <div className={ROTULO}>Diagnóstico</div>
+              <p className="text-sm text-foreground/90 bg-muted/40 border border-border/50 rounded-xl p-3.5 leading-relaxed">
+                {entry.diagnostico}
+              </p>
             </div>
           )}
 
-          {entry.correctionBlock && (
+          {entry.fragmentoPrompt && (
             <div className="space-y-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Ajuste aplicado</div>
-              <div className="bg-[#0a0a0a] text-white rounded-xl p-3.5 text-sm font-mono leading-relaxed">{entry.correctionBlock}</div>
+              <div className={ROTULO}>Decía</div>
+              <div className="rounded-xl border-l-4 border-rose-500 bg-rose-500/5 p-3 text-sm font-mono leading-relaxed whitespace-pre-wrap break-words">
+                {entry.fragmentoPrompt}
+              </div>
+            </div>
+          )}
+
+          {entry.correccion && (
+            <div className="space-y-2">
+              <div className={ROTULO}>Ajuste aplicado</div>
+              <div className="rounded-xl border-l-4 border-emerald-500 bg-emerald-500/5 p-3 text-sm font-mono leading-relaxed whitespace-pre-wrap break-words">
+                {entry.correccion}
+              </div>
             </div>
           )}
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t border-border/50">
-            Aplicado por <span className="font-medium text-foreground">{entry.author}</span>
+            Aplicado por <span className="font-medium text-foreground">{entry.autor}</span>
           </div>
         </div>
       </div>
@@ -694,19 +1025,34 @@ function AdjustmentDetailDrawer({ entry, onClose }: { entry: AdjustmentEntry; on
 /* ------------------------------------------------------------------ */
 
 export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
-  const { agents, alerts, adjustments, patchAlertGroup } = useAgentAudit();
+  const {
+    estado,
+    errorMensaje,
+    ventanaDias,
+    agents,
+    grupos,
+    ajustes,
+    analisisTotales,
+    refrescar,
+    cargarSiHaceFalta,
+    marcarGrupoResuelto,
+  } = useAgentAudit();
   const closer = useClosurer();
   const setter = useSetter();
+
+  // La carga la dispara la VISTA, no el provider: este vive en App.tsx y pedir estos datos
+  // en cada arranque le sumaría tres requests a quien nunca abre esta pestaña.
+  useEffect(() => {
+    void cargarSiHaceFalta();
+  }, [cargarSiHaceFalta]);
 
   const [filter, setFilter] = useState<Filter>("todos");
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
   const [openGroupKey, setOpenGroupKey] = useState<{ agentId: AgentId; errorCode: string } | null>(null);
-  const [ficheName, setFicheName] = useState<string | null>(null);
-  const [openAdjustment, setOpenAdjustment] = useState<AdjustmentEntry | null>(null);
+  const [openAdjustment, setOpenAdjustment] = useState<AjusteAplicado | null>(null);
 
-  const groups = groupAlerts(alerts);
-  const graveGroups = groups.filter((g) => g.severity === "rojo" && g.hasActive);
-  const oldestGrave = [...graveGroups].sort((a, b) => b.openedDaysAgo - a.openedDaysAgo)[0];
+  const graves = useMemo(() => grupos.filter((g) => g.patron.severidad === "rojo" && g.hayActivos), [grupos]);
+  const graveMasViejo = useMemo(() => [...graves].sort((a, b) => b.diasAbierto - a.diasAbierto)[0], [graves]);
 
   const textAgents = agents.filter((a) => a.type === "text");
   const vozAgents = agents.filter((a) => a.type === "voz");
@@ -714,14 +1060,26 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
   const showVoz = filter === "todos" || filter === "voz";
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId) ?? null;
-  const openGroup = openGroupKey ? groups.find((g) => g.agentId === openGroupKey.agentId && g.errorCode === openGroupKey.errorCode) ?? null : null;
+  const openGroup = openGroupKey
+    ? (grupos.find((g) => g.patron.agenteId === openGroupKey.agentId && g.patron.errorCode === openGroupKey.errorCode) ??
+      null)
+    : null;
 
   useEffect(() => {
     onScreenChange?.(selectedAgent ? `Auditoría de Agentes — ${selectedAgent.name}` : "Auditoría de Agentes");
   }, [selectedAgent, onScreenChange]);
 
-  const isCloserContact = ficheName ? !!closer.contacts[ficheName] : false;
-  const isSetterContact = ficheName ? !!setter.contacts[ficheName] : false;
+  /**
+   * La ficha la maneja la STORE, no un `useState` local con el nombre.
+   *
+   * El cruce por nombre estaba roto en dos niveles: el `Record` se indexa por `ghlContactId`
+   * desde que se borraron las semillas del closer, y además la vista nunca le pasaba el
+   * `ghlContactId` al drawer — que es lo que dispara los fetches de chat, notas e historial.
+   * Aunque el join hubiera acertado, la ficha habría abierto vacía sobre una persona real.
+   */
+  const fichaAbierta = closer.openContactName;
+  const contactoFicha = fichaAbierta ? (closer.contacts[fichaAbierta] ?? null) : null;
+  const setterFicha = fichaAbierta ? (setter.contacts[fichaAbierta] ?? null) : null;
 
   const filterBtn = (active: boolean) =>
     cn(
@@ -737,8 +1095,9 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
         {selectedAgent ? (
           <AgentDetailView
             agent={selectedAgent}
-            groups={groups}
-            adjustments={adjustments}
+            grupos={grupos}
+            ajustes={ajustes}
+            ventanaDias={ventanaDias}
             onBack={() => setSelectedAgentId(null)}
             onOpenGroup={(agentId, errorCode) => setOpenGroupKey({ agentId, errorCode })}
             onOpenAdjustment={(entry) => setOpenAdjustment(entry)}
@@ -752,21 +1111,60 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
                   <div className="inline-flex items-center justify-center px-3 py-1.5 rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-400 text-[10px] font-bold tracking-[0.2em] uppercase w-fit">
                     AGENTES
                   </div>
-                  <span className="text-xs font-medium text-muted-foreground">Últimos 30 días</span>
+                  <span className="text-xs font-medium text-muted-foreground">Últimos {ventanaDias} días</span>
+                  <button
+                    onClick={() => void refrescar()}
+                    disabled={estado === "cargando"}
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <RefreshCw className={cn("w-3 h-3", estado === "cargando" && "animate-spin")} /> Actualizar
+                  </button>
                 </div>
                 <h1 className="text-4xl font-light tracking-tight text-foreground">Salud de los agentes</h1>
               </div>
               <div className="flex items-center p-1 bg-muted/30 rounded-xl border border-border/50 shadow-sm backdrop-blur-md">
-                <button onClick={() => setFilter("todos")} className={filterBtn(filter === "todos")}>Todos</button>
-                <button onClick={() => setFilter("text")} className={filterBtn(filter === "text")}>💬 Agentes de Texto</button>
-                <button onClick={() => setFilter("voz")} className={filterBtn(filter === "voz")}>📞 Agentes de Voz</button>
+                <button onClick={() => setFilter("todos")} className={filterBtn(filter === "todos")}>
+                  Todos
+                </button>
+                <button onClick={() => setFilter("text")} className={filterBtn(filter === "text")}>
+                  💬 Agentes de Texto
+                </button>
+                <button onClick={() => setFilter("voz")} className={filterBtn(filter === "voz")}>
+                  📞 Agentes de Voz
+                </button>
               </div>
             </div>
 
-            {/* Warning banner */}
-            {graveGroups.length > 0 && (
+            {/*
+              Franja de estado. Los tres casos —error, con graves, sin nada— tienen que verse
+              DISTINTOS: sin semillas, un backend caído se vería idéntico al estado normal
+              ("el auditor todavía no analizó nada"), que es el peor error posible acá.
+            */}
+            {estado === "error" ? (
+              <div className="w-full bg-amber-500/5 border border-amber-500/20 rounded-2xl p-5 flex items-center justify-between gap-4 mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center shrink-0">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+                      No se pudo consultar al auditor
+                    </h4>
+                    <p className="text-xs text-amber-700/70 dark:text-amber-400/70 mt-0.5 font-medium">
+                      {errorMensaje} — los números de abajo no están; no es que no haya nada medido.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => void refrescar()}
+                  className="text-xs font-bold uppercase tracking-widest text-amber-700 dark:text-amber-400 shrink-0"
+                >
+                  Reintentar
+                </button>
+              </div>
+            ) : graves.length > 0 ? (
               <div
-                onClick={() => oldestGrave && setSelectedAgentId(oldestGrave.agentId)}
+                onClick={() => graveMasViejo && setSelectedAgentId(graveMasViejo.patron.agenteId)}
                 className="w-full bg-rose-500/5 border border-rose-500/20 rounded-2xl p-5 flex items-center justify-between cursor-pointer hover:bg-rose-500/10 transition-colors mb-8 group"
               >
                 <div className="flex items-center gap-4">
@@ -775,10 +1173,11 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-rose-600 dark:text-rose-400">
-                      {graveGroups.length} casos graves abiertos (incluye voz)
+                      {graves.length} caso{graves.length > 1 ? "s" : ""} grave{graves.length > 1 ? "s" : ""} abierto
+                      {graves.length > 1 ? "s" : ""}
                     </h4>
                     <p className="text-xs text-rose-600/70 dark:text-rose-400/70 mt-0.5 font-medium">
-                      El más antiguo lleva {oldestGrave?.openedDaysAgo} día{(oldestGrave?.openedDaysAgo ?? 0) > 1 ? "s" : ""} sin resolución
+                      El más antiguo lleva {diasTexto(graveMasViejo?.diasAbierto ?? 0)} sin resolución
                     </p>
                   </div>
                 </div>
@@ -786,16 +1185,45 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
                   Verlos <ChevronRight className="w-4 h-4" />
                 </div>
               </div>
+            ) : analisisTotales === 0 ? (
+              /* El estado que se va a ver durante días. La explicación larga vive ACÁ y solo
+                 acá, para no repetir el mismo párrafo en las cuatro tarjetas. */
+              <div className="w-full bg-muted/40 border border-border/60 rounded-2xl p-5 mb-8">
+                <h4 className="text-sm font-semibold text-foreground">
+                  El auditor todavía no analizó ninguna conversación
+                </h4>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-3xl">
+                  Solo audita los chats donde el agente de IA está atendiendo. Hoy ningún contacto tiene el agente
+                  activado, así que no hay nada que medir — se destraba cuando los workflows de GHL empiecen a aplicar{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">bot_activado</code>. El detalle
+                  completo está en <code className="font-mono text-[11px]">/api/agentes/auditor-estado</code>.
+                </p>
+              </div>
+            ) : (
+              <div className="w-full bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 mb-8">
+                <h4 className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+                  Ningún caso grave abierto
+                </h4>
+                <p className="text-xs text-emerald-700/70 dark:text-emerald-400/70 mt-0.5 font-medium">
+                  {analisisTotales} conversaciones analizadas en los últimos {ventanaDias} días.
+                </p>
+              </div>
             )}
 
-            {/* Agent groups */}
             <div className="space-y-12">
               {showText && (
                 <div className="space-y-6">
-                  <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-2">💬 AGENTES DE TEXTO</h2>
+                  <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-2">
+                    💬 AGENTES DE TEXTO
+                  </h2>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {textAgents.map((agent) => (
-                      <AgentCard key={agent.id} agent={agent} groups={groups} onClick={() => setSelectedAgentId(agent.id)} />
+                      <AgentCard
+                        key={agent.id}
+                        agent={agent}
+                        grupos={grupos}
+                        onClick={() => setSelectedAgentId(agent.id)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -803,10 +1231,17 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
 
               {showVoz && (
                 <div className="space-y-6">
-                  <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-2">📞 AGENTES DE VOZ</h2>
+                  <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-[0.2em] px-2">
+                    📞 AGENTES DE VOZ
+                  </h2>
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                     {vozAgents.map((agent) => (
-                      <AgentCard key={agent.id} agent={agent} groups={groups} onClick={() => setSelectedAgentId(agent.id)} />
+                      <AgentCard
+                        key={agent.id}
+                        agent={agent}
+                        grupos={grupos}
+                        onClick={() => setSelectedAgentId(agent.id)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -816,98 +1251,119 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
             {/* Historial de Ajustes */}
             <div className="pt-12">
               <div className="flex justify-between items-center mb-6">
-                <div className="flex items-center gap-3">
-                  <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Historial de Ajustes</h3>
-                  <span className="text-[10px] font-medium text-muted-foreground/60 px-2 py-0.5 rounded-full bg-muted/50">
-                    Queda guardado para siempre
-                  </span>
-                </div>
+                <h3 className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted-foreground">
+                  Historial de Ajustes
+                </h3>
               </div>
-              <div className="border text-card-foreground shadow-md border-border/80 rounded-2xl bg-card overflow-hidden">
-                <div className="relative w-full overflow-auto">
-                  <table className="w-full caption-bottom text-sm">
-                    <tbody className="[&_tr:last-child]:border-0">
-                      {adjustments.map((row, i) => (
-                        <tr
-                          key={i}
-                          onClick={() => setOpenAdjustment(row)}
-                          className="border-b transition-colors hover:bg-muted/30 border-border/30 cursor-pointer"
-                        >
-                          <td className="p-4 align-middle w-12 text-center">
-                            <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
-                              <span className="text-emerald-600 dark:text-emerald-400 text-xs">✓</span>
-                            </div>
-                          </td>
-                          <td className="p-4 align-middle text-xs text-muted-foreground w-32 font-medium">{row.date}</td>
-                          <td className="p-4 align-middle font-semibold text-sm text-foreground">
-                            {row.issue}
-                            <span className="text-muted-foreground font-normal ml-2 bg-muted px-1.5 py-0.5 rounded text-[10px]">{row.count}</span>
-                          </td>
-                          <td className="p-4 align-middle">
-                            <div className="inline-flex items-center rounded-full border text-foreground border-border/50 font-medium text-xs px-2 py-0.5">
-                              {row.agentIcon} {row.agentName}
-                            </div>
-                          </td>
-                          <td className="p-4 align-middle">
-                            <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-2 py-1 rounded-md tracking-widest uppercase">
-                              {row.category}
-                            </span>
-                          </td>
-                          <td className="p-4 align-middle text-xs text-muted-foreground text-right font-medium">{row.author}</td>
-                          <td className="p-4 align-middle w-8">
-                            <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {ajustes.length === 0 ? (
+                <p className={PANEL_VACIO}>
+                  Todavía no se aplicó ningún ajuste. Cada vez que marques un grupo como resuelto, queda acá la
+                  corrección exacta que se aplicó al prompt, con su fecha y su autor.
+                </p>
+              ) : (
+                <div className="border text-card-foreground shadow-md border-border/80 rounded-2xl bg-card overflow-hidden">
+                  <div className="relative w-full overflow-auto">
+                    <table className="w-full caption-bottom text-sm">
+                      <tbody className="[&_tr:last-child]:border-0">
+                        {ajustes.map((row) => (
+                          <tr
+                            key={row.id}
+                            onClick={() => setOpenAdjustment(row)}
+                            className="border-b transition-colors hover:bg-muted/30 border-border/30 cursor-pointer"
+                          >
+                            <td className="p-4 align-middle w-12 text-center">
+                              <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
+                                <span className="text-emerald-600 dark:text-emerald-400 text-xs">✓</span>
+                              </div>
+                            </td>
+                            <td className="p-4 align-middle text-xs text-muted-foreground w-32 font-medium">
+                              {fechaCorta(row.aplicadoEl)}
+                            </td>
+                            <td className="p-4 align-middle font-semibold text-sm text-foreground">
+                              {row.titulo}
+                              <span className="text-muted-foreground font-normal ml-2 bg-muted px-1.5 py-0.5 rounded text-[10px]">
+                                ×{row.casosCerrados}
+                              </span>
+                            </td>
+                            <td className="p-4 align-middle">
+                              <div className="inline-flex items-center rounded-full border text-foreground border-border/50 font-medium text-xs px-2 py-0.5">
+                                {agents.find((a) => a.id === row.agenteId)?.name ?? row.agenteId}
+                              </div>
+                            </td>
+                            <td className="p-4 align-middle">
+                              <CategoryChip category={row.categoria as AlertCategoria} />
+                            </td>
+                            <td className="p-4 align-middle text-xs text-muted-foreground text-right font-medium">
+                              {row.autor}
+                            </td>
+                            <td className="p-4 align-middle w-8">
+                              <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </>
         )}
       </div>
 
-      {openGroup && !ficheName && (
+      {openGroup && !fichaAbierta && (
         <AlertGroupDrawer
-          group={openGroup}
+          grupo={openGroup}
           onClose={() => setOpenGroupKey(null)}
-          onPatch={() => {
-            patchAlertGroup(openGroup.agentId, openGroup.errorCode);
+          onPatch={async () => {
+            await marcarGrupoResuelto(openGroup.patron.agenteId, openGroup.patron.errorCode);
             setOpenGroupKey(null);
           }}
-          onOpenContact={(name) => setFicheName(name)}
+          onOpenContact={(caso) => closer.openContact(caso.nombre ?? caso.ghlContactId, caso.ghlContactId)}
         />
       )}
 
-      {openAdjustment && <AdjustmentDetailDrawer entry={openAdjustment} onClose={() => setOpenAdjustment(null)} />}
+      {openAdjustment && (
+        <AdjustmentDetailDrawer
+          entry={openAdjustment}
+          agentName={agents.find((a) => a.id === openAdjustment.agenteId)?.name ?? openAdjustment.agenteId}
+          onClose={() => setOpenAdjustment(null)}
+        />
+      )}
 
       <ContactDrawer
-        name={ficheName}
-        onClose={() => setFicheName(null)}
-        role={isSetterContact && !isCloserContact ? "setter" : "closer"}
-        contact={isCloserContact ? closer.contacts[ficheName ?? ""] ?? null : null}
-        setterContact={isSetterContact ? setter.contacts[ficheName ?? ""] ?? null : null}
+        name={fichaAbierta}
+        /* Sin esto la ficha abre vacía sobre una persona real: es lo que dispara los fetches
+           de chat, notas e historial en closerStore. */
+        ghlContactId={closer.openGhlContactId}
+        onClose={closer.closeContact}
+        role={setterFicha && !contactoFicha ? "setter" : "closer"}
+        contact={contactoFicha}
+        setterContact={setterFicha}
         /* `situacion: result.situacionSlug` es obligatorio, igual que en CloserAI.tsx:2173.
            Sin ese mapeo el guard de `closerStore.advance()` —que exige `situacion` y `modo`
            para hacer el POST— nunca se cumplía, así que un Seguimiento registrado desde esta
            vista se veía guardado y solo vivía en memoria. */
-        onAdvance={(result) => ficheName && result.stage && closer.advance(ficheName, { ...result, stage: result.stage, situacion: result.situacionSlug })}
-        onSetterAdvance={(result) => ficheName && setter.advance(ficheName, result)}
+        onAdvance={(result) =>
+          fichaAbierta &&
+          result.stage &&
+          closer.advance(fichaAbierta, { ...result, stage: result.stage, situacion: result.situacionSlug })
+        }
+        onSetterAdvance={(result) => fichaAbierta && setter.advance(fichaAbierta, result)}
         onAddNota={(texto) => {
-          if (!ficheName) return;
-          if (isCloserContact) closer.addNota(ficheName, texto);
-          else if (isSetterContact) setter.addNota(ficheName, texto);
+          if (!fichaAbierta) return;
+          if (contactoFicha) closer.addNota(fichaAbierta, texto);
+          else if (setterFicha) setter.addNota(fichaAbierta, texto);
         }}
         onResolveIntervention={() => {
-          if (!ficheName) return;
-          if (isCloserContact) closer.resolveIntervention(ficheName);
-          else if (isSetterContact) setter.resolveIntervention(ficheName);
+          if (!fichaAbierta) return;
+          if (contactoFicha) closer.resolveIntervention(fichaAbierta);
+          else if (setterFicha) setter.resolveIntervention(fichaAbierta);
         }}
-        onBotStateChange={(estado, evento, autor) => {
-          if (!ficheName) return;
-          if (isCloserContact) closer.setBotEstado(ficheName, estado, evento, autor);
-          else if (isSetterContact) setter.setBotEstado(ficheName, estado, evento, autor);
+        onBotStateChange={(estadoBot, evento, autor) => {
+          if (!fichaAbierta) return;
+          if (contactoFicha) closer.setBotEstado(fichaAbierta, estadoBot, evento, autor);
+          else if (setterFicha) setter.setBotEstado(fichaAbierta, estadoBot, evento, autor);
         }}
       />
     </div>

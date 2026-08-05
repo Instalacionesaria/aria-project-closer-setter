@@ -61,4 +61,39 @@ export const env = {
   /** Presencia de credenciales, sin exponerlas — para el endpoint de diagnóstico. */
   tieneCredencialesGhl: () => Boolean((process.env.GHL_PIT ?? process.env.GHL_API_KEY) && process.env.GHL_LOCATION_ID),
   tieneCredencialesSupabase: () => Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+
+  /* ── Auditor de IA ────────────────────────────────────────────────────── */
+
+  /**
+   * Cómo reconocer al chatbot de GHL entre los mensajes salientes.
+   *
+   * Son válvulas para no tener que desplegar si Francisco confirma que el bot de esta
+   * subcuenta firma distinto. Sin ellas rige el default de `autoria.ts` (`source:"app"` sin
+   * `userId`), que es lo medido contra la cuenta el 2026-08-04.
+   */
+  auditorFuentesIa: (): string[] =>
+    (process.env.AUDITOR_FUENTES_IA ?? "app")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  auditorUserIdsIa: (): string[] =>
+    (process.env.AUDITOR_USER_IDS_IA ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+
+  /** Cuántos mensajes de la IA hacen falta para disparar un análisis (regla de Fabio: 5). */
+  auditorUmbralIa: (): number => Number(process.env.AUDITOR_UMBRAL_IA ?? 5),
+
+  /** Ventana del candado por contacto, en segundos. Techo duro de un análisis por contacto. */
+  auditorClaimSegundos: (): number => Number(process.env.AUDITOR_CLAIM_S ?? 120),
+
+  /**
+   * Conversación sin actividad reciente = no se analiza al activar el debounce, solo se
+   * siembra la línea base. Evita que un backfill dispare cientos de inferencias de una.
+   */
+  auditorDiasArranque: (): number => Number(process.env.AUDITOR_DIAS_ARRANQUE ?? 14),
+
+  /** Esfuerzo de razonamiento del auditor. Se deja configurable para poder barrerlo sin deploy. */
+  auditorEsfuerzo: (): string => process.env.AUDITOR_EFFORT ?? "medium",
 };

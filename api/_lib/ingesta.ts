@@ -14,6 +14,7 @@
  */
 
 import { TAGS } from "../../src/lib/ghl/contrato.js";
+import type { AutorMensaje } from "../../src/lib/ghl/autoria.js";
 import { env } from "./env.js";
 import { sincronizarContacto } from "./contactos.js";
 import { ORG_ID, db } from "./repo.js";
@@ -31,6 +32,17 @@ export interface MensajeNormalizado {
   body: string;
   /** ISO. El momento del mensaje según GHL, no cuándo lo ingerimos. */
   timestampGhl: string;
+  /**
+   * Quién lo escribió (§54). Se denormaliza —contra la regla de 013— porque su origen
+   * (`source`/`userId` del payload de GHL) no vuelve a estar disponible sin repedir la
+   * conversación entera, y el debounce del auditor lo consulta en cada mensaje.
+   *
+   * Ojo con las dos vías: la reconciliación trae el payload completo y clasifica bien; el
+   * webhook estándar de GHL casi nunca manda `source`, así que sus salientes caen en
+   * `desconocido` hasta que la reconciliación los reemplaza por su gemelo real. El
+   * diagnóstico reporta ese reparto justamente para que se vea.
+   */
+  autor: AutorMensaje;
 }
 
 /**
@@ -124,6 +136,7 @@ export async function guardarMensajes(mensajes: MensajeNormalizado[]): Promise<n
         direccion: m.direccion,
         body: m.body,
         timestamp_ghl: m.timestampGhl,
+        autor: m.autor,
       })),
       { onConflict: "id", ignoreDuplicates: true },
     )

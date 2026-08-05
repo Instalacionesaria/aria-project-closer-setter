@@ -115,9 +115,23 @@ export interface MensajeGhl {
   /** TYPE_SMS, TYPE_WHATSAPP, TYPE_ACTIVITY_*, ... */
   messageType?: string;
   dateAdded?: string;
+  /**
+   * `app` | `workflow` | `api` | `campaign` | … Junto con `userId` es lo que distingue al
+   * chatbot de un humano y de una plantilla automatizada. Ver `src/lib/ghl/autoria.ts`.
+   */
+  source?: string;
+  /** Presente = hay un usuario de GHL detrás. El bot escribe SIN userId. */
+  userId?: string;
+  attachments?: unknown[];
 }
 
-/** Id de la conversación más reciente del contacto, o null si no tiene ninguna. */
+/**
+ * Id de la conversación más reciente del contacto, o null si no tiene ninguna.
+ *
+ * Se ORDENA antes de elegir: `/conversations/search` no garantiza orden por contacto, y un
+ * contacto con varias conversaciones (WhatsApp + SMS + email) tenía que auditarse por la que
+ * GHL pusiera primera. Ahora gana la del último mensaje.
+ */
 export async function conversacionDeContacto(ghlContactId: string): Promise<string | null> {
   if (!env.tieneCredencialesGhl()) return null;
   const datos = await get("/conversations/search", {
@@ -125,23 +139,109 @@ export async function conversacionDeContacto(ghlContactId: string): Promise<stri
     contactId: ghlContactId,
   });
   const convs = (datos.conversations ?? []) as any[];
-  return convs.length ? convs[0].id : null;
+  if (convs.length === 0) return null;
+  const masReciente = [...convs].sort(
+    (a, b) => (Number(b?.lastMessageDate) || 0) - (Number(a?.lastMessageDate) || 0),
+  )[0];
+  return masReciente?.id ?? null;
+}
+
+export interface OpcionesMensajes {
+  /** Tamaño de página. GHL topea en 100; sin este parámetro devuelve ~20. */
+  limite?: number;
+  /** Cuántas páginas caminar como máximo. */
+  paginas?: number;
+}
+
+/** Lo que devolvió la lectura, incluyendo si quedó conversación sin leer detrás del tope. */
+export interface MensajesLeidos {
+  mensajes: MensajeGhl[];
+  /** `true` = se alcanzó el tope de páginas y hay mensajes más viejos sin traer. */
+  truncado: boolean;
 }
 
 /**
- * Mensajes de una conversación. GHL los devuelve del más reciente al más antiguo y a veces
- * anidados (`{ messages: { messages: [...] } }`), así que se tolera ambas formas.
+ * Mensajes de una conversación, del más reciente al más antiguo.
+ *
+ * GHL a veces los anida (`{ messages: { messages: [...] } }`), así que se toleran las dos
+ * formas. El cursor de paginación viaja en `messages.lastMessageId` y `messages.nextPage`
+ * dice si queda más — verificado contra la cuenta real el 2026-08-04: sin `limit` devuelve
+ * 20 con `nextPage:true`; con `limit=50` devuelve los 28 que había y `nextPage:false`.
+ *
+ * **Los defaults importan.** La reconciliación corre cada 10s y solo necesita lo nuevo: se
+ * queda en UNA página, o multiplicaría su costo en GHL por el tope (§51.4). Únicamente el
+ * analizador pide varias, y solo cuando ya decidió que va a analizar.
  */
-export async function mensajesDeConversacion(conversationId: string): Promise<MensajeGhl[]> {
-  if (!env.tieneCredencialesGhl()) return [];
-  const datos = await get(`/conversations/${conversationId}/messages`, {});
-  const m = datos.messages;
-  if (m && typeof m === "object" && !Array.isArray(m)) return (m.messages ?? []) as MensajeGhl[];
-  return (m ?? []) as MensajeGhl[];
+export async function mensajesDeConversacionPaginado(
+  conversationId: string,
+  opts: OpcionesMensajes = {},
+): Promise<MensajesLeidos> {
+  if (!env.tieneCredencialesGhl()) return { mensajes: [], truncado: false };
+
+  const limite = Math.min(Math.max(opts.limite ?? 100, 1), 100);
+  const topePaginas = Math.max(opts.paginas ?? 1, 1);
+
+  const mensajes: MensajeGhl[] = [];
+  let cursor: string | undefined;
+  let truncado = false;
+
+  for (let pagina = 0; pagina < topePaginas; pagina++) {
+    const params: Record<string, string | number> = { limit: limite };
+    if (cursor) params.lastMessageId = cursor;
+
+    const datos = await get(`/conversations/${conversationId}/messages`, params);
+    const contenedor = datos.messages;
+    const anidado = contenedor && typeof contenedor === "object" && !Array.isArray(contenedor);
+    const lote = (anidado ? (contenedor.messages ?? []) : (contenedor ?? [])) as MensajeGhl[];
+
+    mensajes.push(...lote);
+
+    const hayMas = anidado ? Boolean(contenedor.nextPage) : false;
+    cursor = anidado ? (contenedor.lastMessageId as string | undefined) : undefined;
+
+    if (!hayMas || !cursor || lote.length === 0) break;
+    // Se agotó el tope y GHL dice que todavía queda: el caller tiene que saberlo para no
+    // afirmar que la conversación empieza donde empieza el recorte.
+    if (pagina === topePaginas - 1) truncado = true;
+  }
+
+  return { mensajes, truncado };
 }
 
-/** Los de actividad son eventos del sistema, no mensajes de chat: nunca se muestran. */
-export const esMensajeDeChat = (m: MensajeGhl) => Boolean(m.body) && !(m.messageType ?? "").startsWith("TYPE_ACTIVITY");
+/** La forma de siempre, para los callers a los que una página les alcanza. */
+export async function mensajesDeConversacion(
+  conversationId: string,
+  opts: OpcionesMensajes = {},
+): Promise<MensajeGhl[]> {
+  return (await mensajesDeConversacionPaginado(conversationId, opts)).mensajes;
+}
+
+/**
+ * Los de actividad son eventos del sistema, no mensajes de chat: nunca se muestran.
+ *
+ * **Ya no se exige `body`.** Antes se descartaba todo mensaje sin texto, lo que borraba del
+ * mapa los audios, imágenes y adjuntos de WhatsApp: si el contacto mandaba una nota de voz
+ * furiosa, para el auditor ese mensaje no existió y el turno anterior parecía sin respuesta.
+ * Ahora el mensaje sobrevive y `textoDeMensaje` deja un marcador honesto de qué llegó.
+ */
+export const esMensajeDeChat = (m: MensajeGhl) => !(m.messageType ?? "").startsWith("TYPE_ACTIVITY");
+
+/**
+ * El texto del mensaje, o un marcador de qué llegó cuando no hay texto que leer.
+ *
+ * El marcador va entre corchetes para que el modelo pueda distinguirlo del contenido real —
+ * el prompt del auditor le dice explícitamente que no suponga qué decía.
+ */
+export function textoDeMensaje(m: MensajeGhl): string {
+  const cuerpo = (m.body ?? "").trim();
+  if (cuerpo) return cuerpo;
+
+  const tipo = (m.messageType ?? "").toUpperCase();
+  if (tipo.includes("VOICEMAIL")) return "[mensaje de voz sin transcripción]";
+  if (tipo.includes("CALL")) return "[llamada telefónica]";
+  if ((m.attachments ?? []).length > 0) return "[archivo adjunto sin texto]";
+  return "[mensaje sin texto]";
+}
 
 /* ================================================================== */
 /* Contactos                                                           */
@@ -164,21 +264,32 @@ function derivarFuente(tags: string[]): string {
   return "DIRECTO";
 }
 
-/** Contactos que tienen un tag dado — así se descubre el territorio real de cada cola. */
-export async function contactosConTag(tag: string, limite = 50): Promise<ContactoConTag[]> {
-  if (!env.tieneCredencialesGhl()) return [];
+/**
+ * Contactos que tienen un tag dado — así se descubre el territorio real de cada cola.
+ *
+ * Devuelve `truncado` porque el tope es real: con `pageLimit` alcanzado no se sabe si la
+ * lista está completa, y un barrido que dice "revisé el territorio" habiendo visto solo los
+ * primeros 50 es una afirmación falsa. Mismo criterio que `sincronizarTerritorio` (§52.3):
+ * truncar en silencio es peor que la lista corta.
+ */
+export async function contactosConTag(
+  tag: string,
+  limite = 50,
+): Promise<{ contactos: ContactoConTag[]; truncado: boolean }> {
+  if (!env.tieneCredencialesGhl()) return { contactos: [], truncado: false };
   const datos = await post("/contacts/search", {
     locationId: env.ghlLocationId(),
     pageLimit: limite,
     filters: [{ field: "tags", operator: "contains", value: tag }],
   });
-  return ((datos.contacts ?? []) as any[]).map((c) => ({
+  const contactos = ((datos.contacts ?? []) as any[]).map((c) => ({
     id: c.id,
     nombre:
       c.contactName || [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || "Sin nombre",
     fuente: derivarFuente(c.tags ?? []),
     tags: c.tags ?? [],
   }));
+  return { contactos, truncado: contactos.length >= limite };
 }
 
 /**
