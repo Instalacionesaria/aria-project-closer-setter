@@ -23,13 +23,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!contactId) return res.status(400).json({ ok: false, error: "Falta contactId." });
 
   try {
-    const { data, error } = await db()
+    /**
+     * DESCENDENTE y después se da vuelta, no ascendente.
+     *
+     * `order(asc).limit(200)` se queda con los 200 mensajes MÁS VIEJOS: pasada esa cantidad,
+     * el chat mostraría el arranque de la conversación y escondería lo reciente — justo al
+     * revés de lo que hace falta. Hoy la conversación más larga tiene 46 mensajes, así que
+     * era un bug latente; se arregla antes de que alguien lo encuentre en producción.
+     *
+     * El tope se aplica del lado nuevo y el orden cronológico se restituye en memoria, que
+     * es lo que espera el ChatTab.
+     */
+    const { data: recientes, error } = await db()
       .from("closer_mensajes")
       .select("id, conversation_id, direccion, body, timestamp_ghl, estado, error_envio")
       .eq("ghl_contact_id", contactId)
-      .order("timestamp_ghl", { ascending: true })
+      .order("timestamp_ghl", { ascending: false })
       .limit(200);
     if (error) throw new Error(`closer_mensajes: ${error.message}`);
+    const data = [...(recientes ?? [])].reverse();
 
     const messages = (data ?? []).map((m) => {
       const d = new Date(m.timestamp_ghl);
