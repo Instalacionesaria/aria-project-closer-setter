@@ -1591,6 +1591,95 @@ para adelantar un dato que ya está en la caché (§51.4).
 - **Reintentar** un mensaje fallido con un botón. GHL tiene su "Try again"; acá el closer
   reescribe cuando la ventana se reabra.
 
+## 56. El tick unificado: un reloj en vez de dos (2026-08-05)
+
+`closer:reconciliar` y `closer:mi-dia` eran dos relojes de 10 s haciendo dos requests y
+escaneando `closer_contactos` por separado. Ahora es **un solo `POST /api/closer/tick`**:
+de 12-13 a 6-7 requests por minuto por pestaña.
+
+### 56.1 Lo que se descubrió al analizarlo, y que cambió el diseño
+
+**Los dos relojes estaban EN FASE, no desfasados.** `registrarReloj` dispara `fn()` al
+registrarse, los dos se registran en el mismo montaje y con la misma cadencia. O sea que Mi
+Día leía la tabla microsegundos **antes** de que la reconciliación escribiera, siempre. Un
+mensaje entrante detectado por la reconciliación no llegaba al Buzón hasta el tick
+siguiente: **~15 s**. Corriendo la ingesta primero, ~6 s.
+
+Eso invirtió la decisión: el plan original decía `Promise.allSettled` (paralelo), que
+habría **empeorado** la frescura. Va en **secuencia**, ingesta primero.
+
+Alcance de la mejora, para no prometer de más: aplica al **Buzón**, que depende de
+`ultimo_entrante_el`. **Urgentes no**: depende de los tags cacheados, y la reconciliación no
+refresca tags — eso lo hacen el webhook y el cron.
+
+### 56.2 El presupuesto es un deadline COOPERATIVO, no un `Promise.race`
+
+Un race no cancela nada. La mitad seguiría corriendo después de responder, y si la instancia
+se congela **entre el `update` de `last_message_ghl_at` y `efectosDeEntrante`** se pierden
+para siempre el evento de historial, la cancelación del seguimiento automático y el revive
+de la tarea. Hoy esa ventana dura milisegundos y solo se abre en un 502; un race la abriría
+en cada tick lento, en silencio.
+
+El deadline se chequea **entre** conversaciones, nunca a mitad de una: una vez que se entra
+a procesar una, se llega hasta `efectosDeEntrante`.
+
+**Y si hubo truncamiento, el paso 5 se saltea entero.** `marcaNueva` avanza ANTES de los
+filtros, así que cubre conversaciones que todavía no se procesaron: persistir la marca las
+dejaría detrás de ella, el walk no volvería a alcanzarlas y **sus mensajes se perderían
+definitivamente**. No perder el trabajo hecho no depende de la marca: el paso 4 guarda el
+progreso contacto por contacto en `last_message_ghl_at`.
+
+Presupuesto: **4 s**. `maxDuration` del tick: **15**, no 30 — `reconciliar.ts` no estaba en
+`functions`, así que corría con el default de la plataforma, y ese default es hoy lo que
+frena una reconciliación patológica. El `maxDuration` es un techo de seguridad; lo que se
+tunea es el presupuesto.
+
+### 56.3 Guard de en-vuelo en el cliente
+
+`registrarReloj` es un `setInterval` crudo: si un tick tarda más que la cadencia, el
+siguiente sale igual. Antes daba lo mismo (el POST rebotaba contra el candado en
+milisegundos); ahora cada request apilado correría **también** las siete queries de Mi Día,
+porque el candado solo protege una de las dos mitades. Cinco líneas, `tickEnVueloRef`.
+
+### 56.4 Lo que NO se hizo, y por qué
+
+**Las dos mitades no comparten la lectura de `closer_contactos`.** Justamente por el orden:
+Mi Día necesita leer DESPUÉS de las escrituras. Parchear el snapshot en memoria con lo que
+la reconciliación tocó es frágil — si mañana se agrega una mutación y nadie actualiza el
+parche, Mi Día muestra datos viejos de una forma que no se nota.
+
+Consecuencia que conviene decir clara: **del lado de Supabase esto no ahorra nada.** Siguen
+siendo los mismos dos escaneos. Lo que se ahorra son invocaciones; lo que se compra es
+frescura.
+
+**`api/closer/mi-dia.ts` NO quedó como cáscara.** Es la hidratación al montar y la única
+fuente de `seguimientosHoy` (`traerMiDia`), que el tick ni siquiera consume. Sigue siendo un
+endpoint de primera clase. El que sí quedó como entrada manual es `reconciliar.ts`, y se
+llama **sin presupuesto** (el default) para que se comporte igual que antes: si le pasáramos
+el deadline, el mismo código tendría dos comportamientos según por dónde entre y dejaría de
+servir para reproducir producción.
+
+Que `ejecutarReconciliacion` devuelva `{status, body}` no es cosmético: hace que la cáscara
+sea `res.status(r.status).json(r.body)` y por lo tanto imposible de desincronizar.
+
+### 56.5 Observabilidad
+
+Antes un GHL caído era un **502**, o sea una invocación con error que Vercel cuenta. Ahora el
+status lo decide Mi Día, así que sin cuidado una reconciliación permanentemente rota se
+volvería invisible: 200 para siempre y un campo que nadie lee. Por eso `tick.ts` hace
+`console.error` cuando la mitad de ingesta devuelve ≥400.
+
+### 56.6 Regla de admisión del tick
+
+Un endpoint que corre "todo lo del reloj de 10 s" va a atraer cada agregado futuro, y cada
+uno hereda la latencia máxima y el radio de explosión completo. **Como mucho UNA mitad que
+toque GHL; todo lo demás tiene que ser más barato que un roundtrip.** Sin esa regla, en seis
+meses esto es un endpoint dios de 25 s.
+
+Y una propiedad que hay que preservar: la cadencia del cliente **no es** el rate limit de la
+ingesta. El candado (`VENTANA_MS` en `api/_lib/reconciliacion.ts`) lo es. Se puede mover
+`CADENCIA.tick` sin tocar el presupuesto de GHL.
+
 ## 49. Cómo trabajar en este repo
 
 - Los cambios llegan como **specs** de Francisco (reglas + prompts + mockups). Implementar lo especificado; NO inventar features, textos ni estados. Si un dato no existe, el elemento no se renderiza (regla 10 de §4).

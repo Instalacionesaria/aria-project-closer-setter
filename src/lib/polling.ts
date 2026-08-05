@@ -91,9 +91,18 @@ export function usePolling(clave: string, fn: () => void, ms: number): void {
 
 /** Cadencias oficiales (doc §10) — una sola tabla para que nadie invente la suya. */
 export const CADENCIA = {
-  /** El disparador del reloj de reconciliación del backend (el candado manda). */
+  /**
+   * EL reloj del closer (§56): ingesta desde GHL + las cinco colas de Mi Día, en un request.
+   *
+   * Que esto sea 10s NO es el rate limit de la ingesta: el candado del backend garantiza
+   * que la reconciliación corra como mucho una vez por `VENTANA_MS`
+   * (`api/_lib/reconciliacion.ts`) sin importar cuántas pestañas ni con qué frecuencia
+   * pingueen. Se puede mover esta perilla sin tocar el presupuesto de GHL.
+   */
+  tick: 10_000,
+  /** @deprecated §56 — quedó por si algún día se vuelve a separar. Nadie lo usa. */
   reconciliar: 10_000,
-  /** Mi Día contra NUESTRO backend (Supabase, cero GHL). */
+  /** @deprecated §56 — lo absorbió `tick`. */
   miDia: 10_000,
   /** Chat con la ficha abierta. */
   chat: 5_000,

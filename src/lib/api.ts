@@ -385,13 +385,29 @@ export function resolverBuzon(contactId: string): Promise<{ ok: boolean; resuelt
 }
 
 /**
- * El disparador del reloj de reconciliación (doc §4.2). El candado vive en el backend:
- * pingear más seguido o desde N pestañas no genera más llamadas a GHL. Fire-and-forget.
+ * Dispara UN ciclo de ingesta a mano. Fire-and-forget.
+ *
+ * **Ya no cuelga de ningún reloj** (§56): de eso se encarga `tickCloser`. Queda para forzar
+ * una ingesta desde la consola o un script sin esperar al tick. Si volvés a ponerlo en un
+ * `registrarReloj`, van a ser dos requests por ciclo otra vez.
  */
 export function pingReconciliar(): void {
   fetch(`/api/closer/reconciliar`, { method: "POST" }).catch(() => {
     /* backend caído: el próximo tick reintenta */
   });
+}
+
+/**
+ * El TICK: ingesta + las cinco colas de Mi Día, en un solo request (§56).
+ *
+ * Reemplaza al par `pingReconciliar()` + `fetchMiDiaCompleto()` que corría cada 10s. La
+ * respuesta es la de Mi Día más un campo `reconciliacion` que el store ignora — está para
+ * el curl y el diagnóstico.
+ *
+ * Lanza si la mitad de Mi Día falla. La de ingesta nunca tumba el request: viaja como campo.
+ */
+export function tickCloser(): Promise<MiDiaResponse & { reconciliacion?: unknown }> {
+  return pedir<MiDiaResponse & { reconciliacion?: unknown }>(`/api/closer/tick`, { method: "POST" });
 }
 
 /* ================================================================== */
@@ -459,6 +475,14 @@ export interface MiDiaResponse {
   resumen: { citas: number; urgentes: number; buzon: number; seguimientos: number; completadas: number };
 }
 
+/**
+ * Las cinco colas, sin la mitad de ingesta.
+ *
+ * **Ya no cuelga de ningún reloj** (§56): el tick trae lo mismo y además ingiere. El
+ * endpoint sigue vivo y es de primera clase —`traerMiDia` de `seguimientos/cliente.ts` lo
+ * usa al montar y es la única fuente de `seguimientosHoy`—, pero pedirlo cada 10s sería
+ * volver a los dos requests por ciclo.
+ */
 export function fetchMiDiaCompleto(): Promise<MiDiaResponse> {
   return pedir<MiDiaResponse>(`/api/closer/mi-dia`);
 }

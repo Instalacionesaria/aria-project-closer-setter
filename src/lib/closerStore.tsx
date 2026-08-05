@@ -17,11 +17,10 @@ import {
   eliminarNota,
   fetchAgendaRange,
   fetchHistorial,
-  fetchMiDiaCompleto,
   fetchNotas,
   fetchPipeline,
-  pingReconciliar,
   sincronizarCrm as sincronizarCrmRemoto,
+  tickCloser,
   type AgendaAppointment,
   type EventoHistorial,
   type MiDiaResponse,
@@ -672,6 +671,8 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   /** Firmas del último tick, para no escribir listas nuevas que dicen lo mismo (ver el reloj). */
   const firmaCitasRef = useRef("");
   const firmaCompletadasRef = useRef("");
+  /** Un tick a la vez (§56). Ver el guard de en-vuelo en el reloj de abajo. */
+  const tickEnVueloRef = useRef(false);
   const [openContactName, setOpenContactName] = useState<string | null>(null);
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   /**
@@ -732,26 +733,24 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  /**
-   * ── El reloj de reconciliación (el ÚNICO que toca GHL) ──
-   *
-   * Pinga POST /api/closer/reconciliar cada 10s SOLO con la pestaña visible (el módulo de
-   * polling pausa todo con `visibilitychange`). El candado vive en el backend: dos pestañas
-   * o dos closers no duplican llamadas. Es lo que ingiere mensajes cuando el webhook de
-   * Francisco no existe o se cayó.
-   */
-  useEffect(() => registrarReloj("closer:reconciliar", pingReconciliar, CADENCIA.reconciliar), []);
-
   /** Citas de hoy (widget Agenda de Hoy) y completadas reales — vienen de Mi Día. */
   const [citasHoy, setCitasHoy] = useState<MiDiaResponse["citasHoy"]>([]);
   const [completadasReales, setCompletadasReales] = useState<MiDiaResponse["completadasHoy"]>([]);
 
   /**
-   * ── El reloj de Mi Día (contra NUESTRO backend — Supabase, cero GHL) ──
+   * ── EL reloj del closer (§56) ──
    *
-   * Una respuesta trae TODAS las colas: urgentes, buzón, citas de hoy, completadas. Antes
-   * eran tres relojes separados (urgentes en el store, respondieron y agenda en la vista),
-   * cada uno con su propio fan-out contra GHL cada 10s.
+   * Un solo `POST /api/closer/tick` cada 10s hace las dos mitades que antes eran dos relojes
+   * y dos requests: la ingesta desde GHL y las cinco colas de Mi Día. Baja de 12-13 a 6-7
+   * requests por minuto.
+   *
+   * El backend las corre EN SECUENCIA, ingesta primero, así que esta respuesta ya incluye lo
+   * que se acaba de ingerir. Los dos relojes viejos estaban en fase, no desfasados —
+   * `registrarReloj` dispara al registrarse—, así que Mi Día leía siempre ANTES de las
+   * escrituras del mismo ciclo y un entrante tardaba un tick entero en llegar al Buzón.
+   *
+   * Solo con la pestaña visible: el módulo de polling pausa todo con `visibilitychange`. El
+   * candado del backend hace que N pestañas cuesten lo mismo que una.
    *
    * **Merge, no reemplazo** (regla de siempre): los contactos reales se funden con la
    * semilla EJEMPLO en el mismo Record. La etapa se deriva de los tags SOLO si el backend no
@@ -760,9 +759,21 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   useEffect(
     () =>
       registrarReloj(
-        "closer:mi-dia",
+        "closer:tick",
         () => {
-          fetchMiDiaCompleto()
+          /**
+           * Guard de en-vuelo. `registrarReloj` es un `setInterval` crudo: si un tick tarda
+           * más que la cadencia, el siguiente sale igual y se apilan. Antes daba lo mismo
+           * (el POST rebotaba contra el candado en milisegundos), pero ahora cada request
+           * apilado corre TAMBIÉN las siete queries de Mi Día — el candado solo protege una
+           * de las dos mitades. Además evita que una respuesta lenta pise a una más nueva.
+           */
+          if (tickEnVueloRef.current) return;
+          tickEnVueloRef.current = true;
+          tickCloser()
+            .finally(() => {
+              tickEnVueloRef.current = false;
+            })
             .then((res) => {
               if (!res?.ok) return;
               // Firma antes de escribir: estas dos son listas de presentación sin merge, así
@@ -897,7 +908,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
               /* Backend caído: se queda lo que ya había. Nunca una pantalla vacía. */
             });
         },
-        CADENCIA.miDia,
+        CADENCIA.tick,
       ),
     [],
   );
