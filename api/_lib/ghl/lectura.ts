@@ -123,6 +123,16 @@ export interface MensajeGhl {
   /** Presente = hay un usuario de GHL detrás. El bot escribe SIN userId. */
   userId?: string;
   attachments?: unknown[];
+  /**
+   * Estado de entrega: `delivered` | `read` | `failed` | `pending` | …
+   *
+   * EVOLUCIONA después de que el mensaje se creó — un saliente puede pasar a `failed`
+   * minutos más tarde, cuando Meta lo rechaza. Por eso el estado no se puede tomar de la
+   * respuesta del POST de envío y hay que releerlo acá (§55).
+   */
+  status?: string;
+  /** Por qué falló, en las palabras de GHL. Solo cuando `status === "failed"`. */
+  error?: string;
 }
 
 /**

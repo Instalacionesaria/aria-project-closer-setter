@@ -32,6 +32,7 @@
  */
 
 import type { IndicadoresContacto } from "./indicadores";
+import type { VentanaWhatsapp } from "./whatsapp";
 
 /** Error uniforme para todas las llamadas: el status y el detalle del cuerpo, sin ruido. */
 async function pedir<T>(ruta: string, init?: RequestInit): Promise<T> {
@@ -332,11 +333,22 @@ export interface ConversationMessage {
   type: string; // TYPE_SMS, TYPE_WHATSAPP, ...
   date: string;
   time: string; // "10:05 AM"
+  /**
+   * Estado de entrega según GHL: `delivered` | `read` | `failed` | `pending` | `null`.
+   *
+   * Es el estado REAL, no el de la respuesta del envío: un mensaje puede figurar como
+   * mandado y estar `failed` minutos después, cuando Meta lo rechaza (§55).
+   */
+  estado?: string | null;
+  /** Por qué falló, en las palabras de GHL. Se muestra tal cual bajo la burbuja. */
+  errorEnvio?: string | null;
 }
 
 export interface ConversationResponse {
   conversationId: string | null;
   count: number;
+  /** Si se puede mandar texto libre ahora mismo, y por qué no cuando no se puede. */
+  ventana?: VentanaWhatsapp;
   messages: ConversationMessage[];
 }
 
@@ -349,7 +361,12 @@ export function fetchConversation(contactId: string): Promise<ConversationRespon
   return pedir<ConversationResponse>(`/api/closer/chat?contactId=${encodeURIComponent(contactId)}`);
 }
 
-/** Envío real: el closer escribe y sale por WhatsApp vía GHL (1 llamada por mensaje). */
+/**
+ * Envío real: el closer escribe y sale por WhatsApp vía GHL (1 llamada por mensaje).
+ *
+ * **Lanza con la ventana de 24 h cerrada** (409 `ventana_24h_cerrada`), antes de gastar la
+ * llamada a GHL. El mensaje del error ya viene redactado para mostrarse tal cual.
+ */
 export function enviarMensaje(contactId: string, message: string): Promise<{ ok: boolean; enviado: boolean; messageId?: string }> {
   return pedir(`/api/closer/mensajes`, {
     method: "POST",

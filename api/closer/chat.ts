@@ -9,6 +9,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { ventanaWhatsapp } from "../../src/lib/whatsapp.js";
 import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
 
@@ -24,7 +25,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const { data, error } = await db()
       .from("closer_mensajes")
-      .select("id, conversation_id, direccion, body, timestamp_ghl")
+      .select("id, conversation_id, direccion, body, timestamp_ghl, estado, error_envio")
       .eq("ghl_contact_id", contactId)
       .order("timestamp_ghl", { ascending: true })
       .limit(200);
@@ -44,8 +45,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           minute: "2-digit",
           hour12: false,
         }).format(d),
+        /**
+         * El estado de entrega REAL, no el de la respuesta del POST. Un saliente puede
+         * figurar como enviado y estar `failed` diez minutos después, cuando Meta lo
+         * rechaza — es el bug del 2026-08-05 (§55).
+         */
+        estado: (m.estado as string | null) ?? null,
+        errorEnvio: (m.error_envio as string | null) ?? null,
       };
     });
+
+    /**
+     * La ventana de 24 h, para que el compositor sepa si puede escribir.
+     *
+     * Va en la misma respuesta que ya se pide cada 5 s con la ficha abierta: un endpoint
+     * aparte habría duplicado el reloj para un dato que se deriva de una columna que este
+     * request ya podría estar leyendo.
+     */
+    const { data: contacto } = await db()
+      .from("closer_contactos")
+      .select("ultimo_entrante_el")
+      .eq("ghl_contact_id", contactId)
+      .maybeSingle();
 
     return res.status(200).json({
       ok: true,
@@ -53,6 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ghlModo: env.ghlModo(),
       fuente: "cache",
       count: messages.length,
+      ventana: ventanaWhatsapp(contacto?.ultimo_entrante_el as string | null | undefined),
       messages,
     });
   } catch (e) {

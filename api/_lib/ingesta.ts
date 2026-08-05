@@ -43,6 +43,13 @@ export interface MensajeNormalizado {
    * diagnóstico reporta ese reparto justamente para que se vea.
    */
   autor: AutorMensaje;
+  /**
+   * Estado de entrega según GHL (`delivered` | `read` | `failed` | …). Opcional porque el
+   * webhook no lo manda: solo la reconciliación, que lee el mensaje completo, lo conoce.
+   */
+  estado?: string | null;
+  /** Por qué falló, en las palabras de GHL. Solo viene cuando `estado === "failed"`. */
+  errorEnvio?: string | null;
 }
 
 /**
@@ -137,6 +144,8 @@ export async function guardarMensajes(mensajes: MensajeNormalizado[]): Promise<n
         body: m.body,
         timestamp_ghl: m.timestampGhl,
         autor: m.autor,
+        estado: m.estado ?? null,
+        error_envio: m.errorEnvio ?? null,
       })),
       { onConflict: "id", ignoreDuplicates: true },
     )
@@ -159,6 +168,56 @@ export async function guardarMensajes(mensajes: MensajeNormalizado[]): Promise<n
   }
 
   return data?.length ?? 0;
+}
+
+/**
+ * Sincroniza el ESTADO DE ENTREGA de mensajes que ya están en la caché.
+ *
+ * ## Por qué hace falta una función aparte
+ *
+ * `guardarMensajes` usa `ignoreDuplicates: true`, así que una fila que ya existe no se toca
+ * nunca. Eso está bien para el cuerpo del mensaje —no cambia— pero el estado SÍ evoluciona:
+ * un saliente nace `pending`, pasa a `delivered`, después a `read`… o a `failed` minutos más
+ * tarde, cuando Meta lo rechaza. Sin esto, el bug del 2026-08-05 seguiría invisible: el
+ * mensaje se guardó con el estado que tenía al nacer y ahí se quedó.
+ *
+ * ## Por qué no un upsert con update
+ *
+ * `guardarMensajes` devuelve **cuántos eran nuevos**, y la reconciliación usa ese número para
+ * decidir si dispara los efectos de un entrante. Un upsert que actualiza devolvería todas las
+ * filas tocadas y esa cuenta dejaría de significar lo que significa — se dispararían efectos
+ * de mensajes viejos en cada ciclo.
+ *
+ * Cuesta UNA lectura por lote y un UPDATE solo por los que de verdad cambiaron, que en el
+ * caso normal son cero: esto corre cada 10 segundos.
+ */
+export async function actualizarEstados(
+  mensajes: Pick<MensajeNormalizado, "id" | "estado" | "errorEnvio">[],
+): Promise<number> {
+  const conEstado = mensajes.filter((m) => m.estado);
+  if (conEstado.length === 0) return 0;
+
+  const { data } = await db()
+    .from("closer_mensajes")
+    .select("id, estado")
+    .in(
+      "id",
+      conEstado.map((m) => m.id),
+    );
+
+  const actual = new Map((data ?? []).map((f) => [f.id as string, f.estado as string | null]));
+  // Solo los que existen y cambiaron. Los que no están todavía los va a insertar
+  // `guardarMensajes` con su estado correcto, así que no hay que hacer nada por ellos.
+  const cambiados = conEstado.filter((m) => actual.has(m.id) && actual.get(m.id) !== m.estado);
+
+  for (const m of cambiados) {
+    await db()
+      .from("closer_mensajes")
+      .update({ estado: m.estado, error_envio: m.errorEnvio ?? null })
+      .eq("id", m.id);
+  }
+
+  return cambiados.length;
 }
 
 /* ================================================================== */

@@ -44,6 +44,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { esMensajeDeChat, mensajesDeConversacion } from "../_lib/ghl/lectura.js";
 import { autorDeMensajeGhl } from "../_lib/autoria.js";
 import {
+  actualizarEstados,
   efectosDeEntrante,
   guardarMensajes,
   paginaDeConversaciones,
@@ -148,6 +149,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     /* ── 4. Solo para las cambiadas: traer mensajes, upsert, efectos ───── */
     let mensajesNuevos = 0;
+    let estadosActualizados = 0;
     for (const { conversationId, contacto, lastMessageDate } of cambiadas) {
       const crudos = await mensajesDeConversacion(conversationId);
       llamadasGhl++;
@@ -172,10 +174,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           // La del webhook casi nunca tiene `source` y cae en `desconocido`; cuando el
           // gemelo real entra por acá, reemplaza al fabricado y corrige la autoría.
           autor: autorDeMensajeGhl(m),
+          // El estado de entrega solo se conoce por acá: el webhook no lo manda, y la
+          // respuesta del POST de envío es anterior al veredicto de Meta (§55).
+          estado: m.status ?? null,
+          errorEnvio: m.error ?? null,
         }));
 
       const nuevos = await guardarMensajes(normalizados);
       mensajesNuevos += nuevos;
+
+      // Los que YA estaban: su cuerpo no cambia, pero su estado sí. Un saliente rechazado por
+      // la ventana de 24 h se marca `failed` minutos después de haberse guardado como enviado.
+      estadosActualizados += await actualizarEstados(normalizados);
 
       // El más reciente decide los efectos: si es entrante y es NUEVO (el webhook no lo
       // trajo), se disparan los mismos efectos que dispararía el webhook. El upsert
@@ -209,6 +219,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       corrio: true,
       cambiadas: cambiadas.length,
       mensajesNuevos,
+      estadosActualizados,
       llamadasGhl,
     });
   } catch (e) {

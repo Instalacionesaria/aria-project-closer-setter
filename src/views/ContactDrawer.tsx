@@ -54,6 +54,7 @@ import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTa
 import { useSettings } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
 import { enviarMensaje, fetchConversation } from "../lib/api";
+import type { VentanaWhatsapp } from "../lib/whatsapp";
 import { CADENCIA, registrarReloj } from "../lib/polling";
 
 /** Mapa salida de Avanzar (closer) → tag real de GHL (contrato Frank §9). Aplicarlo dispara el workflow de GHL. */
@@ -1500,6 +1501,14 @@ interface ChatMessage {
   text: string;
   time: string;
   outgoing: boolean;
+  /**
+   * Estado de entrega real (§55). `failed` = Meta lo rechazó DESPUÉS de que GHL lo aceptara,
+   * así que la respuesta del envío no lo sabía. `enviando` es local: el pintado optimista
+   * mientras el POST viaja.
+   */
+  estado?: string | null;
+  /** Por qué falló, en las palabras de GHL. Se muestra bajo la burbuja. */
+  errorEnvio?: string | null;
 }
 
 /* El reloj del chat vive en `src/lib/polling.ts` (CADENCIA.chat, 5s, pausa con pestaña
@@ -1631,6 +1640,13 @@ function ChatTab({
   // Con contactId de GHL arrancamos vacío y traemos la conversación REAL; sin él, el demo de Frank.
   const [messages, setMessages] = useState<ChatMessage[]>(ghlContactId ? [] : SEED_MESSAGES);
   const [convLoading, setConvLoading] = useState(false);
+  /**
+   * La ventana de servicio de 24 h de WhatsApp (§55). `null` hasta la primera respuesta, y
+   * para la semilla demo, donde no aplica: sin `ghlContactId` no hay nada que Meta pueda
+   * rechazar. Mientras es `null` el compositor se comporta como siempre.
+   */
+  const [ventana, setVentana] = useState<VentanaWhatsapp | null>(null);
+  const ventanaCerrada = Boolean(ghlContactId && ventana && !ventana.abierta);
   const [plusOpen, setPlusOpen] = useState(false);
   const { catalog, categorias, miCuenta } = useSettings();
   const [confirmDialog, setConfirmDialog] = useState<"apagar" | "normal" | "reforzada" | null>(null);
@@ -1659,11 +1675,23 @@ function ChatTab({
       if (first) setConvLoading(true);
       fetchConversation(ghlContactId)
         .then((res) => {
-          const sig = res.messages.map((m) => `${m.id}:${m.text}`).join("|");
+          // El estado entra en la firma: un mensaje que pasa a `failed` no cambia de texto,
+          // y sin esto la burbuja se quedaría para siempre como si hubiera salido bien.
+          const sig = res.messages.map((m) => `${m.id}:${m.text}:${m.estado ?? ""}`).join("|");
           if (sig !== lastConvSigRef.current) {
             lastConvSigRef.current = sig;
-            setMessages(res.messages.map((m, i) => ({ id: i + 1, text: m.text, time: m.time, outgoing: m.outgoing })));
+            setMessages(
+              res.messages.map((m, i) => ({
+                id: i + 1,
+                text: m.text,
+                time: m.time,
+                outgoing: m.outgoing,
+                estado: m.estado,
+                errorEnvio: m.errorEnvio,
+              })),
+            );
           }
+          if (res.ventana) setVentana(res.ventana);
         })
         .catch(() => {
           /* si falla, dejamos lo que había (no inventamos mensajes) */
@@ -1724,22 +1752,30 @@ function ChatTab({
   const handleSend = () => {
     const text = message.trim();
     if (!text) return;
+    // Con la ventana cerrada no se manda: el mensaje rebotaría en Meta y el closer se
+    // quedaría esperando (§55). El compositor ya está deshabilitado; esto es el cinturón.
+    if (ventanaCerrada) return;
     const time = new Date().toLocaleTimeString("es-AR", { hour: "numeric", minute: "2-digit" });
     // Pintado optimista: el mensaje aparece ya. Si el envío real falla, se marca — un
     // mensaje que el contacto nunca recibió no puede quedar como si hubiera salido.
     const idOptimista = Date.now();
-    setMessages((prev) => [...prev, { id: idOptimista, text, time, outgoing: true }]);
+    setMessages((prev) => [...prev, { id: idOptimista, text, time, outgoing: true, estado: "enviando" }]);
     setMessage("");
 
     /**
      * El envío REAL (2026-07-31 — era EL hueco del chat: antes esto era solo estado local
      * del navegador). Solo para contactos reales; la semilla EJEMPLO sigue siendo demo.
      * 1 llamada a GHL por mensaje (doc §4.4/§9).
+     *
+     * Que resuelva bien NO quiere decir que el contacto lo haya recibido: GHL contesta 2xx y
+     * Meta puede rechazarlo después. Por eso la burbuja queda en `enviando` y es la
+     * reconciliación la que trae el veredicto — el `estado` de cada mensaje viene con la
+     * conversación, que se repregunta cada 5 s.
      */
     if (ghlContactId) {
-      enviarMensaje(ghlContactId, text).catch(() => {
+      enviarMensaje(ghlContactId, text).catch((e: Error) => {
         setMessages((prev) =>
-          prev.map((m) => (m.id === idOptimista ? { ...m, text: `${m.text}\n⚠ No se pudo enviar` } : m)),
+          prev.map((m) => (m.id === idOptimista ? { ...m, estado: "failed", errorEnvio: e.message } : m)),
         );
       });
     }
@@ -1801,21 +1837,42 @@ function ChatTab({
           {!convLoading && ghlContactId && messages.length === 0 && (
             <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">Sin mensajes en esta conversación.</div>
           )}
-          {messages.map((m) => (
-            <div key={m.id} className={cn("flex flex-col max-w-[85%]", m.outgoing ? "self-end" : "self-start")}>
-              <div
-                className={cn(
-                  "relative px-3 pt-1.5 pb-2 text-[14.5px] shadow-sm leading-relaxed break-words rounded-lg",
-                  m.outgoing
-                    ? "bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef] rounded-tr-none"
-                    : "bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef] rounded-tl-none",
+          {messages.map((m) => {
+            /**
+             * Un saliente rechazado por Meta tiene que verse distinto de uno entregado. Antes
+             * se veían IGUAL —el bug del 2026-08-05— porque el estado se tomaba de la
+             * respuesta del POST, que es anterior al veredicto.
+             */
+            const fallido = m.estado === "failed";
+            return (
+              <div key={m.id} className={cn("flex flex-col max-w-[85%]", m.outgoing ? "self-end" : "self-start")}>
+                <div
+                  className={cn(
+                    "relative px-3 pt-1.5 pb-2 text-[14.5px] shadow-sm leading-relaxed break-words rounded-lg",
+                    m.outgoing
+                      ? fallido
+                        ? "bg-rose-50 text-[#111b21] dark:bg-rose-950/40 dark:text-[#e9edef] rounded-tr-none border border-rose-300 dark:border-rose-500/40"
+                        : "bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef] rounded-tr-none"
+                      : "bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef] rounded-tl-none",
+                  )}
+                >
+                  <span className="whitespace-pre-wrap">{m.text}</span>
+                  <span className="float-right text-[10px] text-black/40 dark:text-white/40 ml-3 mt-2 flex items-center gap-1">
+                    {m.estado === "enviando" && <span className="text-black/30 dark:text-white/30">enviando…</span>}
+                    {fallido && <AlertTriangle className="w-3 h-3 text-rose-500" />}
+                    {m.time}
+                  </span>
+                </div>
+                {fallido && (
+                  <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-400 leading-snug self-end text-right max-w-full">
+                    <span className="font-semibold">No se entregó.</span>{" "}
+                    {/* El texto de GHL, sin traducir: es el que hay que poder reconocer si Meta cambia la regla. */}
+                    {m.errorEnvio ?? "GHL no informó el motivo."}
+                  </div>
                 )}
-              >
-                <span className="whitespace-pre-wrap">{m.text}</span>
-                <span className="float-right text-[10px] text-black/40 dark:text-white/40 ml-3 mt-2">{m.time}</span>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
       {isUrgente && (
@@ -1840,6 +1897,19 @@ function ChatTab({
             if (fijado) onPin?.();
           }}
         />
+      )}
+      {/*
+        La misma restricción que GHL muestra en su bandeja, pero acá — que era el pedido: que
+        las dos pantallas digan lo mismo. Antes Comando Central dejaba escribir, daba el envío
+        por bueno, y el mensaje moría en Meta sin que nadie se enterara (§55).
+      */}
+      {ventanaCerrada && (
+        <div className="px-4 py-2.5 bg-amber-500/10 border-t border-amber-500/25 shrink-0">
+          <p className="text-xs text-amber-800 dark:text-amber-300 flex items-start gap-1.5 leading-relaxed">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{ventana?.motivo}</span>
+          </p>
+        </div>
       )}
       <div className="relative p-2 bg-[#f0f2f5] dark:bg-[#202c33] border-t border-border/30 shrink-0 flex items-end gap-1.5">
         {plusOpen && (
@@ -1952,6 +2022,7 @@ function ChatTab({
             ref={textareaRef}
             rows={1}
             value={message}
+            disabled={ventanaCerrada}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
@@ -1959,11 +2030,15 @@ function ChatTab({
                 handleSend();
               }
             }}
-            placeholder="Escribe un mensaje"
-            className="w-full border-0 shadow-none focus-visible:outline-none resize-none min-h-[40px] max-h-[120px] py-2 px-4 text-[15px] bg-transparent leading-relaxed text-[#111b21] dark:text-[#d1d7db] placeholder:text-[#8696a0]"
+            placeholder={
+              ventanaCerrada
+                ? "El contacto no escribe hace más de 24 h — WhatsApp no deja responder"
+                : "Escribe un mensaje"
+            }
+            className="w-full border-0 shadow-none focus-visible:outline-none resize-none min-h-[40px] max-h-[120px] py-2 px-4 text-[15px] bg-transparent leading-relaxed text-[#111b21] dark:text-[#d1d7db] placeholder:text-[#8696a0] disabled:cursor-not-allowed"
           />
         </div>
-        {message.trim() ? (
+        {message.trim() && !ventanaCerrada ? (
           <button
             onClick={handleSend}
             title="Enviar"

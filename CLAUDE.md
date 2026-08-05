@@ -1498,6 +1498,90 @@ de hover para que no finjan una interacción que no existe.
 - **La firma del autor de los ajustes** es `AUTOR_POR_DEFECTO` ("Jorge Q.", el closer), pero
   quien aplica un ajuste al prompt es el técnico. Dato falso, solo que menos visible.
 
+## 55. La ventana de 24 h de WhatsApp y el estado real de cada mensaje (2026-08-05)
+
+### 55.1 El bug
+
+Fabio mandó un mensaje desde Comando Central, la plataforma lo dio por enviado, y nunca
+llegó. En GHL el mensaje estaba en rojo:
+
+> *Message failed to send because more than 24 hours have passed since the customer last
+> replied to this number.*
+
+Es la **ventana de servicio de 24 h** de WhatsApp Business: fuera de ella Meta solo acepta
+plantillas aprobadas, no texto libre.
+
+### 55.2 Por qué el código no podía enterarse
+
+`POST /conversations/messages` devolvió **2xx**. GHL acepta el mensaje, le crea su fila, y
+recién DESPUÉS Meta lo rechaza y le pone `status: "failed"` con un `error` en texto.
+Verificado sobre el mensaje real `yv2CyC1ckGe47Js01QNV`:
+
+```jsonc
+{ "id": "yv2CyC1ckGe47Js01QNV", "direction": "outbound", "status": "failed",
+  "error": "Message failed to send because more than 24 hours have passed…" }
+```
+
+El `if (!r.ok)` de `mensajes.ts` no puede ver eso: para cuando el fallo existe, la respuesta
+HTTP ya se contestó. **El estado de entrega no es un valor de retorno, es un hecho que
+evoluciona** — y por eso ahora vive en una columna que la reconciliación mantiene, como el
+resto del caché.
+
+### 55.3 Las dos mitades del arreglo
+
+**Prevenir** — `src/lib/whatsapp.ts` (isomorfo) calcula la ventana desde
+`ultimo_entrante_el`, que las dos vías de ingesta ya mantienen. `api/closer/mensajes.ts`
+corta con 409 `ventana_24h_cerrada` **antes** de gastar la llamada, y el ChatTab deshabilita
+el compositor con el motivo — la misma restricción que muestra GHL, que era el pedido: que
+las dos pantallas digan lo mismo.
+
+**Reflejar** — migración 015 agrega `closer_mensajes.estado` y `error_envio`. La
+reconciliación los trae y `actualizarEstados` los corrige sobre filas que ya existen. El chat
+pinta el saliente fallido en rojo con el motivo textual de GHL debajo.
+
+Las dos hacen falta: la primera cubre el caso conocido sin gastar nada, la segunda cubre todo
+lo demás que Meta pueda rechazar (número sin WhatsApp, dispositivo desconectado — hay
+contactos con el tag `[whatsapp] - phone device is disconnected`).
+
+### 55.4 Tres decisiones que no son obvias
+
+**`actualizarEstados` es una función aparte y no un upsert.** `guardarMensajes` usa
+`ignoreDuplicates: true` y devuelve **cuántos eran nuevos**; la reconciliación usa ese número
+para decidir si dispara los efectos de un entrante. Un upsert que actualiza devolvería todas
+las filas tocadas y se dispararían efectos de mensajes viejos en cada ciclo. Cuesta una
+lectura por lote y un UPDATE solo por los que cambiaron, que normalmente son cero.
+
+**`estado` no tiene CHECK.** El vocabulario es de GHL/Meta, no nuestro. Un CHECK sobre una
+lista que no controlamos convierte un estado nuevo en un INSERT fallido, y lo que se rompería
+es la ingesta —o sea el chat entero— por un valor que solo queríamos mostrar.
+
+**El saliente propio nace `pending`, no `enviado`.** GHL lo aceptó; Meta todavía no lo
+entregó. Registrarlo como entregado sería repetir el bug.
+
+**El error de GHL se muestra sin traducir.** Es el texto que hay que poder reconocer el día
+que Meta cambie la redacción o la regla.
+
+### 55.5 El riesgo del bloqueo preventivo, y por qué se acepta
+
+La caché puede estar unos segundos vieja. Los dos errores posibles no son simétricos:
+
+- **Dice cerrada y está abierta** → se bloquea un mensaje legítimo. Dura segundos: el webhook
+  actualiza al instante, la reconciliación cada 10 s, y el chat repregunta cada 5 s, así que
+  el compositor se re-habilita solo.
+- **Dice abierta y está cerrada** → se manda, Meta lo rechaza, y queda marcado como fallido
+  con su motivo. Es la segunda mitad haciendo su trabajo.
+
+Lo que NO se hace es preguntarle a GHL antes de cada envío: sería una llamada por mensaje
+para adelantar un dato que ya está en la caché (§51.4).
+
+### 55.6 Lo que queda afuera
+
+- **Mandar plantillas aprobadas** desde Comando Central, que es la salida real cuando la
+  ventana está cerrada. Hoy hay que hacerlo desde GHL. Requiere elegir plantilla y mapear sus
+  variables — es una feature, no un arreglo.
+- **Reintentar** un mensaje fallido con un botón. GHL tiene su "Try again"; acá el closer
+  reescribe cuando la ventana se reabra.
+
 ## 49. Cómo trabajar en este repo
 
 - Los cambios llegan como **specs** de Francisco (reglas + prompts + mockups). Implementar lo especificado; NO inventar features, textos ni estados. Si un dato no existe, el elemento no se renderiza (regla 10 de §4).

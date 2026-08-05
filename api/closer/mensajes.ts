@@ -18,6 +18,7 @@ import { sincronizarContacto } from "../_lib/contactos.js";
 import { env } from "../_lib/env.js";
 import { guardarMensajes } from "../_lib/ingesta.js";
 import { db } from "../_lib/repo.js";
+import { ventanaWhatsapp } from "../../src/lib/whatsapp.js";
 
 const BASE = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
@@ -43,7 +44,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const leerCongelado = async () => {
       const { data } = await db()
         .from("closer_contactos")
-        .select("congelado")
+        .select("congelado, ultimo_entrante_el")
         .eq("ghl_contact_id", contactId)
         .maybeSingle();
       return data;
@@ -59,6 +60,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(409).json({
         ok: false,
         error: "El contacto no tiene zona_closer en GHL (verificado recién): no se le envían mensajes desde acá (§7).",
+      });
+    }
+
+    /**
+     * ── La ventana de 24 h de WhatsApp ──────────────────────────────────
+     *
+     * Bug del 2026-08-05: fuera de la ventana, GHL devuelve **2xx** igual, crea el mensaje, y
+     * recién después Meta lo rechaza. La plataforma daba el envío por bueno y el closer se
+     * quedaba esperando una respuesta que nunca iba a llegar.
+     *
+     * Se corta ACÁ, antes de gastar la llamada: ya sabemos que va a rebotar. El 409 lleva la
+     * ventana entera para que la UI explique el motivo en vez de mostrar un error genérico.
+     */
+    const ventana = ventanaWhatsapp(contacto?.ultimo_entrante_el as string | null | undefined);
+    if (!ventana.abierta) {
+      return res.status(409).json({
+        ok: false,
+        codigo: "ventana_24h_cerrada",
+        error: ventana.motivo,
+        ventana,
       });
     }
 
@@ -100,6 +121,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         // quede bien: si contara como del agente, el auditor juzgaría al bot por lo que
         // escribió un humano — y encima le avanzaría el contador del debounce.
         autor: "asesor",
+        /**
+         * `pending`, no `enviado`: GHL aceptó el mensaje, Meta todavía no lo entregó. El
+         * veredicto llega después y lo escribe la reconciliación (`actualizarEstados`).
+         * Registrarlo como entregado acá sería repetir el bug que este cambio arregla.
+         */
+        estado: "pending",
       },
     ]);
 
