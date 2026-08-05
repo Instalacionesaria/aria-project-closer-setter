@@ -12,6 +12,15 @@
  *   POST /api/closer/analizar { …, forzar: true }      → ignora el debounce de 5 mensajes
  *   POST /api/closer/analizar { …, dryRun: true }      → devuelve el veredicto SIN escribir
  *
+ * `dryRun` es hoy la ÚNICA forma de probar la rúbrica: el portón del bot bloquea al 100% de
+ * los contactos porque `bot_activado` no existe en la cuenta (§54.1). Por eso `dryRun` lo
+ * saltea — no escribe nada, así que no puede hacer daño — pero sigue exigiendo que la
+ * conversación tenga mensajes reales del agente. Conviene combinarlo con `forzar` para que
+ * el debounce tampoco lo frene:
+ *
+ *     curl -X POST .../api/closer/analizar -H "x-webhook-secret: …" \
+ *       -d '{"ghlContactId":"…","dryRun":true,"forzar":true}'
+ *
  * ⚠️ ESCRIBE EN GHL. Un fallo detectado aplica `bot_pausado_fallo`, que dispara el workflow
  * que apaga al agente en la conversación de una persona real. No es un simulacro — salvo con
  * `dryRun`, que es exactamente para eso.

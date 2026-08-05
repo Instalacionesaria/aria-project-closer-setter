@@ -974,8 +974,19 @@ export async function analizarYMarcar(
       return { analizado: false, motivo: "el auditor de chat del setter todavía no existe", territorio };
     }
 
-    /* ── Portón 2: el bot tiene que estar atendiendo ──────────────────── */
-    if (!botAtendiendo(tags)) {
+    /**
+     * ── Portón 2: el bot tiene que estar atendiendo ────────────────────
+     *
+     * `dryRun` lo saltea, y es deliberado: no escribe ni un tag, ni una nota, ni una fila —
+     * lo único que produce es el veredicto de vuelta. Sin esta salida la rúbrica sería
+     * imposible de probar contra conversaciones reales mientras los workflows de Francisco
+     * sigan en borrador, porque este portón bloquea al 100% de los contactos (§54.1).
+     *
+     * Lo que `dryRun` NO saltea es el portón 5: que haya de verdad un mensaje del agente en
+     * la conversación. Ese es el chequeo factual, y saltearlo sería volver a evaluar una IA
+     * que no habló — el bug original.
+     */
+    if (!botAtendiendo(tags) && !opts.dryRun) {
       return {
         analizado: false,
         motivo: "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",
