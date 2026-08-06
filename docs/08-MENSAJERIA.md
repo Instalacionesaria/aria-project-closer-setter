@@ -167,6 +167,21 @@ día uno para que la respuesta no exija reescribir nada.
 Un CHECK impide la fila que rompería en producción y no en la inserción: una plantilla marcada
 `workflow` sin `workflow_id` se vería perfecta en la lista y fallaría recién al enviar.
 
+### Por qué los ids hay que cargarlos a mano
+
+Se intentó sacarlos de otro lado antes de pedirlos, y las dos vías están cerradas:
+
+- **Del historial, no.** `GET /conversations/messages/{id}` sobre salientes con
+  `source: "workflow"` —incluido un `TYPE_WHATSAPP` con `wamid` real de Meta y `status: read`—
+  **no devuelve ningún `templateId`**. GHL no registra qué plantilla generó cada mensaje.
+- **Los workflows, a medias.** `GET /workflows/?locationId=` sí lista los 120 con id, nombre y
+  estado, así que **el `workflowId` no hace falta pedirlo**: se encuentra por nombre. Lo que no
+  se puede es `GET /workflows/{id}` (404), o sea saber qué acciones tiene adentro.
+
+De ahí la división del trabajo: alguien crea el workflow en GHL y lo deja **publicado**; el
+código lo encuentra solo. Lo único irreductiblemente manual es el **texto** de la plantilla,
+que hay que copiar de la UI porque ninguna ruta lo expone.
+
 ### Detalles que importan
 
 - **El cuerpo se muestra entero, con sus saltos de línea.** Una plantilla no se puede editar ni

@@ -168,6 +168,8 @@ Verificado contra la API, no inferido:
 | Plantillas de WhatsApp aprobadas por Meta | **No se pueden listar.** Cero rutas con `whatsapp` en los 84 specs oficiales. `GET /locations/{id}/templates` es `GET-all-or-email-sms-templates` y su esquema de respuesta solo tiene variantes SMS y Email. Reconfirmado el 2026-08-06 contra una subcuenta que **sí** tiene plantillas aprobadas: devuelve `totalCount: 0`, y otras cuatro rutas candidatas dan 404 |
 | Enviar una plantilla con variables | `POST /conversations/messages` acepta `templateId` (comprobado: devuelve `CONVERSATIONS_MSG_TEMPLATE_NOT_FOUND`), pero **no hay campo para los `components`/parámetros**, así que una plantilla con `{{1}}` no se puede completar por API |
 | Estado de asistencia a las citas | GHL nunca marca `showed`. En 633 citas hay 386 `confirmed`, 245 `cancelled`, 1 `noshow` y **cero** `showed` |
+| Qué plantilla generó un mensaje | **El mensaje no lo guarda.** `GET /conversations/messages/{id}` sobre salientes con `source: "workflow"` no trae ningún `templateId` — ni el `TYPE_WHATSAPP` con `wamid` real de Meta. O sea que los ids de plantilla **no se pueden cosechar del historial**: la única fuente es la UI |
+| Las acciones de un workflow | `GET /workflows/?locationId=` **lista** los 120 (id, nombre, estado), pero `GET /workflows/{id}` da 404. Se puede encontrar un workflow por nombre; no se puede saber qué hace |
 | Quitar un tag | El puerto solo tiene `aplicarTags`. **No existe `quitarTags`** — ver [10-ESTADO](10-ESTADO.md) |
 
 **Para mandar una plantilla** hay dos caminos y la plataforma soporta los dos, elegibles por
