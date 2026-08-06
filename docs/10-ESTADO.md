@@ -87,12 +87,24 @@ Resolver una intervención marca el hallazgo y lo persiste, pero **no saca el ta
 contacto vuelve a Urgentes en el próximo tick. Es un cambio de producto: hay que decidir si la
 plataforma puede quitar tags en GHL.
 
-### 4. Cargar las plantillas de WhatsApp aprobadas
+### 4. Las plantillas de WhatsApp — **en pausa por decisión**
 
-El envío está construido de punta a punta y `closer_plantillas` está **vacía**. Hace falta, por
-cada plantilla, sacar de GHL (Settings > WhatsApp > Templates): el nombre, el idioma, el cuerpo
-aprobado, y según el método el `templateId` o el `workflowId`. La API no las lista, así que es
-carga manual una sola vez — ver [08-MENSAJERIA](08-MENSAJERIA.md) § Plantillas.
+El envío está construido de punta a punta, pero `closer_plantillas` está **vacía a propósito**:
+Fabio decidió el 2026-08-06 dejarlo apagado y resolverlo más adelante. Mientras no haya filas,
+el botón del chat no se renderiza y el banner de 24 h queda como estaba.
+
+Para encenderlo hacen falta dos cosas, ninguna de código:
+
+1. El **texto** de cada plantilla (nombre, idioma, cuerpo aprobado), copiado de GHL
+   (Settings > WhatsApp > Templates). Ninguna ruta de la API lo expone.
+2. Un **workflow publicado** que solo mande esa plantilla. El `workflowId` no hay que pedirlo:
+   se encuentra por nombre. Disparar un workflow ejecuta todo lo que tiene adentro, así que
+   reusar uno existente traería sus otros efectos.
+
+Medido: la plantilla `agendanclicconfirmarcall` sale hoy por workflow, `TYPE_WHATSAPP`,
+entregada y con `wamid` real de Meta — o sea que ese camino funciona en esta cuenta. El camino
+directo (`templateId`) no se pudo probar sin mandar un mensaje real, y de todos modos no tiene
+campo para las 4 variables de esa plantilla.
 
 ### 5. Una llamada contestada de Assistable
 

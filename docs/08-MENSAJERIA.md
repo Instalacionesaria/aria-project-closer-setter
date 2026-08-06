@@ -127,6 +127,12 @@ Pasadas las 24 h, lo único que Meta acepta es una **plantilla previamente aprob
 banner ámbar que explica el bloqueo ofrece el botón *"Enviar plantilla aprobada"* — el
 diagnóstico y la salida, juntos.
 
+> **Hoy el botón no se ve, y es correcto.** `closer_plantillas` está vacía por decisión de
+> Fabio (2026-08-06: las plantillas se resuelven más adelante), y un botón que abre una lista
+> vacía promete una salida que no existe. La ficha solo lo renderiza si hay al menos una
+> cargada — o sea que **se enciende solo** con la primera fila, sin tocar código ni desplegar.
+> Mismo mecanismo que el archivo de prompt del auditor.
+
 ### La lista no se descubre, se configura
 
 El paso obvio era listarlas por API. **No se puede**, y está medido el 2026-08-06 contra la
