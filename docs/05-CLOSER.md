@@ -168,8 +168,10 @@ abrió la ficha: mismo texto, mismo color.
 
 - **Chat** — la conversación real desde la caché. Autofocus del compositor en desktop.
 - **Llamada** — archivo cronológico de todas las llamadas, cada una con su chip de agente
-  (`🎙 SALES CALL` / `📞 LEAD FLOW VOZ` / `📞 APP FLOW VOZ`). El score y el coaching existen
-  **solo** en sales calls.
+  (`🎙 SALES CALL` / `📞 LEAD FLOW VOZ` / `📞 APP FLOW VOZ` / `📞 LLAMADA IA`). El score y el
+  coaching existen **solo** en sales calls; el resumen, el sentimiento y el audio, solo en las
+  contestadas. Las llamadas de IA vienen de Assistable —
+  ver [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md).
 - **Perfil** — agrupa por **significado**, no por formulario de origen: DETALLES / ORIGEN /
   CALIFICACIÓN (fit) / INTERACCIONES (engagement). Un campo de Meta, uno de VSL y uno del
   agente caen los tres en Calificación si los tres miden fit. Los grupos sin campos no se

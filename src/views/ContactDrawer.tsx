@@ -41,6 +41,7 @@ import {
   RotateCcw,
   Check,
   Trash2,
+  FileText,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import { isoEnDias, fechaCorta } from "../lib/fechas";
@@ -53,7 +54,13 @@ import { INDICADORES_VACIOS, type IndicadoresContacto } from "../lib/indicadores
 import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTagTone, type SetterAdvanceInput } from "../lib/setterStore";
 import { useSettings } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
-import { enviarMensaje, fetchConversation } from "../lib/api";
+import {
+  enviarMensaje,
+  enviarPlantilla,
+  fetchConversation,
+  fetchPlantillas,
+  type PlantillaWhatsapp,
+} from "../lib/api";
 import type { VentanaWhatsapp } from "../lib/whatsapp";
 import { CADENCIA, registrarReloj } from "../lib/polling";
 
@@ -1647,6 +1654,19 @@ function ChatTab({
    */
   const [ventana, setVentana] = useState<VentanaWhatsapp | null>(null);
   const ventanaCerrada = Boolean(ghlContactId && ventana && !ventana.abierta);
+  /**
+   * El selector de plantillas: la única salida cuando la ventana está cerrada, porque una
+   * plantilla aprobada es lo único que Meta deja pasar pasadas las 24 h.
+   *
+   * `estado` explícito y no un `plantillas.length === 0`: sin él, "todavía no cargaron",
+   * "no hay ninguna aprobada" y "el backend está caído" se ven exactamente igual, y los tres
+   * piden cosas distintas de quien está mirando (regla 2).
+   */
+  const [plantillasOpen, setPlantillasOpen] = useState(false);
+  const [plantillas, setPlantillas] = useState<PlantillaWhatsapp[]>([]);
+  const [plantillasEstado, setPlantillasEstado] = useState<"inicial" | "cargando" | "listo" | "error">("inicial");
+  const [enviandoPlantilla, setEnviandoPlantilla] = useState<string | null>(null);
+  const [plantillaAviso, setPlantillaAviso] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const { catalog, categorias, miCuenta } = useSettings();
   const [confirmDialog, setConfirmDialog] = useState<"apagar" | "normal" | "reforzada" | null>(null);
@@ -1747,6 +1767,49 @@ function ChatTab({
       );
     }
     setConfirmDialog(null);
+  };
+
+  /**
+   * Las plantillas se piden al ABRIR el selector, no al montar la ficha.
+   *
+   * La ventana cerrada es minoría y el selector se abre menos todavía: cargarlas siempre
+   * sería un GET por cada ficha que alguien mira, casi nunca leído. Mismo criterio que
+   * `cargarSiHaceFalta` en la pestaña del auditor.
+   */
+  const abrirPlantillas = () => {
+    setPlantillasOpen((abierto) => !abierto);
+    setPlantillaAviso(null);
+    if (plantillasEstado !== "inicial") return;
+    setPlantillasEstado("cargando");
+    fetchPlantillas()
+      .then((r) => {
+        setPlantillas(r.plantillas ?? []);
+        setPlantillasEstado("listo");
+      })
+      .catch(() => setPlantillasEstado("error"));
+  };
+
+  /**
+   * Manda la plantilla y NO pinta nada optimista, al revés que `handleSend`.
+   *
+   * El texto que va a leer el contacto lo compone GHL a partir de la plantilla aprobada, y
+   * por el camino de workflow ni siquiera sabemos cuándo sale. Pintar una burbuja acá sería
+   * afirmar un mensaje que no escribimos y una entrega que no nos consta; el mensaje aparece
+   * cuando la reconciliación lo trae, que es cuando de verdad existe.
+   */
+  const mandarPlantilla = (p: PlantillaWhatsapp) => {
+    if (!ghlContactId || enviandoPlantilla) return;
+    setEnviandoPlantilla(p.id);
+    setPlantillaAviso(null);
+    enviarPlantilla(ghlContactId, p.id)
+      .then((r) => {
+        setPlantillasOpen(false);
+        setPlantillaAviso(
+          r.aviso ?? `"${p.nombre}" salió. Va a aparecer en el chat en cuanto GHL la confirme.`,
+        );
+      })
+      .catch((e: Error) => setPlantillaAviso(`No salió: ${e.message}`))
+      .finally(() => setEnviandoPlantilla(null));
   };
 
   const handleSend = () => {
@@ -1904,11 +1967,84 @@ function ChatTab({
         por bueno, y el mensaje moría en Meta sin que nadie se enterara (§55).
       */}
       {ventanaCerrada && (
-        <div className="px-4 py-2.5 bg-amber-500/10 border-t border-amber-500/25 shrink-0">
+        <div className="relative px-4 py-2.5 bg-amber-500/10 border-t border-amber-500/25 shrink-0">
           <p className="text-xs text-amber-800 dark:text-amber-300 flex items-start gap-1.5 leading-relaxed">
             <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>{ventana?.motivo}</span>
           </p>
+          {/*
+            La salida, no solo el diagnóstico. Meta cierra el texto libre pero deja pasar una
+            plantilla aprobada, así que el mismo banner que explica el bloqueo ofrece la única
+            acción que sigue siendo posible.
+          */}
+          {ghlContactId && (
+            <button
+              onClick={abrirPlantillas}
+              className="mt-2 inline-flex items-center gap-1.5 h-8 px-3 rounded-full border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-xs font-medium text-amber-900 dark:text-amber-200 transition-colors"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Enviar plantilla aprobada
+            </button>
+          )}
+          {plantillaAviso && <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{plantillaAviso}</p>}
+
+          {plantillasOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setPlantillasOpen(false)} />
+              <div className="absolute bottom-full left-4 right-4 mb-2 max-h-80 overflow-y-auto scrollbar-thin bg-popover text-popover-foreground border border-border rounded-xl shadow-xl p-2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-150">
+                {plantillasEstado === "cargando" && (
+                  <p className="text-xs text-muted-foreground px-2 py-3">Buscando las plantillas aprobadas…</p>
+                )}
+                {plantillasEstado === "error" && (
+                  <p className="text-xs text-rose-600 dark:text-rose-400 px-2 py-3 leading-relaxed">
+                    No se pudieron traer las plantillas. Es una falla de Comando Central, no de WhatsApp: volvé a
+                    intentar en un momento.
+                  </p>
+                )}
+                {plantillasEstado === "listo" && plantillas.length === 0 && (
+                  /*
+                    Dice la causa y quién la destraba. "No hay plantillas" a secas dejaría a
+                    quien mira sin saber si el problema es que no existen, que Meta no las
+                    aprobó, o que nadie las cargó — que son tres personas distintas.
+                  */
+                  <p className="text-xs text-muted-foreground px-2 py-3 leading-relaxed">
+                    Todavía no hay ninguna plantilla cargada en Comando Central. Las aprueba Meta y viven en GHL
+                    (Settings &gt; WhatsApp &gt; Templates); la API de GHL no las lista, así que hay que cargarlas acá
+                    a mano una sola vez. Pedíselo al equipo técnico con el nombre exacto de la plantilla.
+                  </p>
+                )}
+                {plantillasEstado === "listo" &&
+                  plantillas.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => mandarPlantilla(p)}
+                      disabled={Boolean(enviandoPlantilla)}
+                      className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{p.nombre}</span>
+                        {p.idioma && (
+                          <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                            {p.idioma}
+                          </span>
+                        )}
+                        {enviandoPlantilla === p.id && <span className="text-[10px] text-muted-foreground">enviando…</span>}
+                      </div>
+                      {p.descripcion && <p className="text-[11px] text-muted-foreground mt-0.5">{p.descripcion}</p>}
+                      {/*
+                        El cuerpo se muestra entero y con sus saltos de línea intactos: una
+                        plantilla no se puede editar ni retirar, y a diferencia de un mensaje
+                        libre no la escribió quien la manda. Tiene que poder leer qué va a
+                        salir antes de apretar.
+                      */}
+                      <p className="text-xs text-foreground/80 mt-1.5 whitespace-pre-wrap leading-relaxed bg-muted/50 rounded-md px-2 py-1.5">
+                        {p.cuerpo}
+                      </p>
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
         </div>
       )}
       <div className="relative p-2 bg-[#f0f2f5] dark:bg-[#202c33] border-t border-border/30 shrink-0 flex items-end gap-1.5">
@@ -2087,6 +2223,9 @@ const CALL_ORIGIN_META: Record<CallOrigin, { label: string; icon: typeof Mic }> 
   sales_call: { label: "Sales Call", icon: Mic },
   app_flow_voz: { label: "App Flow Voz", icon: Phone },
   lead_flow_voz: { label: "Lead Flow Voz", icon: Phone },
+  // Sin embudo identificado: se dice "Llamada IA" y nada más. Poner acá el nombre del único
+  // agente que conocemos sería más lindo y sería falso.
+  voz_ia: { label: "Llamada IA", icon: Phone },
 };
 
 const SENTIMIENTO_META: Record<Sentimiento, { label: string; cls: string }> = {

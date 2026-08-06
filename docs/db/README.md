@@ -17,7 +17,18 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-Todas **aplicadas en SOFIA el 2026-07-25**, en este orden.
+Van de la `001` a la **`017`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
+esquema base (`001`–`005`, aplicadas el 2026-07-25); de la `006` en adelante **el encabezado de
+cada archivo explica por qué existe** —esa es la fuente— y el tema al que pertenecen está
+documentado en el `docs/` correspondiente:
+
+| Migración | Qué agrega | Documento |
+|---|---|---|
+| `013` | Indicadores, contadores de IA, candado de sync | [04-DATOS-Y-RELOJES](../04-DATOS-Y-RELOJES.md) |
+| `014` | Autoría de mensajes, hallazgos y ajustes del auditor | [07-AUDITOR-IA](../07-AUDITOR-IA.md) |
+| `015` | Estado de entrega y error de envío | [08-MENSAJERIA](../08-MENSAJERIA.md) |
+| `016` | `closer_llamadas` — las llamadas de los agentes de voz | [11-VOZ-Y-LLAMADAS](../11-VOZ-Y-LLAMADAS.md) |
+| `017` | `closer_plantillas` — plantillas de WhatsApp aprobadas | [08-MENSAJERIA](../08-MENSAJERIA.md) § Plantillas |
 
 | Archivo | Qué hace | Por qué existe |
 |---|---|---|

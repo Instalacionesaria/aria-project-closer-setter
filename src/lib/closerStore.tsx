@@ -17,6 +17,7 @@ import {
   eliminarNota,
   fetchAgendaRange,
   fetchHistorial,
+  fetchLlamadas,
   fetchNotas,
   fetchPipeline,
   sincronizarCrm as sincronizarCrmRemoto,
@@ -148,7 +149,14 @@ export interface NotaItem {
  * "sales_call" (closer, meet de ventas — score/objeciones SOLO aquí, nunca en llamadas de IA),
  * "app_flow_voz" (closer, agente Appointment Flow), "lead_flow_voz" (setter, agente Lead Flow).
  */
-export type CallOrigin = "sales_call" | "app_flow_voz" | "lead_flow_voz";
+/**
+ * `voz_ia` (2026-08-06) es el cuarto y significa *"llamada de un agente de IA cuyo embudo no
+ * sabemos"*. Nace con las llamadas de Assistable: el payload trae `assistant_id`, y un
+ * asistente que no está en el mapa de `src/lib/assistable.ts` no se puede clasificar sin
+ * inventar. Como NO es una sales call, los dos contadores siguen midiendo bien —lo único que
+ * se pierde es la etiqueta del chip— así que degradar acá no cuesta ningún dato.
+ */
+export type CallOrigin = "sales_call" | "app_flow_voz" | "lead_flow_voz" | "voz_ia";
 export type Sentimiento = "positivo" | "neutral" | "negativo";
 
 export interface CallRecord {
@@ -1391,12 +1399,15 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
   );
 
   /**
-   * Notas e historial REALES al abrir la ficha de un contacto de GHL.
+   * Notas, historial y llamadas REALES al abrir la ficha de un contacto de GHL.
    *
    * Sin esto, el tab Notas mostraba solo lo que se hubiera escrito en esta sesión (y el
    * Historial, nada): las filas de `closer_notas`/`closer_contacto_eventos` existían pero
    * nadie las leía. Se pide una vez por apertura — no hay reloj: una nota la escribe el
    * propio closer y ya la tiene en pantalla; los eventos los agrega Avanzar, que refresca.
+   *
+   * Las llamadas se sumaron el 2026-08-06 y siguen la misma regla: un agente de voz no marca
+   * mientras el closer mira la ficha, así que un reloj sería gasto sin lector.
    */
   useEffect(() => {
     if (!openGhlContactId) return;
@@ -1431,6 +1442,20 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       .then((r) => aplicar((c) => ({ ...c, historial: (r.eventos ?? []).map(eventoAItem) })))
       .catch(() => {
         /* idem */
+      });
+
+    /**
+     * Las llamadas de los agentes de voz. Se asignan directo: el endpoint ya devuelve
+     * `CallRecord` armado por `aCallRecord` — la misma derivación que usa el webhook al
+     * escribir, no una segunda copia de las reglas en el cliente (regla 3).
+     *
+     * Reemplazo y no merge, al revés que las notas: acá no hay nada optimista que proteger,
+     * porque nadie agrega llamadas desde la ficha.
+     */
+    fetchLlamadas(id)
+      .then((r) => aplicar((c) => ({ ...c, llamadas: r.llamadas ?? [] })))
+      .catch(() => {
+        /* idem: sin datos se conserva lo que hubiera, no se pinta un vacío falso */
       });
 
     return () => {

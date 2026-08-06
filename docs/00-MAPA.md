@@ -20,6 +20,9 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Cómo funciona la rúbrica? ¿Cuánto cuesta cada análisis? | [07-AUDITOR-IA](07-AUDITOR-IA.md) |
 | ¿Por qué no puedo mandar un mensaje a este contacto? | [08-MENSAJERIA](08-MENSAJERIA.md) § Ventana de 24 h |
 | ¿Por qué este mensaje figura como enviado pero no llegó? | [08-MENSAJERIA](08-MENSAJERIA.md) § Estados de entrega |
+| ¿Dónde queda la transcripción de una llamada? | [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md) |
+| ¿Por qué esta llamada figura como no contestada si duró 2 segundos? | [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md) |
+| ¿Cómo mando un mensaje si pasaron las 24 h? | [08-MENSAJERIA](08-MENSAJERIA.md) § Plantillas |
 | ¿Por qué se decidió X y no Y? | [09-DECISIONES](09-DECISIONES.md) |
 | ¿Qué está construido y qué falta? | [10-ESTADO](10-ESTADO.md) |
 | ¿Cómo corro una migración? ¿Qué tablas hay? | [db/README](db/README.md) |
@@ -39,7 +42,8 @@ Si venís de cero, leelos en este orden. Los cuatro primeros alcanzan para enten
 7. **[07-AUDITOR-IA](07-AUDITOR-IA.md)** — el agente que audita a los otros agentes.
 8. **[08-MENSAJERIA](08-MENSAJERIA.md)** — el chat y las reglas de WhatsApp.
 9. **[09-DECISIONES](09-DECISIONES.md)** — el porqué de lo que no es obvio.
-10. **[10-ESTADO](10-ESTADO.md)** — qué existe hoy, qué está a medias, qué no existe.
+10. **[11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md)** — las llamadas de los agentes de voz.
+11. **[10-ESTADO](10-ESTADO.md)** — qué existe hoy, qué está a medias, qué no existe.
 
 ## Dónde vive cada cosa que NO es documentación
 

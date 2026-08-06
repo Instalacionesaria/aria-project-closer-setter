@@ -784,6 +784,91 @@ export function fetchHistorial(ghlContactId: string): Promise<HistorialResponse>
 }
 
 /* ================================================================== */
+/* Plantillas de WhatsApp (fuera de la ventana de 24 h)                */
+/* ================================================================== */
+
+export interface PlantillaWhatsapp {
+  id: string;
+  nombre: string;
+  descripcion: string | null;
+  idioma: string | null;
+  /** El texto aprobado por Meta, con sus `{{1}}`. Es para MOSTRAR, no se manda. */
+  cuerpo: string;
+}
+
+export interface PlantillasResponse {
+  ok: boolean;
+  count: number;
+  plantillas: PlantillaWhatsapp[];
+}
+
+export interface EnviarPlantillaResponse {
+  ok: boolean;
+  /** `true` solo si el mensaje ya salió. El camino por workflow devuelve `encolado`. */
+  enviado?: boolean;
+  encolado?: boolean;
+  metodo?: "template_id" | "workflow";
+  plantilla?: string;
+  messageId?: string;
+  aviso?: string;
+  codigo?: string;
+  error?: string;
+}
+
+/**
+ * Las plantillas aprobadas que se pueden mandar. Se cargan a mano en `closer_plantillas`
+ * porque la API de GHL **no las lista** (medido el 2026-08-06 — ver `api/closer/plantillas.ts`).
+ */
+export function fetchPlantillas(): Promise<PlantillasResponse> {
+  return pedir<PlantillasResponse>(`/api/closer/plantillas`);
+}
+
+/** Manda una plantilla. El cuerpo lo resuelve el servidor a partir del `id`. */
+export function enviarPlantilla(contactId: string, plantillaId: string): Promise<EnviarPlantillaResponse> {
+  return pedir<EnviarPlantillaResponse>(`/api/closer/plantillas`, conJson({ contactId, plantillaId }));
+}
+
+/* ================================================================== */
+/* Llamadas del contacto (tab Llamada)                                 */
+/* ================================================================== */
+
+/**
+ * Estructuralmente idéntico a `CallRecord` de `closerStore.tsx`, y redeclarado igual que
+ * `PerfilGrupo` — pero acá no es solo convención: `closerStore` importa de este archivo, así
+ * que importar de vuelta sería un ciclo. Al ser idénticos, la lista se le pasa al tab tal
+ * cual, sin mapear nada.
+ */
+export interface LlamadaApi {
+  id: string;
+  origin: "sales_call" | "app_flow_voz" | "lead_flow_voz" | "voz_ia";
+  fecha: string;
+  duracion: string;
+  contestada: boolean;
+  resultado?: string;
+  resumenIA?: string;
+  sentimiento?: "positivo" | "neutral" | "negativo";
+  audioUrl?: string;
+}
+
+export interface LlamadasResponse {
+  ok: boolean;
+  ghlContactId: string;
+  count: number;
+  /** Más reciente primero — `callsIASummary` toma la primera como "último resultado". */
+  llamadas: LlamadaApi[];
+}
+
+/**
+ * Las llamadas de los agentes de voz. Solo lectura: las registra el agente que las hizo.
+ *
+ * La fuente es el webhook de Assistable (2026-08-06); antes de eso el tab Llamada existía
+ * pero nunca recibía una fila.
+ */
+export function fetchLlamadas(ghlContactId: string): Promise<LlamadasResponse> {
+  return pedir<LlamadasResponse>(porContacto(`/api/closer/llamadas`, ghlContactId));
+}
+
+/* ================================================================== */
 /* Perfil del contacto (tab Perfil)                                    */
 /* ================================================================== */
 

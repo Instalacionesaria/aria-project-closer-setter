@@ -121,10 +121,78 @@ concluya que la conversación empieza donde empieza el recorte.
 > Verificado: sin `limit` GHL devuelve 20 y `nextPage: true`; con `limit=50` devuelve los 28
 > que había y `nextPage: false`. El `MAX_MENSAJES = 40` del analizador nunca mordía.
 
+## Plantillas: la salida cuando la ventana está cerrada
+
+Pasadas las 24 h, lo único que Meta acepta es una **plantilla previamente aprobada**. El mismo
+banner ámbar que explica el bloqueo ofrece el botón *"Enviar plantilla aprobada"* — el
+diagnóstico y la salida, juntos.
+
+### La lista no se descubre, se configura
+
+El paso obvio era listarlas por API. **No se puede**, y está medido el 2026-08-06 contra la
+subcuenta real, que sí tiene plantillas aprobadas:
+
+| Ruta | Respuesta |
+|---|---|
+| `GET /locations/{id}/templates?type=whatsapp` | `200 {"templates":[],"totalCount":0}` |
+| `GET /conversations/providers/whatsapp/templates` | `404` |
+| `GET /locations/{id}/whatsapp/templates` | `404` |
+| `GET /whatsapp/templates` | `404` |
+
+La primera responde 200 con cero porque su esquema de respuesta es `oneOf: [SMS, Email]`: una
+plantilla de Meta **no es representable ahí** ni aunque quisiera. Viven en Settings > WhatsApp
+> Templates, que es otro almacén, y la API v2 no lo expone.
+
+> **No falta un scope: no hay ruta.** Que la subcuenta tenga plantillas aprobadas y que la API
+> devuelva cero no es una contradicción — son dos almacenes distintos.
+
+Así que viven en `closer_plantillas` (017) y se cargan a mano una sola vez. Que sea una **tabla**
+y no una variable de entorno ni un archivo del repo tiene un motivo concreto: agregar una
+plantilla aprobada no puede exigir un deploy. Meta las aprueba con su propio calendario, y el
+día que caiga una nueva alguien tiene que poder usarla esa misma tarde.
+
+**La tabla nace vacía a propósito.** Una plantilla de mentira en el selector se ve idéntica a
+una aprobada, y la diferencia recién aparece cuando el envío rebota contra un contacto real.
+
+### Dos métodos de envío
+
+Cuál sirve para cada plantilla se decide probando una real. El código soporta los dos desde el
+día uno para que la respuesta no exija reescribir nada.
+
+| Método | Cómo | Límite |
+|---|---|---|
+| `template_id` | `POST /conversations/messages` con `templateId` | **No acepta variables**: sirve para plantillas sin `{{1}}`, o con los que GHL resuelva solo |
+| `workflow` | `POST /contacts/{id}/workflow/{workflowId}` | Es el camino documentado y el único con variables, a costa de que alguien arme el workflow en GHL |
+
+Un CHECK impide la fila que rompería en producción y no en la inserción: una plantilla marcada
+`workflow` sin `workflow_id` se vería perfecta en la lista y fallaría recién al enviar.
+
+### Detalles que importan
+
+- **El cuerpo se muestra entero, con sus saltos de línea.** Una plantilla no se puede editar ni
+  retirar, y a diferencia de un mensaje libre no la escribió quien la manda: tiene que poder
+  leer qué va a salir antes de apretar.
+- **No se pinta nada optimista.** El texto lo compone GHL, y por el camino de workflow ni
+  siquiera sabemos cuándo sale. La burbuja aparece cuando la reconciliación la trae, que es
+  cuando de verdad existe. Por eso ese camino responde `encolado`, no `enviado`.
+- **El saliente se guarda con autor `workflow`**, no `asesor` ni `agente_ia`. Lo eligió un
+  humano pero no lo escribió. Con `agente_ia` el auditor juzgaría al agente por un texto que
+  aprobó Meta y encima le correría el debounce; con `asesor` le atribuiría al closer una
+  redacción que no es suya.
+- **Mandar una plantilla NO reabre la ventana.** Solo la reabre un mensaje *del contacto*.
+  `ultimo_entrante_el` no se toca.
+- **Con la ventana abierta también funciona.** Bloquearlo sería inventar una regla que Meta no
+  tiene; simplemente ahí conviene escribir a mano.
+- `template_id` y `workflow_id` **no viajan al browser**: el cliente manda el `id` nuestro y el
+  servidor resuelve el resto.
+
 ## Lo que falta
 
-- **Mandar plantillas aprobadas** desde la plataforma, que es la salida real cuando la ventana
-  está cerrada. Hoy hay que hacerlo desde GHL. La vía es disparar un workflow — ver
-  [03-INTEGRACION-GHL](03-INTEGRACION-GHL.md) § Lo que GHL NO expone.
+- **Cargar las plantillas.** El código está; `closer_plantillas` está vacía. Hace falta el
+  nombre, el idioma, el cuerpo aprobado y —según el método— el `templateId` o el `workflowId`,
+  sacados de Settings > WhatsApp > Templates en GHL.
+- **Probar cuál de los dos métodos funciona.** Ninguno está confirmado contra una plantilla
+  real; el error de GHL viaja entero y sin traducir justamente para que la primera prueba lo
+  decida.
 - **Reintentar** un mensaje fallido con un botón. GHL tiene su "Try again"; acá el closer
   reescribe cuando la ventana se reabra.

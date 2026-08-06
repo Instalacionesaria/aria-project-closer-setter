@@ -254,3 +254,62 @@ El segundo es barato y recuperable. El primero es el bug original con otro disfr
 | **Sumar una librería de charts** | El sparkline se resuelve con `<polyline>` y `onMouseMove`. Se prefirió no sumar la dependencia |
 | **`framer-motion`** | 39 KB gzip (24% del bundle) para dos componentes. Reemplazado por una transición CSS y un tween con `requestAnimationFrame`, misma duración y misma curva |
 | **Emojis sueltos en la UI** | La iconografía viene de `lucide-react`. Los emojis que quedan en píldoras y microtextos vienen de specs anteriores |
+
+---
+
+## D18 · "Contestada" se deriva de tres señales, no de la duración
+
+Un buzón de voz **dura 1.86 segundos y tiene grabación**. `duracion > 0` lo habría contado como
+llamada atendida, inflando el contador 📞 que el closer usa para decidir a quién perseguir.
+
+Se exigen tres cosas: que el motivo de desconexión no sea de los que dicen "no atendió nadie",
+que la llamada haya durado algo, y que **quede rastro de la charla** (turnos, transcripción o
+resumen). La tercera es la que salva del motivo desconocido: el día que Retell agregue un
+motivo nuevo que no esté en la lista, la ausencia de conversación igual lo delata.
+
+Corolario incómodo pero correcto: una llamada no contestada **no ofrece audio ni sentimiento
+aunque el payload los traiga**. Ofrecer "escuchar el audio" de algo que nadie atendió, y un
+veredicto emocional sobre un silencio, son dato falso.
+
+---
+
+## D19 · Un agente de voz desconocido no se asume conocido
+
+`assistant_id` que no está en el mapa → `voz_ia`, nunca `app_flow_voz`.
+
+Hoy hay un solo asistente y la tentación de asumirlo es fuerte. Sería un dato falso barato: el
+día que Lead Flow empiece a marcar, sus llamadas aparecerían como del closer en la ficha de un
+contacto del setter.
+
+Lo único que los contadores necesitan —que **no** es una `sales_call`— se sabe igual, así que
+degradar no cuesta ningún dato: se pierde la etiqueta del chip, nada más. Mismo criterio que
+D16 con la autoría de los mensajes.
+
+---
+
+## D20 · Las plantillas de WhatsApp viven en una tabla, no en el código
+
+La API de GHL **no las lista** (medido, ver [08-MENSAJERIA](08-MENSAJERIA.md)), así que la
+lista se configura. Podía ser una variable de entorno o un archivo del repo; es una tabla.
+
+El motivo es operativo: agregar una plantilla aprobada no puede exigir un deploy. Meta las
+aprueba con su propio calendario, y el día que caiga una nueva alguien tiene que poder usarla
+esa misma tarde.
+
+La tabla nace **vacía**. Sembrarla con ejemplos es lo que se acaba de desmontar en las pestañas
+de closer y de auditoría: una plantilla de mentira en el selector se ve idéntica a una
+aprobada, y la diferencia recién aparece cuando el envío rebota contra un contacto real.
+
+---
+
+## D21 · Una credencial ajena que llega en un payload no se guarda
+
+El webhook de Assistable trae `variables.custom_values` con los valores personalizados de la
+subcuenta de GHL — que en esta cuenta incluyen el access token de Facebook entero. Nadie lo
+pidió: viaja porque el agente los recibe todos.
+
+Se redacta antes del INSERT. Guardarlo sería copiar una credencial viva a una segunda base,
+con su propio backup y su propio riesgo de fuga, **para no usarla jamás**.
+
+La regla general: un secreto que llega sin haber sido pedido se recorta en la frontera, no se
+archiva "por si acaso".

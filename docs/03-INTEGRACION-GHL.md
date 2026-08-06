@@ -164,13 +164,14 @@ Verificado contra la API, no inferido:
 
 | Qué | Estado |
 |---|---|
-| Llamadas y transcripciones | **No hay endpoint ni evento de webhook.** Por eso las llamadas entran por Assistable |
-| Plantillas de WhatsApp aprobadas por Meta | **No se pueden listar.** Cero rutas con `whatsapp` en los 84 specs oficiales. `GET /locations/{id}/templates` es `GET-all-or-email-sms-templates` y su esquema de respuesta solo tiene variantes SMS y Email |
+| Llamadas y transcripciones | **No hay endpoint ni evento de webhook.** Por eso las llamadas entran por Assistable — ver [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md) |
+| Plantillas de WhatsApp aprobadas por Meta | **No se pueden listar.** Cero rutas con `whatsapp` en los 84 specs oficiales. `GET /locations/{id}/templates` es `GET-all-or-email-sms-templates` y su esquema de respuesta solo tiene variantes SMS y Email. Reconfirmado el 2026-08-06 contra una subcuenta que **sí** tiene plantillas aprobadas: devuelve `totalCount: 0`, y otras cuatro rutas candidatas dan 404 |
 | Enviar una plantilla con variables | `POST /conversations/messages` acepta `templateId` (comprobado: devuelve `CONVERSATIONS_MSG_TEMPLATE_NOT_FOUND`), pero **no hay campo para los `components`/parámetros**, así que una plantilla con `{{1}}` no se puede completar por API |
 | Estado de asistencia a las citas | GHL nunca marca `showed`. En 633 citas hay 386 `confirmed`, 245 `cancelled`, 1 `noshow` y **cero** `showed` |
 | Quitar un tag | El puerto solo tiene `aplicarTags`. **No existe `quitarTags`** — ver [10-ESTADO](10-ESTADO.md) |
 
-**La vía para mandar una plantilla** es disparar un workflow de GHL desde el backend
-(`POST /contacts/{contactId}/workflow/{workflowId}`) con la acción *WhatsApp Customer Service
-Window Check*. Es la única documentada de punta a punta y la única que garantiza que el
-mensaje quede registrado en la conversación de GHL con su `messageId` real.
+**Para mandar una plantilla** hay dos caminos y la plataforma soporta los dos, elegibles por
+plantilla: `templateId` en `POST /conversations/messages` (sin variables) y disparar un
+workflow con `POST /contacts/{contactId}/workflow/{workflowId}` (la única vía documentada de
+punta a punta, y la única con variables). Ninguno está confirmado todavía contra una plantilla
+real — ver [08-MENSAJERIA](08-MENSAJERIA.md) § Plantillas.

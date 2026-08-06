@@ -200,8 +200,11 @@ y acompañar una cita; la de pre-agenda juzga calificar y conseguir que agende. 
 portón 1 lo bloquea en vez de dejarlo correr con la rúbrica equivocada. La cola de urgentes del
 setter va a estar vacía hasta que exista — es correcto.
 
-**Los dos de voz** ya tienen fuente: el webhook de Assistable. Falta ver qué trae el payload
-antes de escribir nada.
+**Los dos de voz** ya tienen fuente **y esquema**: el webhook de Assistable archiva cada
+llamada en `closer_llamadas`, con `turnos` guardando el `transcript_object` entero justamente
+para que puedan atribuir cada frase, igual que hace `autoria.ts` con el chat. Falta la rúbrica
+— y falta una llamada **contestada**: las tres que llegaron cayeron en buzón de voz, así que
+todavía nadie vio una transcripción real. Ver [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md).
 
 `closer_analisis_agente.agente_id` distingue por agente, así que los cuatro conviven en la
 misma tabla y cada uno alimenta su tarjeta.

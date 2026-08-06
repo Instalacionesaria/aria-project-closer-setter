@@ -96,4 +96,26 @@ export const env = {
 
   /** Esfuerzo de razonamiento del auditor. Se deja configurable para poder barrerlo sin deploy. */
   auditorEsfuerzo: (): string => process.env.AUDITOR_EFFORT ?? "medium",
+
+  /**
+   * Agentes de voz nuevos sin esperar un deploy: `{"cmXXXX":"lead_flow_voz"}`.
+   *
+   * El mapa de código (`src/lib/assistable.ts`) tiene hoy un solo asistente porque es el único
+   * que llamó. El día que Lead Flow empiece a marcar, sus llamadas van a caer en `voz_ia`
+   * hasta que alguien lo agregue — esta variable es para que ese alguien no tenga que ser yo.
+   *
+   * Un JSON roto no tumba el webhook: se ignora y se sigue con el mapa de código, que es el
+   * comportamiento correcto porque la alternativa es perder la llamada por una coma de más.
+   */
+  asistentesVozExtra: (): Record<string, string> => {
+    const crudo = process.env.ASISTENTES_VOZ_EXTRA;
+    if (!crudo) return {};
+    try {
+      const v = JSON.parse(crudo);
+      return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, string>) : {};
+    } catch {
+      console.error("[env] ASISTENTES_VOZ_EXTRA no es JSON válido: se ignora.");
+      return {};
+    }
+  },
 };

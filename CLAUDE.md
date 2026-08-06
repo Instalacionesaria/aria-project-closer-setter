@@ -28,6 +28,7 @@ leo esto".
 | [06-SETTER](docs/06-SETTER.md) | Su espejo en pre-agenda |
 | [07-AUDITOR-IA](docs/07-AUDITOR-IA.md) | Portones, rúbrica, debounce, costo, los 4 agentes |
 | [08-MENSAJERIA](docs/08-MENSAJERIA.md) | Chat, ventana de 24 h, estados de entrega |
+| [11-VOZ-Y-LLAMADAS](docs/11-VOZ-Y-LLAMADAS.md) | Llamadas de los agentes de voz: Assistable, el tab Llamada |
 | [09-DECISIONES](docs/09-DECISIONES.md) | El **porqué** de lo que no es obvio |
 | [10-ESTADO](docs/10-ESTADO.md) | Qué existe, qué está a medias, qué bloquea |
 | [db/README](docs/db/README.md) | Esquema y cómo correr migraciones |

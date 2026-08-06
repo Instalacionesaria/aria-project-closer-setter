@@ -1,6 +1,6 @@
 # Estado del proyecto
 
-**Actualizado: 2026-08-05.** Qué está construido, qué está a medias y qué no existe.
+**Actualizado: 2026-08-06.** Qué está construido, qué está a medias y qué no existe.
 
 > Este es el documento que más rápido queda viejo. Si la fecha de arriba tiene más de dos
 > semanas, verificá antes de confiar.
@@ -17,11 +17,11 @@ configuración en GHL.
 |---|---|
 | Frontend en Vercel | ✅ Producción, deploy por push a `main` |
 | Vercel Functions (`api/`) | ✅ 30+ endpoints |
-| Supabase SOFIA | ✅ 15 migraciones aplicadas |
+| Supabase SOFIA | ✅ 17 migraciones aplicadas |
 | Integración GHL (lectura) | ✅ Contactos, citas, conversaciones, custom fields |
 | Integración GHL (escritura) | ✅ Tags, custom fields, notas. **Falta `quitarTags`** |
 | Webhooks de GHL | ⚠️ El endpoint existe; los workflows los tiene que crear Francisco |
-| Webhook de llamadas (Assistable) | ✅ Recibe y guarda crudo. Esperando el primer payload real |
+| Webhook de llamadas (Assistable) | ✅ Recibe, redacta secretos, parsea y archiva en `closer_llamadas` |
 | Anthropic (auditor) | ✅ Cableado. **En cero por decisión** — ver abajo |
 
 ## Closer — completo
@@ -35,7 +35,7 @@ configuración en GHL.
 | Ficha: Chat | ✅ Conversación real, envío real, estados de entrega |
 | Ficha: Perfil | ✅ Custom fields reales agrupados por significado |
 | Ficha: Historial / Notas | ✅ Persistidos |
-| Ficha: Llamada | ⚠️ El componente existe; **no hay datos** hasta que lleguen los de Assistable |
+| Ficha: Llamada | ✅ Llamadas reales de Assistable. **Ninguna contestada todavía** — las 3 que hay cayeron en buzón |
 | Avanzar (6 salidas) | ✅ Persiste en Supabase y aplica tags en GHL |
 | Seguimientos | ✅ Automáticos y manuales, con su cola |
 
@@ -87,23 +87,30 @@ Resolver una intervención marca el hallazgo y lo persiste, pero **no saca el ta
 contacto vuelve a Urgentes en el próximo tick. Es un cambio de producto: hay que decidir si la
 plataforma puede quitar tags en GHL.
 
-### 4. La primera llamada real de Assistable
+### 4. Cargar las plantillas de WhatsApp aprobadas
 
-Con dos o tres payloads en la bandeja se puede diseñar la tabla, el parser y el auditor de voz.
-Hoy se guardan crudos en `closer_webhook_inbox`.
+El envío está construido de punta a punta y `closer_plantillas` está **vacía**. Hace falta, por
+cada plantilla, sacar de GHL (Settings > WhatsApp > Templates): el nombre, el idioma, el cuerpo
+aprobado, y según el método el `templateId` o el `workflowId`. La API no las lista, así que es
+carga manual una sola vez — ver [08-MENSAJERIA](08-MENSAJERIA.md) § Plantillas.
+
+### 5. Una llamada contestada de Assistable
+
+Las tres que llegaron cayeron en buzón de voz, así que **todavía nadie vio una transcripción
+real**. Es lo que falta para arrancar los auditores de voz.
 
 ## Lo que no existe
 
 | Qué | Nota |
 |---|---|
 | Auditor de chat del setter | La rúbrica de pre-agenda es distinta; no es "el mismo con otro contexto" |
-| Auditores de voz (×2) | Ya tienen fuente: el webhook de Assistable. Falta ver el payload |
-| Mandar plantillas de WhatsApp | La vía es disparar un workflow de GHL. Requiere que existan plantillas aprobadas |
+| Auditores de voz (×2) | Ya tienen fuente y esquema: `closer_llamadas.turnos` guarda la transcripción entera. Falta la rúbrica y una llamada contestada |
+| Reproducir el audio de una llamada | `grabacion_url` se guarda y viaja; falta el reproductor |
 | Reintentar un mensaje fallido | — |
 | Gerencia | Placeholder "Próximamente" |
 | Auditoría de Llamadas | Placeholder "Próximamente" |
 | Autenticación real | Todo firma con un autor por defecto |
-| Reproducción de audio | Los botones existen, no hay backend |
+| Sales calls en el tab Llamada | Nadie graba ni transcribe las reuniones del closer |
 
 ## Huecos conocidos
 
@@ -130,6 +137,9 @@ Cosas que funcionan pero con un límite que conviene tener presente:
 ## Operativo
 
 - **Credenciales**: en `.env.local`, gitignored. **Pendiente rotarlas** — circularon en chats.
+- **El access token de Facebook de la subcuenta** llegó dentro de los payloads de Assistable y
+  estuvo en reposo en `closer_webhook_inbox`. Ya se redactó de las filas guardadas y el webhook
+  lo recorta de entrada, pero **conviene rotarlo**.
 - **Contactos que no se tocan en pruebas**: Veronica Ochoa Orrego, Enrique Izaguirre, Richard
   Andrés Rodriguez.
 - **Contactos de prueba**: con `@example.com`, y se borran después.
