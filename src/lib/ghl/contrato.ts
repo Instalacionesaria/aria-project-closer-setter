@@ -223,10 +223,11 @@ export function perteneceAlCloser(tags: readonly string[], exigirZonaCloser = fa
  * repetidos en cuatro archivos (`respondieron.ts`, `contactos.ts`, `urgentes.ts`,
  * `analizador.ts`) — la duplicación estaba anotada como deuda en `respondieron.ts`.
  *
- * `bot_activado` es el único que este tool nunca vio en la subcuenta: lo declara el doc de
- * la tarea y lo tiene que aplicar Francisco en sus workflows cuando el chatbot atiende
- * (pedido registrado en `docs/WEBHOOKS-APIS-Y-POLLING.md`). Va `confirmado` igual porque
- * este tool solo lo LEE — leer un tag que no existe todavía es un no-op, no un riesgo.
+ * `bot_activado` es el único que este tool nunca vio en la subcuenta: lo tiene que aplicar
+ * Francisco en sus workflows cuando el chatbot atiende, y los que lo harían siguen en
+ * borrador (ver `docs/03-INTEGRACION-GHL.md` y `docs/10-ESTADO.md`). Va `confirmado` igual
+ * porque este tool solo lo LEE — leer un tag que no existe todavía es un no-op, no un
+ * riesgo. Lo que SÍ bloquea es al auditor: ver `docs/07-AUDITOR-IA.md`.
  */
 export const TAGS_BOT = {
   botActivado: {

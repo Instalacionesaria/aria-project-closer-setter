@@ -1,54 +1,56 @@
-# Comando Central — Réplica
+# Comando Central
 
-Réplica idéntica del dashboard **Comando Central** (Closer AI / InmoLead AI),
-originalmente en `https://clone-of-ai-inmobili.vibepreview.com/closer-dashboard`.
+Dashboard de un equipo comercial high-ticket que opera sobre GoHighLevel. GHL ejecuta y
+archiva; esto es la cabina donde los humanos ven el estado y registran decisiones.
 
-Reconstruida como código fuente limpio y editable: **React + Vite + TypeScript + Tailwind CSS**
-con el sistema de diseño **shadcn/ui** (tema violet) y los tokens de color exactos del original.
+**Stack:** React 18 + Vite 5 + TypeScript estricto · Tailwind + shadcn/ui · Vercel Functions
+(Node 24) · Supabase.
 
-## Vistas (sincronizadas con la versión rediseñada de Francisco)
-
-Barra lateral con secciones y switch de rol; **Sales Calls Audit** y **Gerencia** aparecen
-deshabilitadas ("Próximamente"), igual que el original.
-
-- **Closer** — tabs: Inicio (cockpit: cash collected, ventas, acuerdos, calls, show rate,
-  comisión + gráfico "Histórico de Ingresos"), Mi Día (KPIs + Agenda de Hoy + Intervenciones
-  urgentes), Pipeline (segmentado por etapa: Agendado / Seguimiento / Cierre en curso / Ganado /
-  No-show / Descalificado, con filtros A/B/C/Destacados y "Sincronizar CRM"), Agenda (calendario +
-  Próximos Días + citas con "Unirse al Meet" / "Reprogramar")
-- **Setter** — cockpit de comisiones (Low-ticket, Diferidas, Agendas generadas, Show rate,
-  Oportunidades LT) + tabs Mi Día y Pipeline
-- **Agents Audit** — "Salud de los agentes": agentes de texto y voz (conversión, sentimiento
-  positivos/neutrales/molestos, métricas operativas) + Historial de Ajustes
-- **Ajustes** — Mi Cuenta (Conectar Calendario, enlace de agendamiento, Sonido de Venta)
-- **Sugerir Mejora** — popover con textarea (pie de la barra lateral) + toggle de modo oscuro
-
-## Datos
-
-Cada vista es autónoma con datos demo/simulados en línea (sin backend), fieles al contenido
-capturado del original. `src/lib/data.ts` conserva el generador de leads del bundle original.
-
-## Desarrollo
+## Arrancar
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # build de producción en /dist
-npm run preview  # sirve el build
+npm run dev
 ```
+
+Para que el backend funcione hace falta un `.env.local` con las credenciales de GHL y Supabase
+— pedírselas a Fabio. Sin ellas la app levanta igual, pero `api/` responde en modo stub.
+
+```bash
+npm test -- --run     # tests (offline, sin credenciales)
+npx tsc -b            # typecheck
+npm run build         # build de producción
+```
+
+## Documentación
+
+**Empezá por [`docs/00-MAPA.md`](docs/00-MAPA.md)** — tiene una tabla de "tengo esta pregunta →
+leo esto".
+
+Si venís de cero, los cuatro primeros documentos alcanzan para entender el sistema:
+[producto](docs/01-PRODUCTO.md) → [arquitectura](docs/02-ARQUITECTURA.md) →
+[integración con GHL](docs/03-INTEGRACION-GHL.md) → [datos y relojes](docs/04-DATOS-Y-RELOJES.md).
+
+Las reglas de trabajo y las trampas del entorno están en [`CLAUDE.md`](CLAUDE.md).
 
 ## Estructura
 
 ```
 src/
-  App.tsx              # shell + sidebar + navegación
-  lib/
-    data.ts            # capa de datos (leads seed + generador)
-    utils.ts           # helper cn()
-  views/
-    CloserAI.tsx       # Inicio + Mi Día + Pipeline + Agenda
-    SetterView.tsx     # cockpit de comisiones (Inicio + Mi Día + Pipeline)
-    AgentsAudit.tsx    # Salud de los agentes (texto/voz + historial)
-    Ajustes.tsx        # Mi Cuenta
-  index.css            # tokens de diseño (CSS vars shadcn) + base
+  App.tsx      shell, sidebar y navegación
+  views/       una vista por módulo, cargadas con React.lazy
+  lib/         stores (un provider por módulo) y módulos isomorfos
+  lib/ghl/     el contrato con GHL — literales, derivaciones, autoría
+api/
+  _lib/        la lógica; no son endpoints
+  closer/  setter/  agentes/  webhooks/     los endpoints
+docs/          la documentación, un archivo por tema
+docs/db/       las migraciones, en orden numérico
 ```
+
+## Desplegar
+
+Push a `main`. La integración de GitHub con Vercel publica sola. **No se usa `vercel --prod`.**
+
+Después de desplegar, confirmar que el deploy quedó Ready: un check verde de GitHub no
+significa que se construyó.
