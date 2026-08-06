@@ -76,11 +76,58 @@ export const env = {
       .split(",")
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
+  /**
+   * ── Prueba en vivo, 2026-08-06 (decisión de Fabio) ──────────────────
+   *
+   * El default deja de estar vacío y trae el `userId` de **Jorge Quiroz**, porque el agente
+   * de texto de esta subcuenta cambió de firma: el 2026-08-04 mandaba `source:"app"` **sin**
+   * `userId` —que es como se midió la tabla de `autoria.ts`— y hoy manda firmado con la
+   * cuenta de Jorge. Medido sobre la conversación de prueba de las 19:05–20:04: los 5
+   * mensajes del agente llegan con `source:"app"` y `userId:"0peGoq7VvFqnDGA7gxtX"`, que
+   * `GET /users/{id}` identifica como Jorge Quiroz (jorgesjnw2016@gmail.com, admin).
+   *
+   * Sin esto el auditor queda **ciego**: los clasifica como `asesor`, el debounce cuenta 0
+   * mensajes de IA y el portón 5 corta con "la conversación no tiene ningún mensaje del
+   * agente" — verificado contra producción antes de tocar nada.
+   *
+   * **El costo, dicho en voz alta:** Jorge es una persona real. Mientras esto esté puesto,
+   * lo que él escriba A MANO también cuenta como del bot, y el auditor puede juzgarlo como
+   * tal. Es exactamente el error que D16 llama caro, aceptado a propósito y por un rato:
+   * Fabio lo pidió para ver al auditor trabajar durante las pruebas.
+   *
+   * **Cómo se apaga:** `AUDITOR_USER_IDS_IA=""` en Vercel lo pisa (una cadena vacía gana
+   * sobre el `??`). Lo definitivo es que el agente mande bajo su propio usuario de GHL, y
+   * ahí este default se borra.
+   */
   auditorUserIdsIa: (): string[] =>
-    (process.env.AUDITOR_USER_IDS_IA ?? "")
+    (process.env.AUDITOR_USER_IDS_IA ?? "0peGoq7VvFqnDGA7gxtX")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
+
+  /**
+   * ⚠️ EL INTERRUPTOR DEL AUDITOR — hoy en ENCENDIDO. Prueba de Fabio, 2026-08-06.
+   *
+   * Saltea el portón 2, el que exige el tag `bot_activado`. **Esto suspende D8**, que decía
+   * que la plataforma no adivina el estado del bot y que se esperaba a que Francisco
+   * publicara los workflows 🟦 08.1/08.2. Fabio lo pidió explícitamente para ver al auditor
+   * trabajar durante las pruebas, sabiendo que puede escribir tags en GHL.
+   *
+   * Viene encendido por default y no apagado porque los workflows siguen en borrador: con el
+   * portón puesto, **cero** contactos pasan, y el interruptor no serviría de nada. Así, un
+   * contacto nuevo que aparezca en mitad de una prueba se audita solo, sin que nadie tenga
+   * que etiquetarlo.
+   *
+   * **Alcance medido el 2026-08-06:** de los 12 contactos en `zona_closer`, solo 3 tienen
+   * suficientes mensajes del agente para pasar el debounce de 5 — Quiroz Prueba (11),
+   * Angelica Moncada (6) y Leo Magistra (5). Los tres contactos que no se tocan en pruebas
+   * (Veronica Ochoa Orrego, Enrique Izaguirre, Richard Andrés Rodriguez) tienen **cero**, así
+   * que quedan fuera por el debounce, no por suerte.
+   *
+   * **Cómo se apaga:** `AUDITOR_SIN_PORTON_TAGS=0` en Vercel, sin tocar código. Y cuando
+   * Francisco publique los workflows, se borra este helper y vuelve a regir D8.
+   */
+  auditorSinPortonTags: (): boolean => process.env.AUDITOR_SIN_PORTON_TAGS !== "0",
 
   /** Cuántos mensajes de la IA hacen falta para disparar un análisis (regla de Fabio: 5). */
   auditorUmbralIa: (): number => Number(process.env.AUDITOR_UMBRAL_IA ?? 5),

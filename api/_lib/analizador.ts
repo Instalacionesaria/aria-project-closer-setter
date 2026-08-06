@@ -986,7 +986,7 @@ export async function analizarYMarcar(
      * la conversación. Ese es el chequeo factual, y saltearlo sería volver a evaluar una IA
      * que no habló — el bug original.
      */
-    if (!botAtendiendo(tags) && !opts.dryRun) {
+    if (!botAtendiendo(tags) && !opts.dryRun && !env.auditorSinPortonTags()) {
       return {
         analizado: false,
         motivo: "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",

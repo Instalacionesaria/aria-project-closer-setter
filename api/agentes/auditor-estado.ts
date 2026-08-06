@@ -99,7 +99,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         embudo.territorioSetter++;
         continue;
       }
-      if (!botAtendiendo(tags)) {
+      // Con el interruptor de prueba puesto (2026-08-06) el portón 2 no corta, así que el
+      // embudo tampoco debe contarlo: si el diagnóstico siguiera restando acá, diría que el
+      // auditor está bloqueado justo mientras está analizando. Un diagnóstico que se
+      // contradice con la realidad es peor que no tenerlo.
+      if (!botAtendiendo(tags) && !env.auditorSinPortonTags()) {
         embudo.botNoAtendiendo++;
         continue;
       }
@@ -155,7 +159,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const conBot = tagsDeBot[TAGS_BOT.botActivado.valor] + tagsDeBot[TAGS_BOT.botReactivar.valor];
     const delTerritorio = contactos.filter((c) => (c.tags ?? []).includes(TAGS.zonaCloser.valor)).length;
 
-    if (conBot === 0) {
+    if (env.auditorSinPortonTags()) {
+      loQueFalta.push(
+        "⚠️ MODO PRUEBA (2026-08-06): el portón del tag 'bot_activado' está SALTEADO, así que el auditor " +
+          "analiza cualquier contacto del territorio que junte 5 mensajes del agente, y puede escribir tags " +
+          "en GHL. Se apaga con AUDITOR_SIN_PORTON_TAGS=0. Cuando Francisco publique los workflows " +
+          "🟦 08.1 / 08.2, esto se saca y vuelve a regir el portón por tags.",
+      );
+    } else if (conBot === 0) {
       loQueFalta.push(
         `Ningún contacto tiene 'bot_activado' ni 'bot_reactivar' (0 de ${delTerritorio} en zona_closer). ` +
           "Son los workflows 🟦 08.1 / 08.2 los que aplican y quitan ese tag, y hoy están en BORRADOR. " +
@@ -194,7 +205,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const bloqueante =
-      conBot === 0
+      conBot === 0 && !env.auditorSinPortonTags()
         ? "Ningún contacto tiene el agente de IA activado, así que no hay conversaciones que auditar."
         : embudo.listosParaAnalizar === 0 && embudo.debouncePendiente > 0
           ? `Hay ${embudo.debouncePendiente} conversación(es) esperando a que la IA mande ${umbral} mensajes.`
@@ -205,6 +216,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       generadoEl: new Date().toISOString(),
       ghlModo: env.ghlModo(),
       corriendo: recientes.length > 0,
+      /** Prueba del 2026-08-06: el portón del tag está salteado. Ver `loQueFalta`. */
+      modoPrueba: env.auditorSinPortonTags(),
       bloqueante,
       umbralDebounce: umbral,
       contactosEnCache: contactos.length,
