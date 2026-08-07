@@ -133,7 +133,12 @@ export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = ["appointment-flow-ai
  * juzgar bien "prometió algo incorrecto": prometer una fecha significa algo distinto según
  * si el agente estaba agendando o acompañando una cita ya agendada.
  */
-const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteTextoId; contexto: string }> = {
+/**
+ * Exportado para el carril amarillo (`auditor/amarilloDiario.ts`): los dos carriles auditan a los
+ * mismos agentes con el mismo contexto, y duplicar estos textos garantizaría que un día digan
+ * cosas distintas del mismo agente.
+ */
+export const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteTextoId; contexto: string }> = {
   closer: {
     tag: TAGS.zonaCloser.valor,
     agenteId: "appointment-flow-ai",
@@ -981,6 +986,30 @@ export interface DecisionAuditor {
  * contacto se va enojado nunca se audita. Es consecuencia matemática de la regla, no un bug
  * tapable. La salida es `POST /api/closer/analizar {forzar:true}`, que ignora el debounce.
  */
+/**
+ * ¿El agente de IA está atendiendo a este contacto? La respuesta ÚNICA para los dos carriles.
+ *
+ * ── Por qué existe esta función y no cada carril con su filtro ────────
+ *
+ * El carril amarillo nació copiando el filtro del endpoint manual —`botAtendiendo(tags) &&
+ * !TAG_FALLO`— y contra los datos reales de producción eso matchea **cero contactos**: los
+ * workflows de GHL que aplican `bot_activado` (🟦 08.1 / 08.2) siguen en BORRADOR, así que hoy
+ * nadie lleva el tag. El cron habría corrido todos los días devolviendo "sin conversaciones" sin
+ * que nada fallara — el mismo modo de falla que los prompts que no existían mientras el panel
+ * reportaba éxito.
+ *
+ * Lo que faltaba no era el filtro sino la escotilla: el carril rojo automático salta el portón
+ * cuando `AUDITOR_SIN_PORTON_TAGS=1`, y por eso sí audita. Dos definiciones de "el bot atiende"
+ * divergen en silencio; es la regla 3 de CLAUDE.md. Ahora hay una.
+ *
+ * El día que Francisco publique los workflows, la escotilla se apaga y **los dos carriles** pasan
+ * a regirse por el tag a la vez.
+ */
+export function elAgenteAtiende(tags: readonly string[]): boolean {
+  if (tags.includes(TAG_FALLO)) return false; // ya tiene veredicto rojo y su tarea
+  return botAtendiendo(tags) || env.auditorSinPortonTags();
+}
+
 export async function decidirAnalisis(ghlContactId: string): Promise<DecisionAuditor> {
   const umbral = env.auditorUmbralIa();
 
@@ -1388,7 +1417,7 @@ export async function analizarTerritorio(
   resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis>;
 }> {
   const { contactos, truncado } = await contactosConTag(TERRITORIOS[territorio].tag);
-  const candidatos = contactos.filter((c) => botAtendiendo(c.tags) && !c.tags.includes(TAG_FALLO));
+  const candidatos = contactos.filter((c) => elAgenteAtiende(c.tags));
 
   const resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis> = [];
   for (const c of candidatos) {

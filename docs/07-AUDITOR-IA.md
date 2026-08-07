@@ -95,12 +95,95 @@ caliente abriría un bucle de reintentos justo cuando GHL o Anthropic están fal
 análisis sobre todo. Si la conversación lleva más de 14 días muerta, se escribe una fila de
 línea base **sin llamar al modelo**, solo para sembrar el contador.
 
-> **El agujero, dicho en voz alta:** una conversación donde la IA manda **4** mensajes y el
-> contacto se va enojado **nunca se audita**. Es consecuencia matemática de la regla, no un bug
-> tapable. La salida es `POST /api/closer/analizar {forzar:true}`.
-
 Ahorro real: una conversación de 20 mensajes con 10 de la IA pasa de ~20 llamadas al modelo
 a ~2.
+
+### El nivel 0 — el agujero del debounce, cerrado (2026-08-07)
+
+> Hasta esta fecha acá decía: *"una conversación donde la IA manda 4 mensajes y el contacto se va
+> enojado nunca se audita. Es consecuencia matemática de la regla, no un bug tapable."* Era cierto,
+> y era el caso que más duele. Ya no pasa.
+
+Antes de rendirse, el debounce corre **cinco heurísticas de costo cero** sobre `closer_mensajes`
+—nuestra caché, no GHL— y si alguna levanta, adelanta el análisis:
+
+| Señal | Qué mira |
+|---|---|
+| `frustracion_lexica` | el contacto se quejó, en sus 3 mensajes más recientes |
+| `intencion_de_pago` | quiere pagar o comprar **ahora** |
+| `pregunta_repetida` | repitió sustancialmente la misma pregunta, no en mensajes contiguos |
+| `agente_se_repite` | el agente mandó dos mensajes casi idénticos |
+| `contacto_se_fue` | último mensaje del agente + 60 min de silencio, habiendo hablado antes |
+
+El portón queda: **`delta ≥ 5`, o `delta ≥ 1` con alarma.**
+
+> El piso de `delta ≥ 1` es lo que evita el bucle. Una alarma **no se consume**: la queja sigue en
+> los 3 mensajes recientes después de que el análisis corrió, y sin el piso la conversación
+> alarmada se re-analizaría en cada mensaje entrante. El criterio: esto audita **al agente**, así
+> que si el agente no dijo nada nuevo, el veredicto anterior ya cubre lo que hay.
+
+Las señales no juzgan a nadie — solo adelantan el momento de mirar. El veredicto lo sigue dando el
+modelo con su cita textual y su regla de atribución. Cada análisis guarda cuál lo adelantó en
+`closer_analisis_agente.alarmas`, para poder **borrar** después las que disparen sin terminar nunca
+en rojo.
+
+El léxico completo, con la regla para agregar términos y lo que se dejó afuera a propósito, está
+en [13-LEXICO-AUDITOR](13-LEXICO-AUDITOR.md).
+
+## El carril amarillo — una mejora por día (2026-08-07)
+
+El rojo corre por conversación, en caliente, y su consecuencia es apagarle el bot a alguien. El
+amarillo corre **una vez por día y por empresa** (`GET /api/auditor-amarillo`, 21:00 UTC = 16:00 de
+Lima) y su consecuencia es una línea en Auditoría de Agentes para el técnico.
+
+Las 16:00 le dejan al técnico el resto de la jornada para aplicar el ajuste. La hora del cron es
+fija, pero **el borde del día se calcula en la zona de cada empresa**.
+
+La corrida, en orden:
+
+1. Candidatos del día: actividad hoy, el agente atendiendo, **sin** hallazgo rojo hoy, y de un
+   territorio cuyo agente esté en `AUDITORES_ACTIVOS`.
+2. Agrupa por señal heurística —las mismas cinco del nivel 0, leídas de la caché— y elige **un**
+   patrón: el más repetido; si empatan, el más reciente.
+3. **Antes de gastar**, descarta por `(error_code, agente, prompt_hash)`.
+4. Si sobrevive: **una** llamada al modelo.
+
+**Tope duro: un amarillo por empresa y por agente, por día.** Es un techo, no una cadencia suave —
+un techo se razona y se presupuesta.
+
+Lo que el amarillo **no** hace, y es deliberado:
+
+- **No propone corrección de prompt.** Redactar el reemplazo es la parte cara del veredicto.
+- **No genera tarea para nadie.** No entra a Mi Día, ni a Urgentes, ni al Buzón. Un contacto no
+  aparece en ninguna cola del closer por un amarillo.
+- **No apaga ningún bot.** Escribe su análisis con `fallo = false`.
+
+### La dimensión `acompanamiento`
+
+Los siete criterios de la rúbrica son de **fallo**. El amarillo necesita decir "esto se podía hacer
+mejor" sin que sea un defecto, y eso **no se consigue aflojando los umbrales de los siete**: un
+criterio flojo produce ruido, y el ruido le enseña al técnico a ignorar la pestaña.
+
+Es una dimensión aparte, con su propia escala:
+
+| Nivel | Qué es | ¿Hallazgo? |
+|---|---|---|
+| `acompano` | el agente leyó dónde estaba el lead y respondió a eso | no |
+| `respondio` | contestó bien, pero pasó por alto una señal del lead | **no**, a propósito |
+| `desacompaso` | el lead estaba en un lugar y el agente siguió con su agenda | sí |
+
+`respondio` se mide y se descarta: casi toda conversación tiene algo que se podía decir mejor, así
+que reportarlo sería un amarillo diario garantizado sin señal adentro. Se pide igual en el esquema
+para que el modelo tenga dónde poner lo tibio en vez de empujarlo a `desacompaso`.
+
+Descartes propios: menos de 3 mensajes con texto del contacto, la conversación terminó en cita o en
+un sí, quien respondió después no fue el agente, el lead pidió algo que el prompt no cubre, o
+faltan las dos citas textuales. Rige la **misma regla de atribución** que el rojo.
+
+> **Un amarillo del carril amarillo se distingue por `criterio = 'acompanamiento'`**, no por
+> `severidad`. El carril rojo también produce hallazgos de severidad `amarillo` —los que encuentra
+> de paso y no piden intervención—, y confundirlos bloqueaba el tope diario con trabajo ajeno. Lo
+> cazó el primer dry run contra producción.
 
 ## La rúbrica
 
