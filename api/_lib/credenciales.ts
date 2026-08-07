@@ -45,10 +45,18 @@ export interface Credenciales {
    */
   ghlCalendarioId: string | null;
   anthropicKey: string | null;
-  anthropicModelo: string;
-  anthropicThinking: string;
   assistableToken: string | null;
-  assistableCuentaId: string | null;
+  /**
+   * ── Muerta desde el 2026-08-07, se dropea en el contract ────────────
+   *
+   * Era para "validar el match con la subcuenta", y es **redundante**: la empresa de un webhook
+   * ya se resuelve por el `location_id` del payload contra `ghl_location_id`, que tiene índice
+   * único. Dos formas de responder la misma pregunta es como empiezan a divergir.
+   *
+   * Se deja de leer acá y la columna se dropea junto con `closer_usuarios.rol` — mismo criterio
+   * de expand→deploy→contract que el resto.
+   */
+  assistableCuentaId?: never;
   metaAdAccountId: string | null;
   metaToken: string | null;
   zonaHoraria: string;
@@ -84,8 +92,6 @@ export interface Credenciales {
  * es el único lugar donde vive el default, y cada empresa lo puede pisar con su propia
  * columna sin desplegar.
  */
-const MODELO_POR_DEFECTO = "claude-sonnet-5";
-const THINKING_POR_DEFECTO = "high";
 
 /** Las columnas de `closer_org_config` que esta resolución necesita. */
 interface FilaOrgConfig {
@@ -103,10 +109,7 @@ interface FilaOrgConfig {
   ghl_pit_cifrado: string | null;
   ghl_webhook_secret: string | null;
   anthropic_key_cifrada: string | null;
-  anthropic_modelo: string | null;
-  anthropic_thinking: string | null;
   assistable_token: string | null;
-  assistable_cuenta_id: string | null;
   meta_ad_account_id: string | null;
   meta_token_cifrado: string | null;
 }
@@ -174,7 +177,7 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
     .select(
       "org_id, nombre, es_principal, activa, zona_horaria, ghl_location_id, ghl_calendario_id, " +
         "ghl_pit_cifrado, ghl_webhook_secret, " +
-        "anthropic_key_cifrada, anthropic_modelo, anthropic_thinking, assistable_token, assistable_cuenta_id, " +
+        "anthropic_key_cifrada, assistable_token, " +
         "meta_ad_account_id, meta_token_cifrado, " +
         "prompt_appointment_texto, prompt_lead_texto, prompt_appointment_voz, prompt_lead_voz",
     )
@@ -260,13 +263,10 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
       if (process.env.ANTHROPIC_API_KEY) desdeEntorno.push("ANTHROPIC_API_KEY");
       return process.env.ANTHROPIC_API_KEY ?? null;
     })(),
-    anthropicModelo: (fila.anthropic_modelo as string | null) || process.env.CLAUDE_MODEL || MODELO_POR_DEFECTO,
-    anthropicThinking: (fila.anthropic_thinking as string | null) || process.env.AUDITOR_EFFORT || THINKING_POR_DEFECTO,
 
     // Sin fallback, ni siquiera para la principal: nunca existieron como variables globales,
     // así que un fallback acá sería inventar una fuente.
     assistableToken: (fila.assistable_token as string | null) ?? null,
-    assistableCuentaId: (fila.assistable_cuenta_id as string | null) ?? null,
     metaAdAccountId: (fila.meta_ad_account_id as string | null) ?? null,
     metaToken: abrir(fila.meta_token_cifrado as string | null),
 

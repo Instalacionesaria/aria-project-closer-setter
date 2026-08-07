@@ -1327,7 +1327,6 @@ export interface ConfiguracionResponse {
   ok: boolean;
   empresa?: { id: string; nombre: string; slug: string; esPrincipal: boolean; activa: boolean; zonaHoraria: string };
   credenciales?: CredencialAdmin[];
-  auditor?: { modelo: string | null; thinking: string | null; modeloPorDefecto: string; thinkingPorDefecto: string };
   prompts?: PromptAdmin[];
   /** Sin clave maestra en el servidor no se puede guardar nada cifrado. */
   puedeGuardarCifrado?: boolean;

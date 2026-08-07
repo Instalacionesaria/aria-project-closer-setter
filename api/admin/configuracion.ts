@@ -43,7 +43,6 @@ const CREDENCIALES = [
   { clave: "ghlCalendarioId", columna: "ghl_calendario_id", cifrado: false, etiqueta: "Calendario de GHL" },
   { clave: "anthropicKey", columna: "anthropic_key_cifrada", cifrado: true, etiqueta: "API key de Anthropic" },
   { clave: "assistableToken", columna: "assistable_token", cifrado: false, etiqueta: "Token del webhook de Assistable" },
-  { clave: "assistableCuentaId", columna: "assistable_cuenta_id", cifrado: false, etiqueta: "Cuenta de Assistable" },
   { clave: "metaAdAccountId", columna: "meta_ad_account_id", cifrado: false, etiqueta: "Cuenta publicitaria de Meta" },
   { clave: "metaToken", columna: "meta_token_cifrado", cifrado: true, etiqueta: "Token de Meta" },
 ] as const;
@@ -61,7 +60,7 @@ const PROMPTS = [
 ] as const;
 
 /** El `ghl_location_id` no es secreto pero tampoco hace falta mostrarlo entero. */
-const CLARAS_VISIBLES = new Set(["ghlLocationId", "ghlCalendarioId", "assistableCuentaId", "metaAdAccountId"]);
+const CLARAS_VISIBLES = new Set(["ghlLocationId", "ghlCalendarioId", "metaAdAccountId"]);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.1: *"La configuración solo se toca desde `admin` o `super_admin`"*. Un técnico con rol
@@ -100,8 +99,6 @@ async function leer(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
     "es_principal",
     "activa",
     "zona_horaria",
-    "anthropic_modelo",
-    "anthropic_thinking",
     ...CREDENCIALES.map((c) => c.columna),
     ...PROMPTS.map((p) => p.columna),
   ].join(", ");
@@ -159,13 +156,6 @@ async function leer(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
       zonaHoraria: fila.zona_horaria,
     },
     credenciales,
-    auditor: {
-      modelo: fila.anthropic_modelo ?? null,
-      thinking: fila.anthropic_thinking ?? null,
-      /** Lo que se usa si la empresa no define el suyo. La UI lo muestra como placeholder. */
-      modeloPorDefecto: "claude-sonnet-5",
-      thinkingPorDefecto: "high",
-    },
     prompts,
     /**
      * Sin clave maestra no se puede guardar nada cifrado. Se dice acá para que la UI
@@ -217,21 +207,6 @@ async function guardar(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
     parche[p.columna] = texto;
     parche[`${p.columna}_hash`] = texto ? hashDe(texto) : null;
     tocadas.push(p.clave);
-  }
-
-  /* ── Modelo y esfuerzo del auditor ── */
-  if (typeof cuerpo?.anthropicModelo === "string") {
-    parche.anthropic_modelo = cuerpo.anthropicModelo.trim() || null;
-    tocadas.push("anthropicModelo");
-  }
-  if (typeof cuerpo?.anthropicThinking === "string") {
-    const t = cuerpo.anthropicThinking.trim();
-    // El CHECK de la 018 lo rechazaría igual, pero acá el mensaje es útil: dice cuáles valen.
-    if (t && !["low", "medium", "high"].includes(t)) {
-      return res.status(400).json({ ok: false, codigo: "thinking_invalido", error: "El esfuerzo es low, medium o high." });
-    }
-    parche.anthropic_thinking = t || null;
-    tocadas.push("anthropicThinking");
   }
 
   /* ── Borrado explícito ── */

@@ -20,6 +20,7 @@ import { CAMPOS, SITUACIONES, TAGS, literalesPendientes } from "../src/lib/ghl/c
 import { enmascarar, hayClaveMaestra } from "./_lib/cifrado.js";
 import { activar } from "./_lib/credenciales.js";
 import { exigir } from "./_lib/auth.js";
+import { ESFUERZO_AUDITOR, MODELO_AUDITOR } from "./_lib/analizador.js";
 
 /** Los literales que este módulo necesita que existan en la cuenta. */
 const TAGS_REQUERIDOS = [
@@ -130,7 +131,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ghlLocationId: cred.ghlLocationId ? `…${cred.ghlLocationId.slice(-4)}` : "FALTA",
     ghlWebhookSecret: cred.ghlWebhookSecret ? "configurado" : "FALTA",
     anthropicKey: enmascarar(cred.anthropicKey) ?? "FALTA",
-    auditor: { modelo: cred.anthropicModelo, thinking: cred.anthropicThinking },
+    // El modelo y el esfuerzo dejaron de ser configurables (2026-08-07): son constantes de
+    // `analizador.ts`. Se reportan igual para que el diagnóstico diga con qué se está auditando.
+    auditor: { modelo: MODELO_AUDITOR, thinking: ESFUERZO_AUDITOR },
     assistable: cred.assistableToken ? "configurado" : "FALTA",
     meta: cred.metaAdAccountId ? "configurado" : "FALTA",
     zonaHoraria: cred.zonaHoraria,

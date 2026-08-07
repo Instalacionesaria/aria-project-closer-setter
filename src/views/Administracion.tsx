@@ -861,33 +861,6 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
         </div>
       </section>
 
-      {/* ── Auditor ── */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium">Auditor</h2>
-        <div className="grid grid-cols-2 gap-3">
-          <Campo etiqueta="Modelo">
-            <input
-              value={cambios.anthropicModelo ?? datos.auditor?.modelo ?? ""}
-              onChange={(e) => editar("anthropicModelo", e.target.value)}
-              placeholder={datos.auditor?.modeloPorDefecto}
-              className={INPUT}
-            />
-          </Campo>
-          <Campo etiqueta="Esfuerzo">
-            <select
-              value={cambios.anthropicThinking ?? datos.auditor?.thinking ?? ""}
-              onChange={(e) => editar("anthropicThinking", e.target.value)}
-              className={INPUT}
-            >
-              <option value="">Por defecto ({datos.auditor?.thinkingPorDefecto})</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
-          </Campo>
-        </div>
-      </section>
-
       {/* ── Prompts ── */}
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Prompts de los agentes</h2>

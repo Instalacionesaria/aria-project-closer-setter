@@ -74,9 +74,22 @@ import {
   type MensajeGhl,
 } from "./ghl/lectura.js";
 
-/** El modelo de la empresa activa, o el default global. Un solo lugar que lo decide. */
-const modeloDeLaEmpresa = (): string =>
-  credencialesActivas()?.anthropicModelo ?? process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
+/**
+ * El modelo y el esfuerzo del auditor. **Constantes, para todas las empresas.**
+ *
+ * ── Por qué no son configurables (2026-08-07) ─────────────────────────
+ *
+ * Eran columnas de `closer_org_config` con fallback a variables de entorno, y la cadena entera
+ * se eliminó a pedido de Fabio. El motivo sale de este mismo repo: `AUDITOR_SIN_PORTON_TAGS`
+ * demostró que un comportamiento gobernado por una variable de entorno **se vuelve a encender
+ * solo** en cualquier entorno donde la variable no esté — un preview, un clon local, un
+ * proyecto nuevo. Un modelo elegido por config tiene el mismo problema al revés: una empresa
+ * podía quedar auditando con un modelo distinto sin que nadie lo hubiera decidido.
+ *
+ * Cambiar el modelo pasa a ser un cambio de código, que aparece en un diff y alguien lo mira.
+ */
+export const MODELO_AUDITOR = "claude-sonnet-5";
+export const ESFUERZO_AUDITOR = "high";
 
 /** El tag que enciende la cola roja y apaga al agente de GHL. */
 export const TAG_FALLO = "bot_pausado_fallo";
@@ -676,19 +689,16 @@ export async function evaluarConversacion(opts: {
    * con contexto —un cron que todavía no activó organización— cae al default, que es el
    * comportamiento correcto: mejor auditar con el modelo por defecto que no auditar.
    */
-  const modelo = modeloDeLaEmpresa();
-  const esfuerzo = credencialesActivas()?.anthropicThinking ?? env.auditorEsfuerzo();
+  const modelo = MODELO_AUDITOR;
+  const esfuerzo = ESFUERZO_AUDITOR;
 
   // La key va EXPLÍCITA: sin el argumento el SDK lee `process.env.ANTHROPIC_API_KEY` y la
   // empresa activa deja de importar.
   const cliente = new Anthropic({ apiKey });
   const respuesta = await cliente.messages.create({
     /**
-     * §5.3 · El modelo y el esfuerzo salen de la EMPRESA activa, con default global.
-     *
-     * El default pasó de `claude-opus-5` a `claude-sonnet-5` con esfuerzo `high`, y vive en
-     * `credenciales.ts` — un solo lugar. Cada empresa lo pisa con `anthropic_modelo` /
-     * `anthropic_thinking` sin desplegar, así que revertir es cambiar un campo.
+     * `claude-sonnet-5` con esfuerzo `high`, igual para los dos carriles y para todas las
+     * empresas. Ver el comentario de `MODELO` arriba: dejó de ser configurable a propósito.
      */
     model: modelo,
     max_tokens: 8000,
@@ -802,7 +812,7 @@ async function guardarAnalisis(e: {
         sentimiento: e.veredicto.sentimiento,
         // Se guarda el modelo REAL con el que se juzgó: si mañana cambia, los análisis
         // viejos siguen diciendo con qué se produjeron.
-        modelo: modeloDeLaEmpresa(),
+        modelo: MODELO_AUDITOR,
         ia_cache_al_analizar: e.iaEnCache,
         prompt_hash: e.promptHash,
         auditable: e.veredicto.auditable,
