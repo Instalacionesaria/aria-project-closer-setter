@@ -6,18 +6,25 @@
  * El browser nunca las toca.
  */
 
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { env } from "./env.js";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { db as dbScopeado } from "./db.js";
 
-let cliente: SupabaseClient | null = null;
-
+/**
+ * El cliente, **ya atado a la organización** (ESPEC-MULTIEMPRESA §2.4, capa 1).
+ *
+ * Este `db()` sin argumentos existe para que los 94 puntos de acceso del proyecto no tuvieran
+ * que cambiar: por dentro delega en `db(ORG_ID)` de `./db.js`, que inyecta
+ * `.eq("org_id", …)` en todo select/update/delete y agrega `org_id` en todo insert/upsert.
+ * O sea que **el scoping ya está activo en todas las consultas** sin haber editado ninguna.
+ *
+ * El `createClient` se mudó a `./db.ts`, que es ahora el único archivo autorizado a crearlo
+ * (lo verifica `aislamiento.test.ts`).
+ *
+ * **Fase 2:** cuando existan las sesiones, `ORG_ID` deja de ser una constante y sale del
+ * usuario autenticado. Este es el único lugar que hay que tocar.
+ */
 export function db(): SupabaseClient {
-  if (!cliente) {
-    cliente = createClient(env.supabaseUrl(), env.supabaseServiceKey(), {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-  }
-  return cliente;
+  return dbScopeado(ORG_ID);
 }
 
 /* ================================================================== */
