@@ -39,6 +39,7 @@ import {
   type PresetManual,
 } from "../../src/lib/seguimientos/dominio.js";
 import { ghl } from "../_lib/ghl/index.js";
+import { exigir } from "../_lib/auth.js";
 import {
   registrarResultadoAvanzar,
   registrarSeguimiento,
@@ -63,6 +64,10 @@ const CLAVES = Object.keys(RESULTADOS) as ResultadoAvanzar[];
 const esResultado = (v: string): v is ResultadoAvanzar => CLAVES.includes(v as ResultadoAvanzar) && esResultadoValido(v);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer"]);
+  if (!ctx) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Solo POST." });

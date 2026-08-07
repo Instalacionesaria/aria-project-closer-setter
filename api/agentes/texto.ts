@@ -33,6 +33,7 @@ import { db } from "../_lib/repo.js";
 import { env } from "../_lib/env.js";
 import { ghl } from "../_lib/ghl/index.js";
 import { eventosDeCalendario } from "../_lib/ghl/lectura.js";
+import { exigir } from "../_lib/auth.js";
 
 const DIAS_VENTANA = 30;
 
@@ -140,6 +141,10 @@ async function historialDe(agenteId: AgenteTextoId) {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["tecnico"]);
+  if (!ctx) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Solo GET." });

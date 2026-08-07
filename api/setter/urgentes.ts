@@ -18,11 +18,16 @@ import { TAG_FALLO } from "../_lib/analizador.js";
 import { env } from "../_lib/env.js";
 import { contactosConTag } from "../_lib/ghl/lectura.js";
 import { db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 /** Cuando todavía no hay nota del analizador, se dice eso — no se inventa un diagnóstico. */
 const MOTIVO_SIN_NOTA = "requiere intervención — revisar conversación";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["setter"]);
+  if (!ctx) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Solo GET." });

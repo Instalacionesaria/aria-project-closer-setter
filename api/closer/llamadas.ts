@@ -22,6 +22,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db } from "../_lib/repo.js";
 import { aCallRecord, type FilaLlamada } from "../../src/lib/assistable.js";
+import { exigir } from "../_lib/auth.js";
 
 /**
  * Un contacto acumula intentos sin que nadie haga nada —el agente reintenta solo— así que el
@@ -30,6 +31,10 @@ import { aCallRecord, type FilaLlamada } from "../../src/lib/assistable.js";
 const MAXIMO = 200;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer", "setter", "tecnico"]);
+  if (!ctx) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({

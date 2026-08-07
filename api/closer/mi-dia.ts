@@ -12,12 +12,17 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ejecutarMiDia } from "../_lib/miDia.js";
+import { exigir } from "../_lib/auth.js";
 
 /* `clasificarCaso` se re-exporta desde su nuevo hogar: lo importan otros módulos y mover el
    archivo no debería obligarlos a cambiar el import. */
 export { clasificarCaso, type CasoSeguimiento } from "../_lib/miDia.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer"]);
+  if (!ctx) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Solo GET." });

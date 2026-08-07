@@ -48,6 +48,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ORG_ID, db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 /* ================================================================== */
 /* Catálogo de campos                                                  */
@@ -241,6 +242,10 @@ const respuesta = (res: VercelResponse, fila: Fila | null, extra: Record<string,
 /* ================================================================== */
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["admin"]);
+  if (!ctx) return;
+
   try {
     if (req.method === "GET") return respuesta(res, await leerFila());
 

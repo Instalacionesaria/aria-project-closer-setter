@@ -12,8 +12,13 @@ import { ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
 import { ventanaWhatsapp } from "../../src/lib/whatsapp.js";
 import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer", "setter"]);
+  if (!ctx) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Solo GET." });

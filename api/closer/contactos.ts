@@ -29,6 +29,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 /** Todas las tablas con rastro del contacto, en orden seguro de borrado (FKs primero). */
 const TABLAS_DEL_CONTACTO = [
@@ -45,6 +46,10 @@ const TABLAS_DEL_CONTACTO = [
 ] as const;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["admin"]);
+  if (!ctx) return;
+
   if (req.method !== "DELETE") {
     res.setHeader("Allow", "DELETE");
     return res.status(405).json({ ok: false, error: "Solo DELETE." });

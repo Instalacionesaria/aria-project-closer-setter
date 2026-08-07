@@ -27,6 +27,7 @@ import { AUDITORES_ACTIVOS, TAG_FALLO, territorioDe } from "../_lib/analizador.j
 import { estadoDeLosPrompts } from "../_lib/promptAgente.js";
 import { env } from "../_lib/env.js";
 import { ORG_ID, db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 const DIAS_MENSAJES = 7;
 
@@ -38,6 +39,10 @@ interface FilaContacto {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["tecnico"]);
+  if (!ctx) return;
+
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
     return res.status(405).json({ ok: false, error: "Solo GET." });

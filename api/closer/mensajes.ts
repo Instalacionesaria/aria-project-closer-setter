@@ -19,11 +19,16 @@ import { env } from "../_lib/env.js";
 import { guardarMensajes } from "../_lib/ingesta.js";
 import { db } from "../_lib/repo.js";
 import { ventanaWhatsapp } from "../../src/lib/whatsapp.js";
+import { exigir } from "../_lib/auth.js";
 
 const BASE = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer"]);
+  if (!ctx) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Usá POST." });

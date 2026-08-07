@@ -20,6 +20,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { AgenteTextoId } from "../_lib/analizador.js";
 import { AUTOR_POR_DEFECTO, ORG_ID, db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 const AGENTES_VALIDOS: readonly string[] = ["lead-flow-ai", "appointment-flow-ai"];
 
@@ -59,6 +60,10 @@ const COLUMNAS =
   "fragmento_prompt, correccion, prompt_hash, autor, aplicado_el";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["tecnico"]);
+  if (!ctx) return;
+
   try {
     if (req.method === "GET") return await listar(req, res);
     if (req.method === "POST") return await registrar(req, res);

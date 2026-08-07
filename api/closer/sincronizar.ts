@@ -35,6 +35,7 @@ import { sincronizarCitas } from "../_lib/citas.js";
 import { sincronizarTerritorio } from "../_lib/contactos.js";
 import { env } from "../_lib/env.js";
 import { db, ORG_ID } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 /** Cuántos contactos refresca como mucho el botón de la UI. Cada uno es 1 llamada a GHL. */
 const TOPE_UI = 25;
@@ -47,6 +48,10 @@ const VENTANA_SEGUNDOS = 60;
 const DIAS_AGENDA = 15;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["admin"]);
+  if (!ctx) return;
+
   if (req.method !== "POST" && req.method !== "GET") {
     res.setHeader("Allow", "POST, GET");
     return res.status(405).json({ ok: false, error: "Solo POST o GET." });

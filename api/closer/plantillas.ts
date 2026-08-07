@@ -33,6 +33,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { env } from "../_lib/env.js";
 import { guardarMensajes } from "../_lib/ingesta.js";
 import { db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 const BASE = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
@@ -50,6 +51,10 @@ interface Plantilla {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer"]);
+  if (!ctx) return;
+
   if (req.method === "GET") return listar(res);
   if (req.method === "POST") return enviar(req, res);
   res.setHeader("Allow", "GET, POST");

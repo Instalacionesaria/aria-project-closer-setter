@@ -47,11 +47,16 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ejecutarMiDia } from "../_lib/miDia.js";
 import { ejecutarReconciliacion } from "../_lib/reconciliacion.js";
+import { exigir } from "../_lib/auth.js";
 
 /** Deadline de la mitad de ingesta. Ver la nota de cabecera: cooperativo, no un race. */
 const PRESUPUESTO_RECONCILIACION_MS = 4_000;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer", "setter"]);
+  if (!ctx) return;
+
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");
     return res.status(405).json({ ok: false, error: "Usá POST." });

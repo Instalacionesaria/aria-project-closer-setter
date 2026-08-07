@@ -17,6 +17,7 @@ import { env } from "./_lib/env.js";
 import { ghl } from "./_lib/ghl/index.js";
 import { hoyOrg, verificarEsquema } from "./_lib/repo.js";
 import { CAMPOS, SITUACIONES, TAGS, literalesPendientes } from "../src/lib/ghl/contrato.js";
+import { exigir } from "./_lib/auth.js";
 
 /** Los literales que este módulo necesita que existan en la cuenta. */
 const TAGS_REQUERIDOS = [
@@ -32,7 +33,15 @@ const CAMPOS_REQUERIDOS = [CAMPOS.nivelInteresSeguimiento.valor] as const;
 const mismaClave = (a: string, b: string) =>
   a.replace(/^contact\./, "").toLowerCase() === b.replace(/^contact\./, "").toLowerCase();
 
-export default async function handler(_req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  /**
+   * §3.2 · el portero. Acá pesa más que en otros: este endpoint reporta qué credenciales
+   * están configuradas y qué le falta al esquema — un mapa de la instalación que no tiene
+   * por qué ver nadie fuera de administración.
+   */
+  const ctx = await exigir(req, res, ["admin"]);
+  if (!ctx) return;
+
   const reporte: Record<string, unknown> = {
     generadoEl: new Date().toISOString(),
     entorno: {

@@ -26,11 +26,16 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { acotarLimite, crearNota, eliminarNota, leerNotas } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 /** Cuántas notas devuelve una lectura sin `?limite=`. Un contacto rara vez pasa de unas pocas. */
 const NOTAS_POR_DEFECTO = 100;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["closer", "setter"]);
+  if (!ctx) return;
+
   if (req.method === "GET") return listar(req, res);
   if (req.method === "POST") return crear(req, res);
   if (req.method === "DELETE") return eliminar(req, res);

@@ -21,6 +21,7 @@ import { AUDITORES_ACTIVOS, type AgenteTextoId } from "../_lib/analizador.js";
 import { cargarPromptAgente } from "../_lib/promptAgente.js";
 import { env } from "../_lib/env.js";
 import { ORG_ID, db } from "../_lib/repo.js";
+import { exigir } from "../_lib/auth.js";
 
 const DIAS_POR_DEFECTO = 30;
 
@@ -97,6 +98,10 @@ function safeJson(s: string): unknown {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
+  const ctx = await exigir(req, res, ["tecnico"]);
+  if (!ctx) return;
+
   if (req.method === "POST") {
     try {
       return await resolverPorHumano(req, res);

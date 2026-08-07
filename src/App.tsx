@@ -9,9 +9,13 @@ import {
   Settings,
   Moon,
   Sun,
+  LogOut,
+  Building2,
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { LimiteDeError } from "./components/LimiteDeError";
+import { AuthProvider, useAuth } from "./lib/authStore";
+import type { Rol } from "./lib/api";
 
 /**
  * ── Una vista, un chunk (2026-08-04) ──
@@ -33,6 +37,7 @@ const SetterView = lazy(() => import("./views/SetterView"));
 const AgentsAudit = lazy(() => import("./views/AgentsAudit"));
 const Gerencia = lazy(() => import("./views/Gerencia"));
 const Ajustes = lazy(() => import("./views/Ajustes"));
+const Login = lazy(() => import("./views/Login"));
 
 import { SettingsProvider, useSettings } from "./lib/settingsStore";
 import { ClosurerProvider } from "./lib/closerStore";
@@ -41,25 +46,55 @@ import { AgentAuditProvider } from "./lib/agentAuditStore";
 
 type View = "closer" | "setter" | "sales_calls" | "agents_audit" | "gerencia" | "ajustes";
 
+/**
+ * Cada módulo declara QUÉ ROL lo habilita (ESPEC §3.2). El sidebar se arma desde acá, así que
+ * agregar un módulo es agregar una fila — no hay una segunda lista de permisos en otro lado.
+ *
+ * Es cosmética: la protección real es el 403 del backend. Sirve para no mostrarle a alguien
+ * una pestaña que le va a rebotar.
+ */
 const NAV: {
   key: View;
   label: string;
   icon: typeof Zap;
+  roles: Rol[];
   disabled?: boolean;
   soon?: boolean;
   extra?: string;
 }[] = [
-  { key: "closer", label: "Closer AI", icon: UserCheck },
-  { key: "setter", label: "Setter", icon: Bot },
-  { key: "sales_calls", label: "Auditoría de Llamadas", icon: PhoneCall, disabled: true, soon: true },
-  { key: "agents_audit", label: "Auditoría de Agentes", icon: BrainCircuit },
-  { key: "gerencia", label: "Gerencia", icon: TrendingUp },
-  { key: "ajustes", label: "Ajustes", icon: Settings, extra: "mt-4" },
+  { key: "closer", label: "Closer AI", icon: UserCheck, roles: ["closer"] },
+  { key: "setter", label: "Setter", icon: Bot, roles: ["setter"] },
+  { key: "sales_calls", label: "Auditoría de Llamadas", icon: PhoneCall, roles: ["tecnico"], disabled: true, soon: true },
+  { key: "agents_audit", label: "Auditoría de Agentes", icon: BrainCircuit, roles: ["tecnico"] },
+  /**
+   * Gerencia queda SOLO para el super admin, y no es una decisión de producto: su dataset es
+   * inventado (`src/lib/gerenciaStore.tsx`) y la especificación §8 no la incluye entre las
+   * secciones "en desarrollo". Mostrarle métricas fabricadas al admin de una empresa cliente
+   * sería mostrarle datos falsos a alguien que paga — la regla D3. Con `super_admin` la ve
+   * solo quien sabe que es una maqueta. Pendiente de decisión de Fabio.
+   */
+  { key: "gerencia", label: "Gerencia", icon: TrendingUp, roles: ["super_admin"] },
+  { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-4" },
 ];
 
 function AppInner() {
-  const [view, setView] = useState<View>("closer");
-  const [role, setRole] = useState<"admin" | "closer" | "setter">("admin");
+  const { usuario, empresa, mirandoOtraEmpresa, tieneRol, salir } = useAuth();
+
+  /**
+   * El sidebar sale de los roles de la sesión. Antes había un `role` en estado local con un
+   * botón que lo ciclaba entre admin/closer/setter: era un simulador para desarrollar sin
+   * autenticación, y con cuentas reales sería un cambio de permisos a un clic.
+   */
+  const visibleNav = NAV.filter((n) => tieneRol(...n.roles));
+
+  /** Con un solo módulo, se entra directo a él (§3.2). */
+  const [view, setView] = useState<View>(() => visibleNav.find((n) => !n.disabled)?.key ?? "closer");
+
+  /**
+   * `Gerencia` y `Ajustes` siguen recibiendo un `role` de tres valores porque su UI interna lo
+   * usa. Se deriva del rol real en vez de mantener un estado propio: una sola fuente.
+   */
+  const role: "admin" | "closer" | "setter" = tieneRol("admin") ? "admin" : tieneRol("setter") ? "setter" : "closer";
   const [dark, setDark] = useState(false);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestText, setSuggestText] = useState("");
@@ -72,9 +107,6 @@ function AppInner() {
     document.documentElement.classList.toggle("dark", next);
   };
 
-  const cycleRole = () =>
-    setRole((r) => (r === "admin" ? "closer" : r === "closer" ? "setter" : "admin"));
-
   // Closer/Setter reportan su propia sub-pestaña (Mi Día, Pipeline Setter, etc.) vía onScreenChange;
   // el resto de las vistas no tienen sub-pestañas, así que usan directamente el label de NAV.
   useEffect(() => {
@@ -83,19 +115,21 @@ function AppInner() {
     }
   }, [view]);
 
-  // Gerencia es nivel dueño/admin (§ IMPLEMENTACION-Gerencia-VSCode.md) — ni el ítem del sidebar
-  // ni la vista deben quedar accesibles para roles operativos. Si el usuario cambia de rol
-  // mientras está parado en Gerencia, lo devuelve a un default seguro.
+  /**
+   * Si la vista abierta deja de estar permitida —cambió el rol, o el super admin se movió a
+   * otra empresa— se vuelve a la primera disponible. Sin esto quedaría una pantalla en blanco
+   * pidiendo datos que el backend rechaza con 403.
+   */
   useEffect(() => {
-    if (role !== "admin" && view === "gerencia") setView("closer");
-  }, [role, view]);
-
-  const visibleNav = NAV.filter((n) => n.key !== "gerencia" || role === "admin");
+    if (!visibleNav.some((n) => n.key === view)) {
+      setView(visibleNav.find((n) => !n.disabled)?.key ?? "closer");
+    }
+  }, [visibleNav, view]);
 
   const enviarSugerencia = () => {
     const texto = suggestText.trim();
     if (!texto) return;
-    const autor = role.charAt(0).toUpperCase() + role.slice(1);
+    const autor = usuario?.nombre ?? "Usuario";
     addSugerencia(texto, screenLabel, autor);
     setSuggestText("");
     setSuggestOpen(false);
@@ -151,19 +185,26 @@ function AppInner() {
 
         {/* Footer */}
         <div className="p-6 border-t border-border/30 bg-muted/10 space-y-4">
-          {/* User card — click cycles role */}
-          <div onClick={cycleRole} className="flex items-center gap-4 cursor-pointer group">
-            <span className="relative flex shrink-0 overflow-hidden rounded-full h-10 w-10 border border-border/50 shadow-sm group-hover:ring-2 ring-primary/20 transition-all">
+          {/* Quién está usando la herramienta. Los roles vienen de la sesión, no se eligen. */}
+          <div className="flex items-center gap-4">
+            <span className="relative flex shrink-0 overflow-hidden rounded-full h-10 w-10 border border-border/50 shadow-sm">
               <span className="flex h-full w-full items-center justify-center rounded-full bg-primary/5 text-primary text-xs font-semibold">
-                US
+                {iniciales(usuario?.nombre)}
               </span>
             </span>
-            <div className="flex flex-col">
-              <span className="text-sm font-medium">Usuario Activo</span>
-              <span className="text-[10px] text-muted-foreground capitalize tracking-wider mt-0.5 group-hover:text-primary transition-colors">
-                Rol: {role} (Click para cambiar)
+            <div className="flex flex-col min-w-0 flex-1">
+              <span className="text-sm font-medium truncate">{usuario?.nombre ?? "—"}</span>
+              <span className="text-[10px] text-muted-foreground tracking-wider mt-0.5 truncate">
+                {(usuario?.roles ?? []).join(" · ") || "sin rol"}
               </span>
             </div>
+            <button
+              onClick={() => void salir()}
+              title="Salir"
+              className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
           </div>
 
           {/* Sugerir Mejora + dark toggle */}
@@ -212,6 +253,17 @@ function AppInner() {
 
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
+        {/*
+          §7.1 · Mientras el super admin mira una empresa que no es la suya, un banner
+          PERMANENTE lo dice. Es para que nadie confunda de qué empresa son los datos que
+          tiene delante — y para que no registre un resultado en la cuenta equivocada.
+        */}
+        {mirandoOtraEmpresa && (
+          <div className="shrink-0 px-4 py-2 bg-amber-500/15 border-b border-amber-500/30 text-xs font-medium text-amber-900 dark:text-amber-200 flex items-center gap-2">
+            <Building2 className="w-3.5 h-3.5 shrink-0" />
+            Estás viendo los datos de <strong>{empresa?.nombre ?? "otra empresa"}</strong>, no los de ARIA.
+          </div>
+        )}
         {/* El boundary va POR FUERA del Suspense: cubre tanto el chunk que no se puede
             descargar como cualquier error de render de la vista ya cargada. El `key` lo
             reinicia al cambiar de vista, para que un error en una no deje muertas las otras. */}
@@ -235,7 +287,42 @@ function AppInner() {
   );
 }
 
-export default function App() {
+/** Iniciales para el avatar. Sin nombre no se inventa nada: dos guiones. */
+function iniciales(nombre?: string | null): string {
+  const partes = (nombre ?? "").trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "—";
+  return (partes[0][0] + (partes[1]?.[0] ?? "")).toUpperCase();
+}
+
+/**
+ * La compuerta.
+ *
+ * Los cuatro providers de datos montan relojes que golpean endpoints protegidos apenas
+ * existen. Por eso el login va **por fuera** de ellos: si estuvieran adentro, alguien sin
+ * sesión dispararía un tick cada 10 segundos contra un backend que le responde 401.
+ *
+ * `cargando` es su propio estado y no se confunde con "no hay sesión": sin él, quien ya está
+ * autenticado vería la pantalla de login por un instante en cada recarga.
+ */
+function Compuerta() {
+  const { estado, usuario } = useAuth();
+
+  if (estado === "cargando") {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="h-6 w-6 rounded-full border-2 border-muted border-t-primary animate-spin" />
+      </div>
+    );
+  }
+
+  if (estado === "anonimo" || usuario?.debeCambiarPassword) {
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-background" />}>
+        <Login />
+      </Suspense>
+    );
+  }
+
   return (
     <SettingsProvider>
       <AgentAuditProvider>
@@ -246,5 +333,13 @@ export default function App() {
         </ClosurerProvider>
       </AgentAuditProvider>
     </SettingsProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <Compuerta />
+    </AuthProvider>
   );
 }

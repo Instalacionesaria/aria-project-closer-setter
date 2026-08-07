@@ -35,8 +35,28 @@ import type { IndicadoresContacto } from "./indicadores";
 import type { VentanaWhatsapp } from "./whatsapp";
 
 /** Error uniforme para todas las llamadas: el status y el detalle del cuerpo, sin ruido. */
+/**
+ * Se dispara cuando el backend contesta 401. Lo escucha el store de sesión para volver a la
+ * pantalla de login sin que cada `catch` del proyecto tenga que saber de autenticación.
+ *
+ * Un evento y no una importación directa a propósito: si `api.ts` importara el store, y el
+ * store importa `api.ts`, sería un ciclo.
+ */
+export const EVENTO_SIN_SESION = "cc:sin-sesion";
+
 async function pedir<T>(ruta: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(ruta, init);
+  // `credentials: "same-origin"` explícito: la cookie de sesión es httpOnly y el default del
+  // navegador ya la manda para el mismo origen, pero dejarlo escrito evita que un cambio de
+  // configuración futuro rompa la autenticación de forma silenciosa.
+  const res = await fetch(ruta, { credentials: "same-origin", ...init });
+
+  if (res.status === 401) {
+    // La sesión venció o nunca hubo. No es un error que la vista tenga que mostrar: es un
+    // cambio de estado de la aplicación entera.
+    window.dispatchEvent(new CustomEvent(EVENTO_SIN_SESION));
+    throw new Error("Tu sesión venció. Volvé a entrar.");
+  }
+
   if (!res.ok) {
     const cuerpo = await res.text().catch(() => "");
     throw new Error(`El servidor respondió ${res.status}. ${detalleDelError(cuerpo)}`);
@@ -1029,4 +1049,89 @@ export function borrarConexion(campo: ConexionCampo): Promise<BorrarConexionResp
   return pedir<BorrarConexionResponse>(`/api/closer/conexiones?campo=${encodeURIComponent(campo)}`, {
     method: "DELETE",
   });
+}
+
+/* ================================================================== */
+/* Autenticación (ESPEC-MULTIEMPRESA §3 y §4)                          */
+/* ================================================================== */
+
+export type Rol = "super_admin" | "admin" | "closer" | "setter" | "tecnico" | "media_buyer";
+
+export interface UsuarioSesion {
+  id: string;
+  nombre: string;
+  email: string | null;
+  roles: Rol[];
+  esSuperAdmin: boolean;
+  debeCambiarPassword: boolean;
+}
+
+export interface EmpresaSesion {
+  id: string;
+  nombre: string | null;
+  slug: string | null;
+  esPrincipal: boolean;
+}
+
+export interface SesionResponse {
+  ok: boolean;
+  autenticado: boolean;
+  usuario?: UsuarioSesion;
+  empresa?: EmpresaSesion | null;
+  /** El super admin está mirando una empresa que no es la suya: la UI muestra un banner (§7.1). */
+  mirandoOtraEmpresa?: boolean;
+}
+
+/**
+ * Quién soy. **No usa `pedir`**: éste es el único endpoint que tiene que poder contestar
+ * "no hay sesión" sin que eso dispare el evento de sesión vencida — si lo hiciera, la propia
+ * comprobación de arranque entraría en un bucle con el store que la escucha.
+ */
+export async function fetchSesion(): Promise<SesionResponse> {
+  const res = await fetch("/api/auth/sesion", { credentials: "same-origin" });
+  if (!res.ok) return { ok: false, autenticado: false };
+  return (await res.json()) as SesionResponse;
+}
+
+export interface LoginResponse {
+  ok: boolean;
+  usuario?: { id: string; nombre: string; email: string; roles: Rol[]; orgId: string; debeCambiarPassword: boolean };
+  codigo?: string;
+  error?: string;
+}
+
+/**
+ * Entrar. Devuelve el cuerpo aunque falle, en vez de lanzar: el 401 acá es **la respuesta
+ * esperada** de una contraseña incorrecta, no un error de la aplicación, y la pantalla
+ * necesita el mensaje para mostrarlo.
+ */
+export async function login(email: string, password: string): Promise<LoginResponse> {
+  const res = await fetch("/api/auth/login", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  return (await res.json().catch(() => ({ ok: false, error: "El servidor no respondió." }))) as LoginResponse;
+}
+
+export async function logout(): Promise<void> {
+  await fetch("/api/auth/sesion", { method: "DELETE", credentials: "same-origin" }).catch(() => {});
+}
+
+export interface CambioPasswordResponse {
+  ok: boolean;
+  codigo?: string;
+  error?: string;
+}
+
+/** Cambia la contraseña. Cierra todas las demás sesiones y renueva la propia. */
+export async function cambiarPassword(actual: string, nueva: string): Promise<CambioPasswordResponse> {
+  const res = await fetch("/api/auth/sesion", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ actual, nueva }),
+  });
+  return (await res.json().catch(() => ({ ok: false, error: "El servidor no respondió." }))) as CambioPasswordResponse;
 }
