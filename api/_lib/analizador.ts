@@ -64,6 +64,7 @@ import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
 import { cargarPromptAgente, type PromptAgente } from "./promptAgente.js";
 import { credencialesActivas } from "./credenciales.js";
+import { alarmasDe, type Alarma } from "./auditor/heuristicas.js";
 import { db, orgActiva } from "./repo.js";
 import {
   contactosConTag,
@@ -796,6 +797,8 @@ async function guardarAnalisis(e: {
   iaEnCache: number;
   promptHash: string;
   disparo: "webhook" | "manual" | "linea_base";
+  /** Las señales del nivel 0 que lo adelantaron, si lo adelantaron. */
+  alarmas?: Alarma[];
 }): Promise<string | null> {
   try {
     const { data, error } = await db()
@@ -817,6 +820,11 @@ async function guardarAnalisis(e: {
         prompt_hash: e.promptHash,
         auditable: e.veredicto.auditable,
         disparo: e.disparo,
+        /**
+         * `null` y `[]` no significan lo mismo, así que no se escribe `[]`: `null` = salió por el
+         * debounce normal y nadie miró alarmas. Es la regla 2 de CLAUDE.md aplicada a una columna.
+         */
+        alarmas: e.alarmas?.length ? e.alarmas.map((a) => a.senal) : null,
       })
       .select("id")
       .single();
@@ -877,6 +885,63 @@ async function guardarHallazgos(
 /* El debounce                                                         */
 /* ================================================================== */
 
+/**
+ * Las alarmas del nivel 0, calculadas sobre `closer_mensajes`.
+ *
+ * De nuestra caché y NO de GHL, y esa es la diferencia entre "gratis" y "carísimo": el transcript
+ * que se le manda al modelo sí sale de GHL, pero eso ocurre después, cuando ya se decidió gastar.
+ * Acá solo hay que decidir si vale la pena mirar.
+ *
+ * Se traen los últimos 40 mensajes: alcanza para las cinco señales —las tres de léxico miran los
+ * 3 más recientes del contacto, y las de repetición no necesitan la conversación entera— y acota
+ * el costo de la consulta en un contacto con historia larga.
+ */
+async function alarmasDelCache(ghlContactId: string): Promise<Alarma[]> {
+  const { data } = await db()
+    .from("closer_mensajes")
+    .select("autor, direccion, body, timestamp_ghl")
+    .eq("ghl_contact_id", ghlContactId)
+    .order("timestamp_ghl", { ascending: false })
+    .limit(40);
+
+  if (!data || data.length === 0) return [];
+
+  // La consulta viene descendente para que el `limit` agarre los ÚLTIMOS; las heurísticas
+  // necesitan orden cronológico.
+  const mensajes: MensajeClasificado[] = (data as unknown as FilaMensajeCache[]).reverse().map((m) => ({
+    autor: autorDeFila(m),
+    texto: m.body ?? "",
+    cuando: m.timestamp_ghl ? new Date(m.timestamp_ghl).getTime() : 0,
+    sinTexto: !m.body?.trim(),
+  }));
+
+  return alarmasDe(mensajes);
+}
+
+/**
+ * El autor de una fila de la caché, con `direccion` como red.
+ *
+ * 61 de las 418 filas de `closer_mensajes` tienen `autor` en NULL —anteriores al clasificador—, y
+ * 18 de esas son entrantes. Sin esta red, esas 18 no contarían como mensajes del contacto y las
+ * heurísticas quedarían ciegas justo en las conversaciones más viejas.
+ *
+ * `inbound` ⇒ `contacto` no tiene ambigüedad: un mensaje entrante es de la persona atendida, por
+ * definición. Al revés no vale — un saliente sin autor puede ser el bot, un workflow o un asesor,
+ * y adivinar ahí sería imputarle al agente algo que quizá no dijo. Por eso el saliente sin autor
+ * cae en `desconocido`, que las heurísticas ignoran.
+ */
+function autorDeFila(m: FilaMensajeCache): AutorMensaje {
+  if (m.autor) return m.autor as AutorMensaje;
+  return m.direccion === "inbound" ? "contacto" : "desconocido";
+}
+
+interface FilaMensajeCache {
+  autor: string | null;
+  direccion: string | null;
+  body: string | null;
+  timestamp_ghl: string | null;
+}
+
 export interface DecisionAuditor {
   correr: boolean;
   motivo: string;
@@ -885,6 +950,14 @@ export interface DecisionAuditor {
   delta: number;
   /** `true` = conversación vieja sin actividad: se siembra la línea base sin llamar al modelo. */
   soloSembrar: boolean;
+  /**
+   * Las señales del nivel 0 que adelantaron el análisis, si lo adelantaron.
+   *
+   * Se guardan en `closer_analisis_agente.disparo` para poder medir después **cuál sirve**: una
+   * señal que dispara seguido y nunca termina en veredicto rojo es gasto, y sin este dato no hay
+   * forma de saberlo.
+   */
+  alarmas?: Alarma[];
 }
 
 /**
@@ -930,13 +1003,54 @@ export async function decidirAnalisis(ghlContactId: string): Promise<DecisionAud
   const delta = iaAhora - lineaBase;
 
   if (delta < umbral) {
+    /**
+     * ── El nivel 0, antes de rendirse ────────────────────────────────
+     *
+     * El debounce solo deja pasar a una conversación donde la IA mandó 4 mensajes y el contacto
+     * se fue enojado: nunca se audita y el bot nunca se apaga. Estaba documentado como
+     * consecuencia matemática de la regla, y es el caso que más duele.
+     *
+     * Las heurísticas corren sobre `closer_mensajes` —nuestra propia caché— así que **no cuestan
+     * ni una llamada a GHL ni una al modelo**: es una consulta más a la base, en el mismo
+     * endpoint que ya hizo dos. Por eso cerrar el agujero es gratis: en la conversación normal el
+     * gasto queda idéntico al del debounce solo.
+     *
+     * ── Por qué `delta >= 1` y no `delta >= 0` ────────────────────────
+     *
+     * Una alarma **no se consume**: la frustración sigue en los 3 mensajes recientes del contacto
+     * después de que el análisis corrió. Sin este piso, la conversación alarmada se re-analizaría
+     * en CADA mensaje entrante hasta que la queja envejezca y salga de la ventana — una inferencia
+     * por mensaje, justo en las conversaciones más largas. El debounce ya no la frena, porque la
+     * alarma es precisamente lo que lo saltea.
+     *
+     * El piso sale de qué audita esto: **al agente**. Si el agente no dijo nada nuevo desde el
+     * último veredicto, no hay nada nuevo que juzgar, y el veredicto anterior ya cubre lo que hay.
+     * Con esto el peor caso de una conversación alarmada es un análisis por mensaje del agente en
+     * vez de uno cada cinco — cinco veces el costo del debounce, pero solo mientras esté alarmada.
+     *
+     * No rompe el caso de aceptación: una conversación que nunca se analizó tiene `lineaBase = 0`,
+     * así que `delta` es la cantidad de mensajes del agente, y el portón 5 ya exige que haya al
+     * menos uno para que exista algo que auditar.
+     */
+    const alarmas = delta >= 1 ? await alarmasDelCache(ghlContactId) : [];
+    if (alarmas.length === 0) {
+      return {
+        correr: false,
+        motivo: `debounce: faltan ${umbral - delta} mensajes de la IA (${delta}/${umbral})`,
+        iaAhora,
+        lineaBase,
+        delta,
+        soloSembrar: false,
+      };
+    }
     return {
-      correr: false,
-      motivo: `debounce: faltan ${umbral - delta} mensajes de la IA (${delta}/${umbral})`,
+      correr: true,
+      motivo: `alarma del nivel 0: ${alarmas.map((a) => a.senal).join(", ")} (delta ${delta}/${umbral})`,
       iaAhora,
       lineaBase,
       delta,
       soloSembrar: false,
+      alarmas,
     };
   }
 
@@ -1179,6 +1293,7 @@ export async function analizarYMarcar(
       iaEnCache: decision.iaAhora,
       promptHash: prompt.hash,
       disparo,
+      alarmas: decision.alarmas,
     });
 
     if (analisisId && veredicto.hallazgos.length > 0) {
