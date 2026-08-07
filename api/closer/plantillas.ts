@@ -38,7 +38,8 @@ const BASE = "https://services.leadconnectorhq.com";
 const VERSION = "2021-07-28";
 
 interface Plantilla {
-  id: string;
+  /** La 019 renombró `id` a `slug`: el identificador lo elegimos nosotros y la PK es (org_id, slug). */
+  slug: string;
   nombre: string;
   descripcion: string | null;
   metodo: "template_id" | "workflow";
@@ -60,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 async function listar(res: VercelResponse) {
   const { data, error } = await db()
     .from("closer_plantillas")
-    .select("id, nombre, descripcion, metodo, template_id, workflow_id, idioma, cuerpo")
+    .select("slug, nombre, descripcion, metodo, template_id, workflow_id, idioma, cuerpo")
     .eq("activa", true)
     .order("orden", { ascending: true })
     .order("nombre", { ascending: true });
@@ -77,7 +78,7 @@ async function listar(res: VercelResponse) {
     // `template_id` y `workflow_id` NO viajan al browser: son identificadores de la cuenta de
     // GHL y el cliente no los necesita — manda el `id` nuestro y el servidor resuelve el resto.
     plantillas: plantillas.map((p) => ({
-      id: p.id,
+      id: p.slug,
       nombre: p.nombre,
       descripcion: p.descripcion,
       idioma: p.idioma,
@@ -102,8 +103,8 @@ async function enviar(req: VercelRequest, res: VercelResponse) {
 
   const { data, error } = await db()
     .from("closer_plantillas")
-    .select("id, nombre, descripcion, metodo, template_id, workflow_id, idioma, cuerpo")
-    .eq("id", plantillaId)
+    .select("slug, nombre, descripcion, metodo, template_id, workflow_id, idioma, cuerpo")
+    .eq("slug", plantillaId)
     .eq("activa", true)
     .maybeSingle();
 
