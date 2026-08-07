@@ -53,15 +53,6 @@ const PERIODOS: { key: PeriodoEstadisticas; label: string }[] = [
   { key: "ultimos_3_meses", label: "Últimos 3 meses" },
 ];
 
-/** Etiquetas de `closer_contactos.fuente`. Una clave desconocida se muestra tal cual, no se oculta. */
-const NOMBRE_FUENTE: Record<string, string> = {
-  meta_ads: "Meta Lead Ads",
-  vsl: "VSL",
-  directo: "Directo",
-  instagram: "Instagram",
-  sin_clasificar: "Sin clasificar",
-};
-
 /* ------------------------------------------------------------------ */
 /* Piezas                                                             */
 /* ------------------------------------------------------------------ */
@@ -265,7 +256,13 @@ export default function Estadisticas({ role }: { role: string }) {
                 return filas.map(([clave, valor]) => (
                   <div key={clave} className="space-y-1">
                     <div className="flex items-center justify-between text-sm">
-                      <span>{NOMBRE_FUENTE[clave] ?? clave}</span>
+                      {/*
+                        Sin traducción: `closer_contactos.fuente` ya guarda la etiqueta que se
+                        muestra ("META ADS", "DIRECTO", "📷 IG PROFILE"), no un slug. Había un mapa
+                        acá con claves en minúscula que nunca iban a matchear — un mapeo que no
+                        mapea nada es peor que ninguno, porque hace creer que existe uno.
+                      */}
+                      <span>{clave}</span>
                       <span className="font-semibold">{valor}</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-muted overflow-hidden">

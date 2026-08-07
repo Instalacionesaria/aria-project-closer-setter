@@ -157,7 +157,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     /* ── Contactos: el embudo y la fuente ────────────────────────────────── */
     const { data: contactos, error: errContactos } = await db()
       .from("closer_contactos")
-      .select("ghl_contact_id, fuente, stage, creado_el");
+      /**
+       * `stage` NO existe: la columna es `stage_key`. Se pedía por analogía y el endpoint devolvía
+       * 500 en producción — verificado contra el esquema real de SOFIA, no contra la intuición.
+       * Y encima no se usaba para nada, así que se fue en vez de corregirse.
+       */
+      .select("ghl_contact_id, fuente, creado_el");
     if (errContactos) throw new Error(`closer_contactos: ${errContactos.message}`);
 
     const universo = contactos ?? [];
@@ -167,6 +172,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
      * `closer_contactos.fuente` existe y `fuenteDesdeTags()` la produce, así que las fuentes SÍ
      * se pueden contar — a diferencia de la clasificación caliente/tibio/probable-LT, que no
      * existe en ninguna parte y por eso viaja `null`.
+     *
+     * Los valores **ya son las etiquetas** que se muestran (`"META ADS"`, `"DIRECTO"`,
+     * `"📷 IG PROFILE"`, `"VSL OPT-IN"`), no slugs: `fuenteDesdeTags` devuelve el chip listo.
+     * Así que viajan tal cual y la vista no los traduce.
      */
     const porFuente = universo.reduce<Record<string, number>>((acc, c) => {
       const f = (c.fuente as string | null) ?? "sin_clasificar";
