@@ -43,7 +43,7 @@ const Estadisticas = lazy(() => import("./views/Estadisticas"));
 const Ajustes = lazy(() => import("./views/Ajustes"));
 const Login = lazy(() => import("./views/Login"));
 
-import { SettingsProvider, useSettings } from "./lib/settingsStore";
+import { SettingsProvider } from "./lib/settingsStore";
 import { ClosurerProvider } from "./lib/closerStore";
 import { SetterProvider } from "./lib/setterStore";
 import { AgentAuditProvider } from "./lib/agentAuditStore";
@@ -74,7 +74,7 @@ const NAV: {
   roles: Rol[];
   extra?: string;
 }[] = [
-  { key: "closer", label: "Closer AI", icon: UserCheck, roles: ["closer"] },
+  { key: "closer", label: "Closer", icon: UserCheck, roles: ["closer"] },
   { key: "setter", label: "Setter", icon: Bot, roles: ["setter"] },
   { key: "agents_audit", label: "Auditoría de Agentes", icon: BrainCircuit, roles: ["tecnico"] },
   /**
@@ -88,16 +88,8 @@ const NAV: {
   { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-4" },
 ];
 
-/**
- * Las vistas con sub-pestañas reportan la suya (Mi Día, Pipeline Setter, Credenciales…) por
- * `onScreenChange`, que es lo que etiqueta una sugerencia de mejora. Las demás usan el label
- * de NAV. La lista vive acá, al lado de NAV, para que se lea de un vistazo cuál es cuál en vez
- * de tener que abrir las cinco vistas.
- */
-const REPORTAN_SU_PANTALLA = new Set<View>(["closer", "setter", "estadisticas", "ajustes"]);
-
 function AppInner() {
-  const { usuario, empresa, mirandoOtraEmpresa, tieneRol, salir } = useAuth();
+  const { usuario, empresa, mirandoOtraEmpresa, tieneRol, salir, tema, alternarTema } = useAuth();
 
   /**
    * El sidebar sale de los roles de la sesión. Antes había un `role` en estado local con un
@@ -114,24 +106,6 @@ function AppInner() {
    * lo usa. Se deriva del rol real en vez de mantener un estado propio: una sola fuente.
    */
   const role: "admin" | "closer" | "setter" = tieneRol("admin") ? "admin" : tieneRol("setter") ? "setter" : "closer";
-  const [dark, setDark] = useState(false);
-  const [suggestOpen, setSuggestOpen] = useState(false);
-  const [suggestText, setSuggestText] = useState("");
-  const [screenLabel, setScreenLabel] = useState("Inicio");
-  const { addSugerencia } = useSettings();
-
-  const toggleDark = () => {
-    const next = !dark;
-    setDark(next);
-    document.documentElement.classList.toggle("dark", next);
-  };
-
-  useEffect(() => {
-    if (!REPORTAN_SU_PANTALLA.has(view)) {
-      setScreenLabel(NAV.find((n) => n.key === view)?.label ?? "");
-    }
-  }, [view]);
-
   /**
    * Si la vista abierta deja de estar permitida —cambió el rol, o el super admin se movió a
    * otra empresa— se vuelve a la primera disponible. Sin esto quedaría una pantalla en blanco
@@ -142,15 +116,6 @@ function AppInner() {
       setView(visibleNav[0]?.key ?? "closer");
     }
   }, [visibleNav, view]);
-
-  const enviarSugerencia = () => {
-    const texto = suggestText.trim();
-    if (!texto) return;
-    const autor = usuario?.nombre ?? "Usuario";
-    addSugerencia(texto, screenLabel, autor);
-    setSuggestText("");
-    setSuggestOpen(false);
-  };
 
   return (
     <div className="flex h-screen bg-background overflow-hidden text-foreground">
@@ -203,6 +168,18 @@ function AppInner() {
                 {(usuario?.roles ?? []).join(" · ") || "sin rol"}
               </span>
             </div>
+            {/*
+              El tema y la salida, juntos y en ese orden. Los dos son de la persona, no de la
+              empresa ni de la vista, así que viven pegados a su nombre y no en una franja
+              aparte. El de salir queda último: es el destructivo de los dos.
+            */}
+            <button
+              onClick={alternarTema}
+              title={tema === "oscuro" ? "Modo claro" : "Modo oscuro"}
+              className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center justify-center"
+            >
+              {tema === "oscuro" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
             <button
               onClick={() => void salir()}
               title="Salir"
@@ -210,48 +187,6 @@ function AppInner() {
             >
               <LogOut className="w-4 h-4" />
             </button>
-          </div>
-
-          {/* Sugerir Mejora + dark toggle */}
-          <div className="relative flex gap-2">
-            <button
-              onClick={() => setSuggestOpen((o) => !o)}
-              className="inline-flex items-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 h-10 px-4 py-2 flex-1 justify-start gap-2 bg-background/50 border border-dashed border-input text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-500/20 flex items-center justify-center shrink-0">
-                <span className="text-[10px]">💡</span>
-              </div>
-              <span className="text-xs font-medium">Sugerir Mejora</span>
-            </button>
-            <button
-              onClick={toggleDark}
-              className="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 h-10 w-10 shrink-0 bg-background/50 border border-dashed border-input text-muted-foreground hover:bg-accent hover:text-foreground"
-            >
-              {dark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-
-            {suggestOpen && (
-              <div className="absolute bottom-12 left-0 z-50 w-80 p-4 rounded-md border border-border bg-popover text-popover-foreground shadow-md">
-                <div className="space-y-3">
-                  <h4 className="text-sm font-medium">¿Qué mejorarías de esta pantalla?</h4>
-                  <textarea
-                    value={suggestText}
-                    onChange={(e) => setSuggestText(e.target.value)}
-                    className="flex w-full rounded-md border border-input bg-background px-3 py-2 ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 text-sm min-h-[100px] resize-none"
-                    placeholder="Escribe tu sugerencia aquí..."
-                  />
-                  <div className="flex justify-end">
-                    <button
-                      onClick={enviarSugerencia}
-                      disabled={!suggestText.trim()}
-                      className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:pointer-events-none h-9 rounded-md px-3"
-                    >
-                      Enviar
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -283,11 +218,11 @@ function AppInner() {
               </div>
             }
           >
-            {view === "closer" && <CloserAI onScreenChange={setScreenLabel} />}
-            {view === "setter" && <SetterView onScreenChange={setScreenLabel} />}
-            {view === "agents_audit" && <AgentsAudit onScreenChange={setScreenLabel} />}
-            {view === "estadisticas" && <Estadisticas role={role} onScreenChange={setScreenLabel} />}
-            {view === "ajustes" && <Ajustes role={role} onScreenChange={setScreenLabel} />}
+            {view === "closer" && <CloserAI />}
+            {view === "setter" && <SetterView />}
+            {view === "agents_audit" && <AgentsAudit />}
+            {view === "estadisticas" && <Estadisticas role={role} />}
+            {view === "ajustes" && <Ajustes role={role} />}
           </Suspense>
         </LimiteDeError>
       </div>

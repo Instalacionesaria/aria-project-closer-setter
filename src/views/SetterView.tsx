@@ -578,7 +578,7 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
   /**
    * Urgentes REALES: contactos con `bot_pausado_fallo` + `zona_setter` en GHL, detectados
    * por el analizador de conversaciones. Se muestran junto a los EJEMPLO, en el mismo
-   * formato — igual que en Closer AI.
+   * formato — igual que en Closer.
    *
    * ÚNICO cambio al Setter de la tarea de conexiones (decisión de Fabio, 2026-07-31): el
    * intervalo pasó de 10s a 60s y se pausa con la pestaña oculta, vía el módulo único de
@@ -622,7 +622,7 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
       ),
     [],
   );
-  /** EJEMPLO + reales en una sola cola, igual que en Closer AI. */
+  /** EJEMPLO + reales en una sola cola, igual que en Closer. */
   const urgentesTodos = [...urgentes, ...realUrgentes];
   // Pineados primero — § correcciones toast/pin v2 (2026-07-11): tarea de conversación cubre Buzón, Oportunidad LT, Seguimientos Y Estancadas.
   const pinnedFirst = (c: SetterContact[]) => [...c].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
@@ -931,15 +931,12 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
 /* ------------------------------------------------------------------ */
 /* Root                                                                */
 /* ------------------------------------------------------------------ */
-function SetterViewInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
+function SetterViewInner() {
   const [tab, setTab] = useState<Tab>("inicio");
   const { contacts, openContactName, openGhlContactId, openContact, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useSetter();
   const { resolverAlertasDeContacto } = useAgentAudit();
   const setterContact = contacts[openContactName ?? ""] ?? null;
 
-  useEffect(() => {
-    onScreenChange?.(`${TAB_LABEL[tab]} Setter`);
-  }, [tab, onScreenChange]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative bg-background">
@@ -975,6 +972,6 @@ function SetterViewInner({ onScreenChange }: { onScreenChange?: (label: string) 
   );
 }
 
-export default function SetterView({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
-  return <SetterViewInner onScreenChange={onScreenChange} />;
+export default function SetterView() {
+  return <SetterViewInner />;
 }

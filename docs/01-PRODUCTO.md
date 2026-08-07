@@ -177,7 +177,7 @@ ocurren, en silencio.
 
 ## Navegación
 
-Sidebar: **Closer AI** · **Setter** · **Auditoría de Agentes** · **Estadísticas**
+Sidebar: **Closer** · **Setter** · **Auditoría de Agentes** · **Estadísticas**
 (`super_admin`) · **Ajustes** (`admin`).
 
 Cada entrada declara su rol en el array `NAV` de `src/App.tsx`, que es de donde se arma el
@@ -187,15 +187,23 @@ sidebar. Es cosmética: la protección real es el 403 del backend.
 *Empresas* (`super_admin`). Las tres últimas son el §7 de la especificación multi-empresa y su
 código vive en `src/views/Administracion.tsx`.
 
-> **Cambios del 2026-08-07.** Se fue **Auditoría de Llamadas**: estaba deshabilitada con el
-> cartel "Próximamente" y nunca tuvo vista — lo que prometía ya lo cubre Auditoría de Agentes
-> con su pestaña de agentes de voz. **Gerencia** pasó a llamarse **Estadísticas** (solo el
-> nombre visible; la clave `gerencia` de los ajustes guardados NO se renombró, ver el comentario
-> en `settingsStore.tsx`). Y **Administración**, que era una entrada propia del sidebar, pasó a
-> ser pestañas de Ajustes.
+Al pie, junto al nombre de quien entró: el **toggle de tema** y **Salir**, en ese orden — el
+destructivo va último. El tema **se guarda por usuario**, en la columna `tema` de
+`closer_usuarios`: viaja con la cuenta, no con la máquina. El navegador guarda además una copia
+en `localStorage` bajo `comando-central:tema`, pero solo para pintar bien el primer frame; si
+difieren, gana el servidor.
 
-Al pie: **Sugerir Mejora (💡)** — popover que captura texto, usuario, fecha y vista activa, y
-lo manda a la bandeja de Ajustes > Operación con un chip clicable de la vista de origen.
-Y el **toggle de modo oscuro**.
+> **Cambios del 2026-08-07.**
+>
+> - **Auditoría de Llamadas** se fue: estaba deshabilitada con el cartel "Próximamente" y nunca
+>   tuvo vista — lo que prometía ya lo cubre Auditoría de Agentes con su pestaña de voz.
+> - **Gerencia** pasó a llamarse **Estadísticas**. Solo el nombre visible: la clave `gerencia`
+>   de los ajustes guardados NO se renombró (ver el comentario en `settingsStore.tsx`).
+> - **Administración** dejó de ser entrada del sidebar y pasó a ser pestañas de Ajustes.
+> - **Closer AI** pasó a llamarse **Closer**.
+> - **Sugerir Mejora** se fue del sidebar. La bandeja de sugerencias sigue en
+>   Ajustes > Operación con lo que ya se había mandado, pero **ya no hay forma de agregar**:
+>   quedó como historial. Si tampoco hace falta, se saca en un cambio aparte.
+> - El **modo oscuro** dejó de perderse en cada recarga: antes era estado en memoria.
 
 Un ítem del sidebar siempre lleva a la raíz de su módulo.

@@ -36,6 +36,8 @@ export interface Contexto {
   orgEfectiva: string;
   esSuperAdmin: boolean;
   debeCambiarPassword: boolean;
+  /** Preferencia de tema. `null` = nunca eligió — no es lo mismo que haber elegido claro. */
+  tema: "claro" | "oscuro" | null;
   sesionId: string;
   ip: string | null;
   /**
@@ -99,7 +101,7 @@ export async function contextoDe(req: VercelRequest, res: VercelResponse): Promi
 
   const { data, error } = await dbSinScope()
     .from("closer_usuarios")
-    .select("id, org_id, nombre, email, roles, activo, debe_cambiar_password")
+    .select("id, org_id, nombre, email, roles, activo, debe_cambiar_password, tema")
     .eq("id", sesion.usuarioId)
     .maybeSingle();
 
@@ -129,6 +131,7 @@ export async function contextoDe(req: VercelRequest, res: VercelResponse): Promi
     orgEfectiva,
     esSuperAdmin,
     debeCambiarPassword: Boolean(data.debe_cambiar_password),
+    tema: (data.tema as "claro" | "oscuro" | null) ?? null,
     sesionId: sesion.sesionId,
     ip: ipDe(req),
     // `exigir()` la reemplaza por la resuelta. `contextoDe` sola no las necesita: la usan el

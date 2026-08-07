@@ -17,7 +17,7 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-Van de la `001` a la **`017`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
+Van de la `001` a la **`024`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
 esquema base (`001`–`005`, aplicadas el 2026-07-25); de la `006` en adelante **el encabezado de
 cada archivo explica por qué existe** —esa es la fuente— y el tema al que pertenecen está
 documentado en el `docs/` correspondiente:
@@ -29,6 +29,19 @@ documentado en el `docs/` correspondiente:
 | `015` | Estado de entrega y error de envío | [08-MENSAJERIA](../08-MENSAJERIA.md) |
 | `016` | `closer_llamadas` — las llamadas de los agentes de voz | [11-VOZ-Y-LLAMADAS](../11-VOZ-Y-LLAMADAS.md) |
 | `017` | `closer_plantillas` — plantillas de WhatsApp aprobadas | [08-MENSAJERIA](../08-MENSAJERIA.md) § Plantillas |
+
+Las `018`–`024` son la **capa multi-empresa**, y conviene leerlas en orden porque cada una
+depende de la anterior:
+
+| Migración | Qué agrega |
+|---|---|
+| `018` | Extiende `closer_org_config` con identidad, credenciales cifradas y los 4 prompts. Siembra ARIA y protege la empresa principal con triggers |
+| `019` | `org_id` en las 5 tablas que no lo tenían, con `default` para no reescribirlas. `closer_webhook_inbox.org_id` queda **nullable** a propósito (D15) |
+| `020` | `closer_hoy_org` / `closer_dia_org` / `closer_auditor_claim` con parámetro de empresa, como **sobrecargas** — las viejas siguen vivas hasta el contract |
+| `021` | Las 3 vistas, con `org_id` y `security_invoker` |
+| `022` | FKs `on delete restrict`, índices compuestos y `revoke` sobre 19 tablas |
+| `023` | Autenticación: email y hash en `closer_usuarios`, `roles text[]`, `closer_sesiones`, `closer_auditoria_accesos` |
+| `024` | `closer_usuarios.tema` — la preferencia de modo claro/oscuro, por usuario |
 
 | Archivo | Qué hace | Por qué existe |
 |---|---|---|

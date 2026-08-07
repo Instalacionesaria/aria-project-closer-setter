@@ -15,12 +15,56 @@ import {
   cambiarPassword as cambiarPasswordRemoto,
   EVENTO_SIN_SESION,
   fetchSesion,
+  guardarTema,
   login as loginRemoto,
   logout as logoutRemoto,
   type EmpresaSesion,
   type Rol,
+  type Tema,
   type UsuarioSesion,
 } from "./api";
+
+/**
+ * ── El tema, y por qué hay una copia en el navegador ──────────────────
+ *
+ * La fuente de verdad es la columna `tema` de `closer_usuarios`: así viaja con la cuenta y no
+ * con la máquina, que es lo que pidió Fabio. Pero resolverla exige una vuelta al servidor, y
+ * durante ese instante la app ya está pintada — quien tiene el modo oscuro vería un fogonazo
+ * blanco en cada recarga.
+ *
+ * Por eso se guarda además una copia local, que se aplica antes del primer render y se corrige
+ * sola cuando la sesión responde. La copia es una CACHÉ, no la preferencia: si el servidor dice
+ * otra cosa, gana el servidor.
+ *
+ * La clave NO lleva el id del usuario, y no se puede: la caché se lee para pintar el primer
+ * frame, cuando todavía no se sabe quién entró. La consecuencia es acotada y vale la pena
+ * nombrarla — en una máquina compartida, el primer instante puede mostrar el tema de quien
+ * salió, hasta que la sesión responde y lo corrige. Un fogonazo en el caso raro a cambio de
+ * ninguno en el habitual.
+ */
+const CLAVE_TEMA = "comando-central:tema";
+
+function aplicarTema(tema: Tema) {
+  document.documentElement.classList.toggle("dark", tema === "oscuro");
+}
+
+/** El tema cacheado de quien entró último, para pintar bien el primer frame. */
+export function temaCacheado(): Tema | null {
+  try {
+    const v = localStorage.getItem(CLAVE_TEMA);
+    return v === "claro" || v === "oscuro" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+function cachearTema(tema: Tema) {
+  try {
+    localStorage.setItem(CLAVE_TEMA, tema);
+  } catch {
+    /* Modo privado o storage lleno: se pierde solo el anti-fogonazo, no la preferencia. */
+  }
+}
 
 /**
  * `cargando` existe y no es lo mismo que `sin sesión`: sin ese estado, el primer render
@@ -40,6 +84,9 @@ interface AuthValue {
   cambiarPassword: (actual: string, nueva: string) => Promise<{ ok: boolean; error?: string }>;
   /** Solo el super admin (§7.1). `null` vuelve a la empresa propia. */
   mirarEmpresa: (orgId: string | null) => Promise<{ ok: boolean; error?: string }>;
+  /** El tema que se está viendo. Nunca `null`: sin preferencia guardada, claro. */
+  tema: Tema;
+  alternarTema: () => void;
 }
 
 const Ctx = createContext<AuthValue | null>(null);
@@ -49,11 +96,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [usuario, setUsuario] = useState<UsuarioSesion | null>(null);
   const [empresa, setEmpresa] = useState<EmpresaSesion | null>(null);
   const [mirandoOtraEmpresa, setMirandoOtra] = useState(false);
+  const [tema, setTema] = useState<Tema>(() => temaCacheado() ?? "claro");
 
   const releer = useCallback(async () => {
     const r = await fetchSesion().catch(() => ({ ok: false, autenticado: false }) as const);
     if (r.autenticado && "usuario" in r && r.usuario) {
       setUsuario(r.usuario);
+      /**
+       * El servidor manda. Si la persona nunca eligió (`null`) NO se escribe nada: se deja lo
+       * que ya haya —la caché de esta máquina o el claro por defecto— en vez de convertir un
+       * "no eligió" en una elección.
+       */
+      if (r.usuario.tema) {
+        setTema(r.usuario.tema);
+        aplicarTema(r.usuario.tema);
+        cachearTema(r.usuario.tema);
+      }
       setEmpresa(("empresa" in r ? r.empresa : null) ?? null);
       setMirandoOtra(Boolean("mirandoOtraEmpresa" in r && r.mirandoOtraEmpresa));
       setEstado("autenticado");
@@ -146,9 +204,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [usuario],
   );
 
+  /**
+   * Alterna el tema. Aplica primero y guarda después, en ese orden: el botón tiene que
+   * responder en el mismo frame, no cuando conteste el servidor.
+   *
+   * Si el guardado falla no se revierte nada ni se muestra un error. Lo único que se pierde es
+   * que la preferencia sobreviva a la sesión, y tirarle un cartel rojo a alguien que apretó un
+   * botón de luz sería peor que el problema. Queda en la consola por si alguien lo busca.
+   */
+  const alternarTema = useCallback(() => {
+    const siguiente: Tema = tema === "oscuro" ? "claro" : "oscuro";
+    setTema(siguiente);
+    aplicarTema(siguiente);
+    cachearTema(siguiente);
+    void guardarTema(siguiente).then((r) => {
+      if (!r.ok) console.warn(`[tema] no se pudo guardar la preferencia: ${r.error ?? "sin detalle"}`);
+    });
+  }, [tema]);
+
   const valor = useMemo<AuthValue>(
-    () => ({ estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword, mirarEmpresa }),
-    [estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword, mirarEmpresa],
+    () => ({ estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword, mirarEmpresa, tema, alternarTema }),
+    [estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword, mirarEmpresa, tema, alternarTema],
   );
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;

@@ -1057,6 +1057,8 @@ export function borrarConexion(campo: ConexionCampo): Promise<BorrarConexionResp
 
 export type Rol = "super_admin" | "admin" | "closer" | "setter" | "tecnico" | "media_buyer";
 
+export type Tema = "claro" | "oscuro";
+
 export interface UsuarioSesion {
   id: string;
   nombre: string;
@@ -1064,6 +1066,8 @@ export interface UsuarioSesion {
   roles: Rol[];
   esSuperAdmin: boolean;
   debeCambiarPassword: boolean;
+  /** `null` = nunca eligió. No es lo mismo que haber elegido claro. */
+  tema: Tema | null;
 }
 
 export interface EmpresaSesion {
@@ -1123,6 +1127,26 @@ export interface CambioPasswordResponse {
   ok: boolean;
   codigo?: string;
   error?: string;
+}
+
+/**
+ * Guarda la preferencia de tema del usuario de la sesión.
+ *
+ * Devuelve el cuerpo en vez de lanzar: si falla, el tema ya se aplicó localmente y lo único
+ * que se pierde es que sobreviva a la próxima sesión. No es motivo para tirarle un error
+ * encima a alguien que apretó un botón de luz.
+ */
+export async function guardarTema(tema: Tema): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch("/api/auth/sesion?accion=tema", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tema }),
+  });
+  return (await res.json().catch(() => ({ ok: false, error: "El servidor no respondió." }))) as {
+    ok: boolean;
+    error?: string;
+  };
 }
 
 /** Cambia la contraseña. Cierra todas las demás sesiones y renueva la propia. */

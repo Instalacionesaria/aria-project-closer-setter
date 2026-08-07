@@ -1024,7 +1024,7 @@ function AdjustmentDetailDrawer({
 /* Vista principal                                                     */
 /* ------------------------------------------------------------------ */
 
-export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
+export default function AgentsAudit() {
   const {
     estado,
     errorMensaje,
@@ -1065,9 +1065,6 @@ export default function AgentsAudit({ onScreenChange }: { onScreenChange?: (labe
       null)
     : null;
 
-  useEffect(() => {
-    onScreenChange?.(selectedAgent ? `Auditoría de Agentes — ${selectedAgent.name}` : "Auditoría de Agentes");
-  }, [selectedAgent, onScreenChange]);
 
   /**
    * La ficha la maneja la STORE, no un `useState` local con el nombre.

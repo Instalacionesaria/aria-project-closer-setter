@@ -12,7 +12,7 @@
  * abre es más barato que eso.
  */
 
-import { useEffect, useState, type MouseEvent } from "react";
+import { useState, type MouseEvent } from "react";
 import {
   Activity,
   PieChart,
@@ -622,13 +622,10 @@ function TendenciaSection() {
 /* Vista principal                                                     */
 /* ------------------------------------------------------------------ */
 
-export default function Estadisticas({ role, onScreenChange }: { role: string; onScreenChange?: (label: string) => void }) {
+export default function Estadisticas({ role }: { role: string }) {
   const [period, setPeriod] = useState<GerenciaPeriodKey>("este_mes");
   const metrics = useGerenciaMetrics(period);
 
-  useEffect(() => {
-    onScreenChange?.("Estadísticas");
-  }, [onScreenChange]);
 
   if (role !== "admin") {
     return (

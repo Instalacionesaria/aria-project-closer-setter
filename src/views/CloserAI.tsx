@@ -216,7 +216,7 @@ function Header({ tab, setTab }: { tab: TabKey; setTab: (t: TabKey) => void }) {
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-8 border-b border-border/30">
       <div>
         <p className="text-[10px] font-bold tracking-[0.2em] text-primary uppercase mb-2 opacity-80">
-          CLOSER AI • DIEGO M.
+          CLOSER • DIEGO M.
         </p>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
           {tab === "inicio" && "Tu cockpit"}
@@ -1984,15 +1984,12 @@ function AgendaTab() {
 /* Root                                                                */
 /* ================================================================== */
 
-function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
+function CloserAIInner() {
   const [tab, setTab] = useState<TabKey>("inicio");
   const { contacts, openContactName, openGhlContactId, closeContact, advance, addNota, removeNota, deleteContact, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useClosurer();
   const { resolverAlertasDeContacto } = useAgentAudit();
   const openContact = contacts[openContactName ?? ""] ?? null;
 
-  useEffect(() => {
-    onScreenChange?.(TABS.find((t) => t.key === tab)?.label ?? "Inicio");
-  }, [tab, onScreenChange]);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative bg-background">
@@ -2041,6 +2038,6 @@ function CloserAIInner({ onScreenChange }: { onScreenChange?: (label: string) =>
   );
 }
 
-export default function CloserAI({ onScreenChange }: { onScreenChange?: (label: string) => void }) {
-  return <CloserAIInner onScreenChange={onScreenChange} />;
+export default function CloserAI() {
+  return <CloserAIInner />;
 }

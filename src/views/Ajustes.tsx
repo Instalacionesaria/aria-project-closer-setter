@@ -23,7 +23,7 @@
  * de cambiar. Ver `Retencion` en `Administracion.tsx`.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Building2,
   CircleCheck,
@@ -403,13 +403,7 @@ type Pestana = (typeof PESTANAS)[number]["key"];
 /** Las dos que editan el store de ajustes: son las únicas que usan el botón "Guardar Cambios". */
 const PESTANAS_DE_AJUSTES = new Set<Pestana>(["cuenta", "operacion"]);
 
-export default function Ajustes({
-  role = "admin",
-  onScreenChange,
-}: {
-  role?: string;
-  onScreenChange?: (label: string) => void;
-}) {
+export default function Ajustes({ role = "admin" }: { role?: string }) {
   const {
     miCuenta, setMiCuenta,
     comisiones, setComisionPct,
@@ -437,20 +431,6 @@ export default function Ajustes({
   );
 
   const [pestana, setPestana] = useState<Pestana>("cuenta");
-
-  /**
-   * Qué pantalla es esta, para etiquetar una sugerencia de mejora.
-   *
-   * Va en un efecto y no adentro del `irA` de abajo, y la diferencia importa: `irA` solo corre
-   * al hacer clic en una pestaña, así que entrar a Ajustes y mandar una sugerencia sin tocar
-   * nada la archivaba bajo la pantalla ANTERIOR. Un admin sin más módulos que este —que entra
-   * directo acá y nunca cambia de pestaña— guardaba todas sus sugerencias etiquetadas "Inicio",
-   * una pantalla que ni siquiera puede abrir. El efecto cubre el montaje y el cambio de
-   * pestaña con una sola derivación, que es como lo hacen las otras cuatro vistas.
-   */
-  useEffect(() => {
-    onScreenChange?.(`Ajustes · ${PESTANAS.find((p) => p.key === pestana)?.label ?? ""}`);
-  }, [pestana, onScreenChange]);
 
   /**
    * Lo que la pestaña abierta pide preguntar antes de irse. Vive en un ref y no en estado
@@ -551,7 +531,7 @@ export default function Ajustes({
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-background">
       <div className="p-6 max-w-5xl mx-auto space-y-8 mt-4 pr-14 lg:pr-6">
-        {/* Barra de pestañas — mismo lenguaje de píldoras que Closer AI y Setter. */}
+        {/* Barra de pestañas — mismo lenguaje de píldoras que Closer y Setter. */}
         <div className="flex items-center gap-1.5 bg-card border border-border/40 rounded-full p-1.5 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] w-fit max-w-full overflow-x-auto">
           {pestanas.map(({ key, label, icon: Icon }) => {
             const activa = pestana === key;

@@ -23,6 +23,9 @@ import { borrarCookie, cambiarEmpresaActiva, cerrarSesion, cerrarSesionesDe, cre
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "GET") return quienSoy(req, res);
   if (req.method === "DELETE") return salir(req, res);
+  // El tema comparte el POST en vez de tener su propio archivo: cada archivo de `api/` es una
+  // función serverless más, y ya hay 43 en el proyecto.
+  if (req.method === "POST" && req.query.accion === "tema") return guardarTema(req, res);
   if (req.method === "POST") return cambiarPassword(req, res);
   if (req.method === "PATCH") return cambiarEmpresa(req, res);
   res.setHeader("Allow", "GET, DELETE, POST, PATCH");
@@ -54,6 +57,13 @@ async function quienSoy(req: VercelRequest, res: VercelResponse) {
       roles: ctx.roles,
       esSuperAdmin: ctx.esSuperAdmin,
       debeCambiarPassword: ctx.debeCambiarPassword,
+      /**
+       * `null` = nunca eligió, que NO es lo mismo que eligió claro. El front lo distingue: con
+       * `null` no escribe nada y deja el tema por defecto; con `"claro"` lo respeta como una
+       * decisión. Si esto colapsara a `"claro"`, el día que se agregue "seguir al sistema" no
+       * habría forma de saber quién eligió y quién no.
+       */
+      tema: ctx.tema,
     },
     empresa: empresa
       ? { id: empresa.org_id, nombre: empresa.nombre, slug: empresa.slug, esPrincipal: empresa.es_principal }
@@ -135,6 +145,41 @@ async function cambiarEmpresa(req: VercelRequest, res: VercelResponse) {
   });
 
   return res.status(200).json({ ok: true, empresaActiva: pedida ?? ctx.orgPropia });
+}
+
+/* ─────────────────────────── El tema ─────────────────────────── */
+
+/**
+ * `POST /api/auth/sesion?accion=tema` — guarda claro/oscuro para el usuario de la sesión.
+ *
+ * ── Por qué `"cualquiera"` y no un rol ────────────────────────────────
+ *
+ * Es una preferencia de la propia cuenta, no una operación de negocio: exigir un rol dejaría a
+ * un usuario recién creado —que entra obligado a cambiar la contraseña— sin poder ni apagar la
+ * luz. Y no puede tocar a nadie más: el `id` sale de la sesión, nunca del cuerpo.
+ *
+ * No pasa por `activar()` porque no habla con GHL ni con Anthropic: escribe una columna de
+ * `closer_usuarios`, que es una tabla transversal (una persona no es de una empresa, tiene una).
+ */
+async function guardarTema(req: VercelRequest, res: VercelResponse) {
+  const ctx = await exigir(req, res, "cualquiera");
+  if (!ctx) return;
+
+  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
+  const tema = String(cuerpo?.tema ?? "").trim();
+
+  // El CHECK de la 024 lo rechazaría igual, pero acá el mensaje dice cuáles valen.
+  if (tema !== "claro" && tema !== "oscuro") {
+    return res.status(400).json({ ok: false, codigo: "tema_invalido", error: 'El tema es "claro" u "oscuro".' });
+  }
+
+  const { error } = await dbSinScope().from("closer_usuarios").update({ tema }).eq("id", ctx.usuarioId);
+  if (error) return res.status(500).json({ ok: false, error: `No se pudo guardar el tema: ${error.message}` });
+
+  // Sin auditoría a propósito: `closer_auditoria_accesos` es para acciones con consecuencias
+  // sobre datos de una empresa. Llenarla con cambios de color le quitaría valor a lo que sí
+  // importa cuando alguien la lee para entender qué pasó.
+  return res.status(200).json({ ok: true, tema });
 }
 
 /* ─────────────────────── Cambiar la contraseña ─────────────────────── */
