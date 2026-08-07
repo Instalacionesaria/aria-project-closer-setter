@@ -201,9 +201,10 @@ difieren, gana el servidor.
 >   de los ajustes guardados NO se renombró (ver el comentario en `settingsStore.tsx`).
 > - **Administración** dejó de ser entrada del sidebar y pasó a ser pestañas de Ajustes.
 > - **Closer AI** pasó a llamarse **Closer**.
-> - **Sugerir Mejora** se fue del sidebar. La bandeja de sugerencias sigue en
->   Ajustes > Operación con lo que ya se había mandado, pero **ya no hay forma de agregar**:
->   quedó como historial. Si tampoco hace falta, se saca en un cambio aparte.
+> - **Sugerir Mejora se fue completo**: el botón del sidebar, la bandeja de Ajustes > Operación
+>   y el estado en `settingsStore`. La clave `sugerencias` de los blobs ya guardados en
+>   localStorage **no se borra** —simplemente se deja de leer—, así que lo que el equipo había
+>   mandado sigue recuperable si algún día hace falta.
 > - El **modo oscuro** dejó de perderse en cada recarga: antes era estado en memoria.
 
 Un ítem del sidebar siempre lleva a la raíz de su módulo.

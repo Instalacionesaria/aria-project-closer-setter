@@ -148,39 +148,51 @@ export const env = {
    * tal. Es exactamente el error que D16 llama caro, aceptado a propósito y por un rato:
    * Fabio lo pidió para ver al auditor trabajar durante las pruebas.
    *
-   * **Cómo se apaga:** `AUDITOR_USER_IDS_IA=""` en Vercel lo pisa (una cadena vacía gana
-   * sobre el `??`). Lo definitivo es que el agente mande bajo su propio usuario de GHL, y
-   * ahí este default se borra.
+   * ── El default hardcodeado se fue (2026-08-07) ───────────────────────
+   *
+   * Decía `?? "0peGoq7VvFqnDGA7gxtX"`, que es el userId de GHL de **Jorge Quiroz** — una
+   * persona real de la subcuenta de ARIA. Con cinco empresas eso es doblemente falso: ese id
+   * no existe en las otras subcuentas, y si por casualidad existiera sería de otra persona.
+   * Peor: hacía que los mensajes de un humano se clasificaran como `agente_ia`, y de esa
+   * clasificación cuelga qué conversación audita el auditor y a quién le atribuye cada frase.
+   *
+   * Ahora sin default. Vacío significa "no sé reconocer al bot por usuario", que es la verdad
+   * mientras el agente mande bajo la cuenta de una persona. La clasificación cae entonces a
+   * `auditorFuentesIa()`, que es por `source` y no por persona.
+   *
+   * Se configura con `AUDITOR_USER_IDS_IA` (lista separada por comas). Debería ser por
+   * empresa, no global — anotado como deuda, no alcanza a bloquear el lanzamiento.
    */
   auditorUserIdsIa: (): string[] =>
-    (process.env.AUDITOR_USER_IDS_IA ?? "0peGoq7VvFqnDGA7gxtX")
+    (process.env.AUDITOR_USER_IDS_IA ?? "")
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean),
 
   /**
-   * ⚠️ EL INTERRUPTOR DEL AUDITOR — hoy en ENCENDIDO. Prueba de Fabio, 2026-08-06.
+   * El interruptor que saltea el portón 2 — el que exige el tag `bot_activado`.
    *
-   * Saltea el portón 2, el que exige el tag `bot_activado`. **Esto suspende D8**, que decía
-   * que la plataforma no adivina el estado del bot y que se esperaba a que Francisco
-   * publicara los workflows 🟦 08.1/08.2. Fabio lo pidió explícitamente para ver al auditor
-   * trabajar durante las pruebas, sabiendo que puede escribir tags en GHL.
+   * ── APAGADO por default desde el 2026-08-07 ───────────────────────────
    *
-   * Viene encendido por default y no apagado porque los workflows siguen en borrador: con el
-   * portón puesto, **cero** contactos pasan, y el interruptor no serviría de nada. Así, un
-   * contacto nuevo que aparezca en mitad de una prueba se audita solo, sin que nadie tenga
-   * que etiquetarlo.
+   * Estuvo **encendido** por default entre el 06 y el 07 de agosto: fue una prueba que Fabio
+   * pidió para ver al auditor trabajar, sabiendo que podía escribir tags en GHL. Pidió
+   * apagarlo y dejarlo como estaba, así que rige otra vez **D8**: la plataforma no adivina el
+   * estado del bot, se espera el tag.
    *
-   * **Alcance medido el 2026-08-06:** de los 12 contactos en `zona_closer`, solo 3 tienen
-   * suficientes mensajes del agente para pasar el debounce de 5 — Quiroz Prueba (11),
-   * Angelica Moncada (6) y Leo Magistra (5). Los tres contactos que no se tocan en pruebas
-   * (Veronica Ochoa Orrego, Enrique Izaguirre, Richard Andrés Rodriguez) tienen **cero**, así
-   * que quedan fuera por el debounce, no por suerte.
+   * El default se invirtió en el CÓDIGO y no se apagó con la variable en Vercel, y la
+   * diferencia importa: un default peligroso que se desactiva con una variable de entorno se
+   * vuelve a encender solo en cualquier entorno donde la variable no esté —un preview, un
+   * clon local, un proyecto nuevo—. Un modo de prueba tiene que costar trabajo activarlo, no
+   * desactivarlo.
    *
-   * **Cómo se apaga:** `AUDITOR_SIN_PORTON_TAGS=0` en Vercel, sin tocar código. Y cuando
-   * Francisco publique los workflows, se borra este helper y vuelve a regir D8.
+   * **Cómo se enciende** para otra prueba: `AUDITOR_SIN_PORTON_TAGS=1` en Vercel. Cualquier
+   * otro valor, o su ausencia, deja el portón puesto.
+   *
+   * Consecuencia conocida y aceptada: mientras los workflows 🟦 08.1/08.2 de Francisco sigan
+   * en borrador, **cero contactos pasan el portón** y el auditor no analiza nada. Es el estado
+   * correcto — no auditar es mejor que auditar a quien nadie marcó.
    */
-  auditorSinPortonTags: (): boolean => process.env.AUDITOR_SIN_PORTON_TAGS !== "0",
+  auditorSinPortonTags: (): boolean => process.env.AUDITOR_SIN_PORTON_TAGS === "1",
 
   /** Cuántos mensajes de la IA hacen falta para disparar un análisis (regla de Fabio: 5). */
   auditorUmbralIa: (): number => Number(process.env.AUDITOR_UMBRAL_IA ?? 5),

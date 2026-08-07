@@ -281,106 +281,6 @@ function CatalogRow({ link, onEdit, onDelete }: { link: CatalogLink; onEdit: () 
   );
 }
 
-/* ------------------------------------------------------------------ */
-/* Sugerencias del Equipo                                              */
-/* ------------------------------------------------------------------ */
-
-function SugerenciasCard() {
-  const { sugerencias, toggleSugerenciaAtendida } = useSettings();
-  const [filterPantalla, setFilterPantalla] = useState<string | null>(null);
-  const [showAtendidas, setShowAtendidas] = useState(false);
-
-  const pendientes = sugerencias.filter((s) => !s.atendida && (!filterPantalla || s.pantalla === filterPantalla));
-  const atendidas = sugerencias.filter((s) => s.atendida);
-
-  return (
-    <div className="rounded-lg bg-card text-card-foreground border border-border/50 shadow-sm">
-      <div className="flex flex-col space-y-1.5 p-6 pb-4 border-b border-border/50 bg-muted/10">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold tracking-tight text-lg">Sugerencias del Equipo</h3>
-          {filterPantalla && (
-            <button
-              onClick={() => setFilterPantalla(null)}
-              className="text-[10px] font-semibold uppercase tracking-wide text-primary hover:underline"
-            >
-              Quitar filtro: {filterPantalla} ✕
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="p-0">
-        {pendientes.length === 0 ? (
-          <p className="p-6 text-sm text-muted-foreground">
-            {filterPantalla ? "No hay sugerencias pendientes desde esta pantalla." : "No hay sugerencias pendientes."}
-          </p>
-        ) : (
-          <div className="divide-y divide-border/50">
-            {pendientes.map((s) => (
-              <div key={s.id} className="p-4 flex gap-4 items-start hover:bg-muted/5 transition-colors">
-                <div className="flex-1 space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{s.fecha}</span>
-                    <span className="text-sm font-medium">{s.autor}</span>
-                    <button
-                      onClick={() => setFilterPantalla(s.pantalla)}
-                      className="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold border-transparent text-secondary-foreground text-[10px] bg-muted cursor-pointer hover:bg-primary/10 transition-colors"
-                    >
-                      {s.pantalla}
-                    </button>
-                  </div>
-                  <p className="text-sm text-foreground/90">{s.texto}</p>
-                </div>
-                <button
-                  onClick={() => toggleSugerenciaAtendida(s.id)}
-                  title="Marcar como atendida"
-                  className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors h-8 w-8 text-muted-foreground hover:text-green-600 hover:bg-green-500/10 rounded-full shrink-0"
-                >
-                  <CircleCheck className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        {atendidas.length > 0 && (
-          <div className="border-t border-border/50">
-            <button
-              onClick={() => setShowAtendidas((v) => !v)}
-              className="w-full flex items-center justify-between p-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground hover:bg-muted/20 transition-colors"
-            >
-              Atendidas ({atendidas.length})
-              <ChevronDown className={cn("w-4 h-4 transition-transform", showAtendidas && "rotate-180")} />
-            </button>
-            {showAtendidas && (
-              <div className="divide-y divide-border/50 opacity-60">
-                {atendidas.map((s) => (
-                  <div key={s.id} className="p-4 flex gap-4 items-start">
-                    <div className="flex-1 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">{s.fecha}</span>
-                        <span className="text-sm font-medium">{s.autor}</span>
-                        <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 font-semibold border-transparent text-secondary-foreground text-[10px] bg-muted">
-                          {s.pantalla}
-                        </span>
-                      </div>
-                      <p className="text-sm text-foreground/90 line-through">{s.texto}</p>
-                    </div>
-                    <button
-                      onClick={() => toggleSugerenciaAtendida(s.id)}
-                      title="Desmarcar"
-                      className="inline-flex items-center justify-center gap-2 whitespace-nowrap text-sm font-medium transition-colors h-8 w-8 text-green-600 hover:bg-green-500/10 rounded-full shrink-0"
-                    >
-                      <CircleCheck className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ------------------------------------------------------------------ */
 /* Vista principal                                                     */
@@ -836,7 +736,6 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                 </div>
               </div>
 
-              <SugerenciasCard />
             </div>
           </section>
         )}

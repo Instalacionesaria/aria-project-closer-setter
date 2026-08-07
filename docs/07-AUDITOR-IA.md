@@ -19,6 +19,20 @@ contactos tienen alguno de los dos**, y los workflows que los aplicarían están
 Fabio decidió mantener el portón por tags y esperar a Francisco, en vez de que la plataforma
 adivine el estado del bot. **El auditor está en cero deliberadamente.**
 
+> **El interruptor, y por qué el default está al revés que antes.** Entre el 06 y el 07 de
+> agosto el portón estuvo salteado: Fabio pidió encenderlo para ver al auditor trabajar durante
+> unas pruebas, y quedó así un día. Ya está apagado.
+>
+> Lo que cambió al apagarlo es de qué lado está el default: antes `AUDITOR_SIN_PORTON_TAGS`
+> salteaba el portón **salvo** que valiera `0`, y ahora lo saltea **solo** si vale `1`. La
+> diferencia importa porque un modo de prueba que se desactiva con una variable de entorno se
+> vuelve a encender solo en cualquier entorno donde la variable no esté — un preview, un clon
+> local, un proyecto nuevo. Activar una prueba tiene que costar trabajo; desactivarla, no.
+>
+> En el mismo movimiento se borró el default hardcodeado de `AUDITOR_USER_IDS_IA`, que era el
+> userId de GHL de una persona real de ARIA. Con cinco empresas ese id no existe en las otras
+> subcuentas, y si existiera sería de otra persona.
+
 Para ver el estado exacto: **`GET /api/agentes/auditor-estado`**. Devuelve el embudo contacto
 por contacto, el conteo de cada tag, los salientes por autoría, si el archivo de prompt existe,
 y una lista `loQueFalta[]` redactada para reenviar tal cual.

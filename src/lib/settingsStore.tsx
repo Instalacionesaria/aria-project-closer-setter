@@ -2,8 +2,12 @@ import { createContext, useCallback, useContext, useState } from "react";
 
 /**
  * Single source of truth para Ajustes (§ arquitectura de Ajustes, 2026-07-10): Mi Cuenta +
- * Operación. El menú + del chat, el anillo de comisión de Inicio, y el buzón de
- * Sugerencias leen de aquí — nunca guardan su propia copia.
+ * Operación. El menú + del chat y el anillo de comisión de Inicio leen de aquí — nunca guardan
+ * su propia copia.
+ *
+ * El buzón de Sugerencias vivía también acá y se fue el 2026-08-07, por pedido de Fabio: el
+ * botón para mandarlas ya se había ido del sidebar, así que la bandeja quedaba como un archivo
+ * de lo enviado sin forma de agregar.
  */
 
 export type SonidoVenta = "caja" | "aplausos" | "silencio";
@@ -34,17 +38,6 @@ export interface CatalogLink {
   monto?: number;
   /** ["closer"], ["setter"], o ambos = "Todos". */
   scope: Role[];
-}
-
-export interface Sugerencia {
-  id: string;
-  fecha: string;
-  /** Rol capitalizado ("Closer"/"Setter"/"Admin") — no hay auth real en el demo. */
-  autor: string;
-  /** Vista de origen (ej. "Mi Día", "Pipeline Setter") — clicable en Ajustes > Operación para filtrar. */
-  pantalla: string;
-  texto: string;
-  atendida: boolean;
 }
 
 const DEFAULT_MI_CUENTA: MiCuenta = {
@@ -79,10 +72,6 @@ const SEED_CATALOG: CatalogLink[] = [
   { id: "seed-cat-2", etiqueta: "Sesión 1 a 1", categoria: "Low-ticket", url: "https://pay.example.com/sesion-1a1", procesador: "Stripe", monto: 500, scope: ["closer", "setter"] },
 ];
 
-const SEED_SUGERENCIAS: Sugerencia[] = [
-  { id: "seed-sug-1", fecha: "07 Jul", autor: "Closer", pantalla: "Mi Día", texto: "Me gustaría poder ver el historial de llamadas más rápido.", atendida: false },
-];
-
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++idCounter}`;
 
@@ -101,7 +90,12 @@ interface PersistedSettings {
   comisionesSetterDiferida: Record<string, number>;
   catalog: CatalogLink[];
   categorias: string[];
-  sugerencias: Sugerencia[];
+  /**
+   * `sugerencias` estuvo acá hasta el 2026-08-07. **La clave se deja de escribir pero NO se
+   * borra de los blobs que ya existen**: `loadPersisted` devuelve el JSON entero y las claves
+   * que la interfaz no declara simplemente se ignoran. Si algún día hace falta recuperar lo que
+   * el equipo había mandado, sigue estando en el localStorage de cada uno.
+   */
   /**
    * **No renombrar a `estadisticas`.** El módulo pasó a llamarse Estadísticas el 2026-08-07,
    * pero esta es la clave literal del JSON que ya está escrito en el navegador de cada
@@ -122,20 +116,9 @@ function loadPersisted(): Partial<PersistedSettings> {
     const datos = raw ? (JSON.parse(raw) as Partial<PersistedSettings>) : {};
 
     /**
-     * Las sugerencias guardan el nombre de la pantalla desde la que se enviaron, y Ajustes
-     * filtra por igualdad exacta. Sin esto, las de antes del rename quedarían bajo "Gerencia"
-     * y las nuevas bajo "Estadísticas": dos filtros para la misma pantalla, cada uno con la
-     * mitad del historial. Se normaliza al leer y no con una migración escrita, porque el
-     * blob se reescribe entero en el próximo "Guardar Cambios".
+     * Acá vivía la normalización de `Sugerencia.pantalla` de "Gerencia" a "Estadísticas". Se
+     * fue con la bandeja: la clave ya no se lee, así que normalizarla no tenía consumidor.
      */
-    // `Array.isArray` y no un `if` a secas: si el blob guardado estuviera corrupto, un `.map`
-    // sobre algo que no es array tiraría acá adentro y el `catch` devolvería `{}` — o sea que
-    // una sugerencia rota se llevaría puestas TODAS las comisiones y el catálogo.
-    if (Array.isArray(datos.sugerencias)) {
-      datos.sugerencias = datos.sugerencias.map((s) =>
-        s?.pantalla === "Gerencia" ? { ...s, pantalla: "Estadísticas" } : s,
-      );
-    }
     return datos;
   } catch {
     return {};
@@ -158,9 +141,6 @@ interface SettingsStoreValue {
   removeCatalogLink: (id: string) => void;
   categorias: string[];
   addCategoria: (nombre: string) => void;
-  sugerencias: Sugerencia[];
-  addSugerencia: (texto: string, pantalla: string, autor: string) => void;
-  toggleSugerenciaAtendida: (id: string) => void;
   /** § Gerencia (2026-07-13) — inversión de pauta y objetivo de facturación, los únicos 2 parámetros nuevos que ese dashboard necesita de Ajustes. */
   gerencia: GerenciaParams;
   setGerencia: (patch: Partial<GerenciaParams>) => void;
@@ -180,7 +160,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [comisionesSetterDiferida, setComisionesSetterDiferida] = useState<Record<string, number>>(persisted.comisionesSetterDiferida ?? SEED_COMISIONES_SETTER_DIFERIDA);
   const [catalog, setCatalog] = useState<CatalogLink[]>(persisted.catalog ?? SEED_CATALOG);
   const [categorias, setCategorias] = useState<string[]>(persisted.categorias ?? SEED_CATEGORIAS);
-  const [sugerencias, setSugerencias] = useState<Sugerencia[]>(persisted.sugerencias ?? SEED_SUGERENCIAS);
   const [gerencia, setGerenciaState] = useState<GerenciaParams>(persisted.gerencia ?? DEFAULT_GERENCIA);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
@@ -224,33 +203,20 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     setHasUnsavedChanges(true);
   }, []);
 
-  const addSugerencia = useCallback((texto: string, pantalla: string, autor: string) => {
-    setSugerencias((prev) => [
-      { id: nextId("sug"), fecha: "Hoy", autor, pantalla, texto, atendida: false },
-      ...prev,
-    ]);
-    setHasUnsavedChanges(true);
-  }, []);
-
-  const toggleSugerenciaAtendida = useCallback((id: string) => {
-    setSugerencias((prev) => prev.map((s) => (s.id === id ? { ...s, atendida: !s.atendida } : s)));
-    setHasUnsavedChanges(true);
-  }, []);
-
   const setGerencia = useCallback((patch: Partial<GerenciaParams>) => {
     setGerenciaState((prev) => ({ ...prev, ...patch }));
     setHasUnsavedChanges(true);
   }, []);
 
   const saveSettings = useCallback(() => {
-    const blob: PersistedSettings = { miCuenta: miCuentaState, comisiones, comisionesSetterLT, comisionesSetterDiferida, catalog, categorias, sugerencias, gerencia };
+    const blob: PersistedSettings = { miCuenta: miCuentaState, comisiones, comisionesSetterLT, comisionesSetterDiferida, catalog, categorias, gerencia };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
     } catch {
       // localStorage no disponible (modo privado, cuota excedida) — falla en silencio, no es crítico para el demo.
     }
     setHasUnsavedChanges(false);
-  }, [miCuentaState, comisiones, comisionesSetterLT, comisionesSetterDiferida, catalog, categorias, sugerencias, gerencia]);
+  }, [miCuentaState, comisiones, comisionesSetterLT, comisionesSetterDiferida, catalog, categorias, gerencia]);
 
   const value: SettingsStoreValue = {
     miCuenta: miCuentaState,
@@ -267,9 +233,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     removeCatalogLink,
     categorias,
     addCategoria,
-    sugerencias,
-    addSugerencia,
-    toggleSugerenciaAtendida,
     gerencia,
     setGerencia,
     hasUnsavedChanges,
