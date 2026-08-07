@@ -23,33 +23,27 @@ import { ORG_ID } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   /**
-   * ⚠️ EL ÚNICO ENDPOINT QUE TODAVÍA PUEDE ESTAR ABIERTO. Verificado el 2026-08-06:
-   * `CRON_SECRET` **no está configurado en Vercel**, así que hoy lo dispara cualquiera que
-   * conozca la URL.
+   * §3.2 · Falla CERRADO. Cerrado de verdad desde el 2026-08-07, cuando `CRON_SECRET` se
+   * configuró en Vercel.
    *
-   * Se intentó cerrarlo (503 sin la variable) y se revirtió al comprobar contra producción
-   * que el endpoint responde 200: cerrarlo **habría dejado la agenda sin sincronizar** hasta
-   * que alguien pusiera la variable. Romper el cron es peor que el agujero, que cuesta ~2
-   * llamadas a GHL y es idempotente.
+   * Antes era `if (secreto && …)`: **sin la variable pasaba cualquiera**. Se intentó cerrarlo
+   * el 06/08 y se revirtió al comprobar contra producción que el endpoint respondía 200 —
+   * o sea que la variable no existía y cerrarlo habría dejado la agenda sin sincronizar. Se
+   * dejó abierto pero ruidoso hasta que Fabio la creó.
    *
-   * **Lo que hay que hacer, y es de Fabio:** definir `CRON_SECRET` en Vercel. Vercel lo manda
-   * solo en `Authorization: Bearer …` cuando la variable existe, así que con solo crearla
-   * este endpoint queda cerrado sin tocar código. Hasta entonces cada corrida sin proteger
-   * grita por consola y lo dice en la respuesta — el agujero es visible, no silencioso.
+   * Ahora sí: sin la variable, 503 y no corre. Mejor un cron caído y visible que uno abierto
+   * y silencioso — que es el modo de fallar más peligroso, porque en un preview sin variables
+   * todo "funciona" y nadie se entera.
    *
-   * Con multi-empresa el argumento de "el riesgo es bajo" se debilita: son 2 llamadas **por
-   * empresa** por corrida.
+   * Vercel manda `Authorization: Bearer ${CRON_SECRET}` solo en las invocaciones de cron.
    */
   const secreto = process.env.CRON_SECRET;
-  const protegido = Boolean(secreto);
-  if (secreto && req.headers.authorization !== `Bearer ${secreto}`) {
-    return res.status(401).json({ ok: false, error: "Solo el cron de Vercel." });
+  if (!secreto) {
+    console.error("[citas-respaldo] CRON_SECRET sin configurar: se rechaza todo hasta que exista.");
+    return res.status(503).json({ ok: false, error: "CRON_SECRET sin configurar en el servidor." });
   }
-  if (!protegido) {
-    console.error(
-      "[citas-respaldo] CORRIENDO SIN PROTECCIÓN: falta CRON_SECRET en Vercel. " +
-        "Cualquiera con la URL puede dispararlo. Definir la variable lo cierra sin desplegar.",
-    );
+  if (req.headers.authorization !== `Bearer ${secreto}`) {
+    return res.status(401).json({ ok: false, error: "Solo el cron de Vercel." });
   }
 
   if (env.ghlModo() === "stub") {
@@ -76,7 +70,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const sync = await sincronizarCitas(desde, hasta);
     const refrescados = await refrescarContactosProximos();
 
-    return res.status(200).json({ ok: true, corrio: true, protegido, rango: { desde, hasta }, ...sync, refrescados });
+    return res.status(200).json({ ok: true, corrio: true, rango: { desde, hasta }, ...sync, refrescados });
   } catch (e) {
     return res.status(502).json({ ok: false, error: (e as Error).message });
   }
