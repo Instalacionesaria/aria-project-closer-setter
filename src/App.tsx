@@ -11,11 +11,13 @@ import {
   Sun,
   LogOut,
   Building2,
+  ShieldCheck,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { LimiteDeError } from "./components/LimiteDeError";
 import { AuthProvider, useAuth } from "./lib/authStore";
-import type { Rol } from "./lib/api";
+import { fetchEmpresas, type EmpresaAdmin, type Rol } from "./lib/api";
 
 /**
  * ── Una vista, un chunk (2026-08-04) ──
@@ -37,6 +39,7 @@ const SetterView = lazy(() => import("./views/SetterView"));
 const AgentsAudit = lazy(() => import("./views/AgentsAudit"));
 const Gerencia = lazy(() => import("./views/Gerencia"));
 const Ajustes = lazy(() => import("./views/Ajustes"));
+const Administracion = lazy(() => import("./views/Administracion"));
 const Login = lazy(() => import("./views/Login"));
 
 import { SettingsProvider, useSettings } from "./lib/settingsStore";
@@ -44,7 +47,7 @@ import { ClosurerProvider } from "./lib/closerStore";
 import { SetterProvider } from "./lib/setterStore";
 import { AgentAuditProvider } from "./lib/agentAuditStore";
 
-type View = "closer" | "setter" | "sales_calls" | "agents_audit" | "gerencia" | "ajustes";
+type View = "closer" | "setter" | "sales_calls" | "agents_audit" | "gerencia" | "ajustes" | "administracion";
 
 /**
  * Cada módulo declara QUÉ ROL lo habilita (ESPEC §3.2). El sidebar se arma desde acá, así que
@@ -75,6 +78,11 @@ const NAV: {
    */
   { key: "gerencia", label: "Gerencia", icon: TrendingUp, roles: ["super_admin"] },
   { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-4" },
+  /**
+   * §7 · Empresas, usuarios y credenciales. Va debajo de Ajustes y no arriba: se usa al dar de
+   * alta un cliente y después casi nunca, mientras que las de operación se usan todos los días.
+   */
+  { key: "administracion", label: "Administración", icon: ShieldCheck, roles: ["admin"] },
 ];
 
 function AppInner() {
@@ -264,6 +272,9 @@ function AppInner() {
             Estás viendo los datos de <strong>{empresa?.nombre ?? "otra empresa"}</strong>, no los de ARIA.
           </div>
         )}
+        {/* Solo el super admin cambia de empresa (§7.1). Para todos los demás no hay selector
+            porque no hay nada que elegir: su sesión está atada a una sola. */}
+        {usuario?.esSuperAdmin && <SelectorEmpresa />}
         {/* El boundary va POR FUERA del Suspense: cubre tanto el chunk que no se puede
             descargar como cualquier error de render de la vista ya cargada. El `key` lo
             reinicia al cambiar de vista, para que un error en una no deje muertas las otras. */}
@@ -280,9 +291,92 @@ function AppInner() {
             {view === "agents_audit" && <AgentsAudit onScreenChange={setScreenLabel} />}
             {view === "gerencia" && <Gerencia role={role} onScreenChange={setScreenLabel} />}
             {view === "ajustes" && <Ajustes role={role} />}
+            {view === "administracion" && <Administracion />}
           </Suspense>
         </LimiteDeError>
       </div>
+    </div>
+  );
+}
+
+/**
+ * El selector de empresa activa del super admin (§7.1).
+ *
+ * ── No filtra la vista: cambia la sesión ──────────────────────────────
+ *
+ * Elegir una empresa acá hace un PATCH a `/api/auth/sesion` y **el backend** pasa a devolver
+ * los datos de esa empresa en todos los endpoints. Por eso al terminar se recarga la página
+ * entera: los cuatro providers ya tienen en memoria los contactos, la agenda y las alertas de
+ * la empresa anterior, y no hay forma de invalidarlos todos sin que alguno quede mostrando
+ * datos de una empresa con el nombre de otra encima. Eso es exactamente lo que el banner
+ * existe para evitar.
+ *
+ * La lista se pide una sola vez al abrir el desplegable, no al montar: es un endpoint de admin
+ * y esto se renderiza en cada pantalla de la app.
+ */
+function SelectorEmpresa() {
+  const { empresa, mirarEmpresa } = useAuth();
+  const [abierto, setAbierto] = useState(false);
+  const [empresas, setEmpresas] = useState<EmpresaAdmin[] | null>(null);
+  const [cambiando, setCambiando] = useState(false);
+
+  const abrir = () => {
+    setAbierto((o) => !o);
+    if (empresas === null) void fetchEmpresas().then((r) => setEmpresas(r.empresas ?? []));
+  };
+
+  const elegir = async (orgId: string) => {
+    if (orgId === empresa?.id) return setAbierto(false);
+    setCambiando(true);
+    const r = await mirarEmpresa(orgId);
+    if (!r.ok) {
+      setCambiando(false);
+      setAbierto(false);
+      return;
+    }
+    window.location.reload();
+  };
+
+  return (
+    <div className="shrink-0 px-4 py-1.5 border-b border-border/30 bg-muted/20 flex items-center gap-2 relative">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">Empresa</span>
+      <button
+        onClick={abrir}
+        disabled={cambiando}
+        className="inline-flex items-center gap-1.5 h-7 px-2 rounded-md text-xs font-medium hover:bg-accent disabled:opacity-50"
+      >
+        <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+        {empresa?.nombre ?? "—"}
+        <ChevronDown className={cn("w-3 h-3 text-muted-foreground transition-transform", abierto && "rotate-180")} />
+      </button>
+
+      {abierto && (
+        <>
+          {/* Un panel invisible detrás cierra el desplegable al hacer clic en cualquier lado. */}
+          <div className="fixed inset-0 z-40" onClick={() => setAbierto(false)} />
+          <div className="absolute top-full left-16 z-50 mt-1 w-64 rounded-md border border-border bg-popover shadow-md py-1">
+            {empresas === null ? (
+              <div className="px-3 py-2 text-xs text-muted-foreground">Cargando…</div>
+            ) : (
+              empresas.map((e) => (
+                <button
+                  key={e.id}
+                  onClick={() => void elegir(e.id)}
+                  className={cn(
+                    "w-full text-left px-3 py-2 text-xs hover:bg-accent flex items-center justify-between gap-2",
+                    e.id === empresa?.id && "text-primary font-medium",
+                  )}
+                >
+                  <span className="truncate">{e.nombre}</span>
+                  {/* Una empresa desactivada se puede mirar —para diagnosticar por qué lo
+                      está— pero se dice que lo está antes de entrar. */}
+                  {!e.activa && <span className="text-[10px] text-muted-foreground shrink-0">desactivada</span>}
+                </button>
+              ))
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

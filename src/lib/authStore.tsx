@@ -11,6 +11,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  cambiarEmpresaActiva,
   cambiarPassword as cambiarPasswordRemoto,
   EVENTO_SIN_SESION,
   fetchSesion,
@@ -37,6 +38,8 @@ interface AuthValue {
   entrar: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   salir: () => Promise<void>;
   cambiarPassword: (actual: string, nueva: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Solo el super admin (§7.1). `null` vuelve a la empresa propia. */
+  mirarEmpresa: (orgId: string | null) => Promise<{ ok: boolean; error?: string }>;
 }
 
 const Ctx = createContext<AuthValue | null>(null);
@@ -113,6 +116,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   /**
+   * Cambiar de empresa **no es un filtro de la vista**: cambia la empresa efectiva de la sesión
+   * en el servidor, y a partir de ahí todos los endpoints devuelven los datos de esa empresa.
+   *
+   * Por eso al terminar se relee la sesión y no se toca el estado a mano: el `mirandoOtraEmpresa`
+   * que enciende el banner lo decide el backend, y si el cambio falló la UI tiene que seguir
+   * mostrando la empresa vieja — que es la que el backend sigue usando.
+   */
+  const mirarEmpresa = useCallback(
+    async (orgId: string | null) => {
+      const r = await cambiarEmpresaActiva(orgId);
+      if (!r.ok) return { ok: false, error: r.error ?? "No se pudo cambiar de empresa." };
+      await releer();
+      return { ok: true };
+    },
+    [releer],
+  );
+
+  /**
    * El super admin pasa por todos lados (§3.1): es el dueño de la plataforma. Se resuelve acá
    * y no en cada vista para que no haya dos criterios de "puede ver esto".
    */
@@ -126,8 +147,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const valor = useMemo<AuthValue>(
-    () => ({ estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword }),
-    [estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword],
+    () => ({ estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword, mirarEmpresa }),
+    [estado, usuario, empresa, mirandoOtraEmpresa, tieneRol, entrar, salir, cambiarPassword, mirarEmpresa],
   );
 
   return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;

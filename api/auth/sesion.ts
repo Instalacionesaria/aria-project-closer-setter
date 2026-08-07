@@ -18,14 +18,15 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { auditar, contextoDe, exigir } from "../_lib/auth.js";
 import { dbSinScope } from "../_lib/db.js";
 import { hashearPassword, motivoPasswordInvalida, verificarPassword } from "../_lib/password.js";
-import { borrarCookie, cerrarSesion, cerrarSesionesDe, crearSesion, ponerCookie } from "../_lib/sesion.js";
+import { borrarCookie, cambiarEmpresaActiva, cerrarSesion, cerrarSesionesDe, crearSesion, ponerCookie } from "../_lib/sesion.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === "GET") return quienSoy(req, res);
   if (req.method === "DELETE") return salir(req, res);
   if (req.method === "POST") return cambiarPassword(req, res);
-  res.setHeader("Allow", "GET, DELETE, POST");
-  return res.status(405).json({ ok: false, error: "Usá GET, DELETE o POST." });
+  if (req.method === "PATCH") return cambiarEmpresa(req, res);
+  res.setHeader("Allow", "GET, DELETE, POST, PATCH");
+  return res.status(405).json({ ok: false, error: "Usá GET, DELETE, POST o PATCH." });
 }
 
 /* ─────────────────────────── Quién soy ─────────────────────────── */
@@ -80,6 +81,60 @@ async function salir(req: VercelRequest, res: VercelResponse) {
   // cookie vencida o de una sesión ya borrada, esta es la forma de que deje de mandarla.
   borrarCookie(res);
   return res.status(200).json({ ok: true });
+}
+
+/* ─────────────── El selector de empresa del super admin (§7.1) ─────────────── */
+
+/**
+ * Cambia sobre qué empresa está trabajando el super admin.
+ *
+ * ── Por qué vive en la SESIÓN y no en un parámetro ────────────────────
+ *
+ * Es la única forma en que la empresa efectiva puede ser distinta de la propia, y aun así
+ * **no viaja en cada request**: se guarda en `closer_sesiones.empresa_activa` y `contextoDe`
+ * la lee de ahí. Si fuera un parámetro, el aislamiento entero se caería con editar un id en
+ * la URL — que es el primer criterio de aceptación de §12.
+ *
+ * Y aunque alguien consiguiera escribir esa columna, `contextoDe` solo la respeta si el rol
+ * es `super_admin`: la autorización la decide el rol, no el dato guardado.
+ *
+ * **Queda registrado en auditoría** (§7.1). Mirar los datos de un cliente es una acción con
+ * consecuencias — se puede registrar un resultado en la cuenta equivocada — así que tiene que
+ * dejar rastro de quién y cuándo.
+ */
+async function cambiarEmpresa(req: VercelRequest, res: VercelResponse) {
+  const ctx = await exigir(req, res, ["super_admin"]);
+  if (!ctx) return;
+
+  if (!ctx.esSuperAdmin) {
+    return res.status(403).json({ ok: false, codigo: "solo_super_admin", error: "Solo el super admin cambia de empresa." });
+  }
+
+  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
+  // `null` explícito = volver a la propia. Es el "salir del modo cliente".
+  const pedida = cuerpo?.orgId === null ? null : String(cuerpo?.orgId ?? "").trim() || null;
+
+  if (pedida) {
+    const { data } = await dbSinScope()
+      .from("closer_org_config")
+      .select("org_id, nombre, activa")
+      .eq("org_id", pedida)
+      .maybeSingle();
+
+    if (!data) return res.status(404).json({ ok: false, error: "Esa empresa no existe." });
+    // Se puede mirar una empresa desactivada: justamente para diagnosticar por qué lo está.
+    // Lo que no puede es operar — `exigir` corta con 403 en los endpoints de negocio.
+  }
+
+  await cambiarEmpresaActiva(ctx.sesionId, pedida);
+  await auditar("cambiar_empresa_activa", {
+    usuarioId: ctx.usuarioId,
+    orgId: pedida ?? ctx.orgPropia,
+    ip: ctx.ip,
+    detalle: { desde: ctx.orgEfectiva, hacia: pedida ?? ctx.orgPropia },
+  });
+
+  return res.status(200).json({ ok: true, empresaActiva: pedida ?? ctx.orgPropia });
 }
 
 /* ─────────────────────── Cambiar la contraseña ─────────────────────── */

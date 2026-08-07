@@ -1135,3 +1135,201 @@ export async function cambiarPassword(actual: string, nueva: string): Promise<Ca
   });
   return (await res.json().catch(() => ({ ok: false, error: "El servidor no respondió." }))) as CambioPasswordResponse;
 }
+
+/* ================================================================== */
+/* Administración (ESPEC-MULTIEMPRESA §7)                              */
+/* ================================================================== */
+
+/**
+ * Los tres endpoints de `/api/admin/*` **no usan `pedir`**, y no es una omisión.
+ *
+ * `pedir` lanza en cualquier respuesta que no sea 2xx, y acá los 4xx son la parte interesante:
+ * "ya existe una empresa con ese identificador", "ese usuario tiene historial, desactivalo".
+ * Son mensajes escritos para que el admin los lea y decida, no fallas de la aplicación. Con
+ * `pedir` llegarían como un `Error` con el texto adentro y cada pantalla tendría que
+ * desarmarlo.
+ *
+ * El 401 sigue disparando el evento de sesión vencida: eso sí es un cambio de estado global.
+ */
+async function pedirAdmin<T extends { ok: boolean }>(ruta: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(ruta, { credentials: "same-origin", ...init });
+
+  if (res.status === 401) {
+    window.dispatchEvent(new CustomEvent(EVENTO_SIN_SESION));
+    return { ok: false, error: "Tu sesión venció. Volvé a entrar." } as unknown as T;
+  }
+
+  const cuerpo = (await res.json().catch(() => null)) as T | null;
+  // Sin cuerpo JSON no se puede decir qué pasó: se dice eso, y no un "ok" inventado.
+  if (!cuerpo) return { ok: false, error: `El servidor respondió ${res.status} sin explicación.` } as unknown as T;
+  return cuerpo;
+}
+
+/* ── §7.1 · Empresas ── */
+
+export interface EmpresaAdmin {
+  id: string;
+  nombre: string;
+  slug: string;
+  esPrincipal: boolean;
+  activa: boolean;
+  zonaHoraria: string | null;
+  /** Solo los últimos 4 caracteres, y `null` si la empresa todavía no tiene subcuenta. */
+  ghlLocationId: string | null;
+  creadoEl: string;
+  usuarios: number;
+  /** `null` = nadie entró nunca. No es lo mismo que una fecha vieja. */
+  ultimoAcceso: string | null;
+}
+
+export interface EmpresasResponse {
+  ok: boolean;
+  count?: number;
+  empresas?: EmpresaAdmin[];
+  error?: string;
+}
+
+export interface RespuestaAdmin {
+  ok: boolean;
+  codigo?: string;
+  error?: string;
+}
+
+export function fetchEmpresas(): Promise<EmpresasResponse> {
+  return pedirAdmin<EmpresasResponse>("/api/admin/empresas");
+}
+
+export function crearEmpresa(body: { nombre: string; slug: string; zonaHoraria: string }): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>("/api/admin/empresas", conJson(body));
+}
+
+export function editarEmpresa(
+  body: { orgId: string; nombre?: string; activa?: boolean; zonaHoraria?: string },
+): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>("/api/admin/empresas", { ...conJson(body), method: "PATCH" });
+}
+
+/** Baja lógica (`activa = false`). El borrado real no existe a propósito — ver §7.1. */
+export function desactivarEmpresa(orgId: string): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>(`/api/admin/empresas?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
+}
+
+/* ── §7.2 · Usuarios ── */
+
+export interface UsuarioAdmin {
+  id: string;
+  orgId: string;
+  nombre: string;
+  email: string | null;
+  roles: Rol[];
+  activo: boolean;
+  esAdminPrincipal: boolean;
+  debeCambiarPassword: boolean;
+  bloqueado: boolean;
+  ultimoAcceso: string | null;
+  creadoEl: string;
+}
+
+export interface UsuariosResponse {
+  ok: boolean;
+  count?: number;
+  usuarios?: UsuarioAdmin[];
+  /** Qué roles puede otorgar QUIEN PREGUNTA. El selector se arma con esto, no con una lista fija. */
+  rolesQuePuedeOtorgar?: Rol[];
+  error?: string;
+}
+
+/** La contraseña temporal viaja una sola vez, en la respuesta. Después solo existe su hash. */
+export interface AltaUsuarioResponse extends RespuestaAdmin {
+  usuario?: { id: string; email: string; nombre: string; roles: Rol[] };
+  passwordTemporal?: string;
+  aviso?: string;
+}
+
+export function fetchUsuariosAdmin(): Promise<UsuariosResponse> {
+  return pedirAdmin<UsuariosResponse>("/api/admin/usuarios");
+}
+
+export function crearUsuario(body: {
+  nombre: string;
+  email: string;
+  roles: Rol[];
+  orgId?: string;
+}): Promise<AltaUsuarioResponse> {
+  return pedirAdmin<AltaUsuarioResponse>("/api/admin/usuarios", conJson(body));
+}
+
+export function editarUsuario(body: {
+  id: string;
+  nombre?: string;
+  activo?: boolean;
+  roles?: Rol[];
+}): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>("/api/admin/usuarios", { ...conJson(body), method: "PATCH" });
+}
+
+export function regenerarPassword(id: string): Promise<AltaUsuarioResponse> {
+  return pedirAdmin<AltaUsuarioResponse>("/api/admin/usuarios?accion=regenerar-password", conJson({ id }));
+}
+
+export function eliminarUsuario(id: string): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>(`/api/admin/usuarios?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/* ── §7.3 · Configuración y credenciales ── */
+
+export interface CredencialAdmin {
+  clave: string;
+  etiqueta: string;
+  cifrado: boolean;
+  /**
+   * Tres valores con tres significados distintos: la máscara (`••••1234`), `null` si no hay
+   * credencial cargada, y `"error"` si está cargada pero no se pudo descifrar. La UI los
+   * distingue — confundir los dos últimos manda a arreglar el problema equivocado.
+   */
+  valor: string | null;
+  cargada: boolean;
+}
+
+export interface PromptAdmin {
+  clave: string;
+  agente: string;
+  texto: string;
+  hash: string | null;
+  lineas: number;
+}
+
+export interface ConfiguracionResponse {
+  ok: boolean;
+  empresa?: { id: string; nombre: string; slug: string; esPrincipal: boolean; activa: boolean; zonaHoraria: string };
+  credenciales?: CredencialAdmin[];
+  auditor?: { modelo: string | null; thinking: string | null; modeloPorDefecto: string; thinkingPorDefecto: string };
+  prompts?: PromptAdmin[];
+  /** Sin clave maestra en el servidor no se puede guardar nada cifrado. */
+  puedeGuardarCifrado?: boolean;
+  error?: string;
+}
+
+export function fetchConfiguracion(orgId?: string): Promise<ConfiguracionResponse> {
+  const q = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
+  return pedirAdmin<ConfiguracionResponse>(`/api/admin/configuracion${q}`);
+}
+
+/**
+ * Guarda. Las claves que no se mandan —o que se mandan vacías— **no se tocan**: es lo que
+ * permite editar una credencial sin reescribir las otras siete. Para borrar una hay que
+ * nombrarla en `borrar`.
+ */
+export function guardarConfiguracion(body: Record<string, unknown>): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>("/api/admin/configuracion", conJson(body));
+}
+
+/* ── §7.1 · El selector de empresa del super admin ── */
+
+/** `null` vuelve a la empresa propia. Queda registrado en auditoría. */
+export function cambiarEmpresaActiva(orgId: string | null): Promise<RespuestaAdmin & { empresaActiva?: string }> {
+  return pedirAdmin<RespuestaAdmin & { empresaActiva?: string }>("/api/auth/sesion", {
+    ...conJson({ orgId }),
+    method: "PATCH",
+  });
+}

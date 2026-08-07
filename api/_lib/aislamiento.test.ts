@@ -59,6 +59,30 @@ const ESCOTILLA_AUTORIZADA = new Set([
   "auth/sesion.ts",
   // Crea el super admin cuando todavía no hay ningún usuario en el sistema.
   "admin/bootstrap.ts",
+  /**
+   * ── Los tres del panel de administración (§7) ───────────────────────
+   *
+   * Son la excepción de diseño: el panel **administra** las empresas, así que no puede estar
+   * atado a una. `db(orgId)` filtraría `closer_org_config` por la empresa de quien mira, y el
+   * super admin no podría ni listar las otras ni crear una nueva.
+   *
+   * Lo que reemplaza al scoping automático, en cada uno, es un chequeo explícito que está en
+   * el código y no en una convención:
+   */
+  // Solo super_admin (doble chequeo con `ctx.esSuperAdmin`). Por definición ve todas.
+  "admin/empresas.ts",
+  /**
+   * Un `admin` solo ve y toca su empresa: el listado hace `.eq("org_id", ctx.orgPropia)`
+   * cuando no es super admin, el alta fuerza `orgPropia`, y editar/borrar pasan antes por
+   * `cargarObjetivo()`, que devuelve 404 si el usuario es de otra empresa.
+   */
+  "admin/usuarios.ts",
+  /**
+   * `empresaObjetivo()` devuelve `ctx.orgPropia` para un `admin` **aunque mande otro orgId**;
+   * solo el super admin puede pedir otra. Toca `closer_org_config`, que es la tabla de la
+   * empresa misma: scoparla con `db(orgId)` sería redundante con su propia clave primaria.
+   */
+  "admin/configuracion.ts",
 ]);
 
 function archivosTs(raiz: string): string[] {
