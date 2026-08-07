@@ -98,9 +98,20 @@ export const AGENTS_CATALOGO: AgentCatalogo[] = [
     name: "Lead Flow Voz",
     goal: "% LLAMADOS → CITA EN 48H",
     desc: "Llama al lead recién capturado · califica y agenda en la llamada",
+    /**
+     * Corregido el 2026-08-07: este texto decía que GHL no expone el audio ni la transcripción,
+     * y era falso desde que existe el webhook de Assistable. `closer_llamadas.turnos` guarda la
+     * transcripción entera (migración `016`) y `grabacion_url` la grabación. La fuente está
+     * resuelta; lo que falta es la rúbrica de voz y una llamada contestada — las tres que
+     * llegaron cayeron en buzón.
+     *
+     * Importa porque era un dato falso mostrado a un cliente: le decíamos que la limitación era
+     * de GHL cuando la limitación es nuestra.
+     */
     porQueNoHayAuditor:
-      "Las llamadas de los agentes de voz no llegan a la plataforma: GHL no expone el audio ni la " +
-      "transcripción. Hasta resolver de dónde salen, no hay nada que auditar.",
+      "La transcripción de las llamadas ya llega y se guarda. Lo que falta es la rúbrica de voz, " +
+      "que no es la del chat con otro contexto: juzga una conversación hablada, con sus " +
+      "interrupciones y sus silencios.",
   },
   {
     id: "appointment-flow-voz",
@@ -110,8 +121,9 @@ export const AGENTS_CATALOGO: AgentCatalogo[] = [
     goal: "% CONFIRMACIONES LOGRADAS",
     desc: "Confirma la sesión · recuerda el video pre-call",
     porQueNoHayAuditor:
-      "Las llamadas de los agentes de voz no llegan a la plataforma: GHL no expone el audio ni la " +
-      "transcripción. Hasta resolver de dónde salen, no hay nada que auditar.",
+      "La transcripción de las llamadas ya llega y se guarda. Lo que falta es la rúbrica de voz, " +
+      "que no es la del chat con otro contexto: juzga una conversación hablada, con sus " +
+      "interrupciones y sus silencios.",
   },
 ];
 

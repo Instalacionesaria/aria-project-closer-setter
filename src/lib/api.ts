@@ -1357,3 +1357,71 @@ export function cambiarEmpresaActiva(orgId: string | null): Promise<RespuestaAdm
     method: "PATCH",
   });
 }
+
+/* ================================================================== */
+/* Estadísticas — el panel del negocio, con datos reales               */
+/* ================================================================== */
+
+export type PeriodoEstadisticas = "este_mes" | "mes_pasado" | "ultimos_3_meses";
+
+/**
+ * Un porcentaje CON su base, o `null`.
+ *
+ * `null` y no cero cuando la base es cero, y es la regla §4.1 del proyecto: un `0%` medido y un
+ * `0%` no medido no son el mismo hecho. La vista atenúa el primero y no renderiza el segundo.
+ */
+export interface TasaConBase {
+  pct: number;
+  de: number;
+  sobre: number;
+}
+
+export interface EstadisticasResponse {
+  ok: boolean;
+  periodo?: PeriodoEstadisticas;
+  etiqueta?: string;
+  rango?: { desde: string; hasta: string };
+  zonaHoraria?: string;
+  embudo?: {
+    entraron: number;
+    conversaron: number;
+    agendaron: number;
+    asistieron: number;
+    compraron: number;
+    tasas: {
+      conversacion: TasaConBase | null;
+      agenda: TasaConBase | null;
+      show: TasaConBase | null;
+      cierre: TasaConBase | null;
+    };
+  };
+  dinero?: {
+    revenue: number;
+    /** `null` sin ventas: no hay ticket promedio de cero ventas. */
+    ticketPromedio: number | null;
+    sobreLaMesa: number;
+    /** Los cuatro dependen del gasto en pauta. `null` hasta que exista la integración con Meta. */
+    roas: number | null;
+    cac: number | null;
+    cpl: number | null;
+    cpa: number | null;
+  };
+  /** Conteo por `closer_contactos.fuente`. Las claves son las que produce `fuenteDesdeTags()`. */
+  fuentes?: Record<string, number>;
+  equipo?: {
+    personas: { id: string; nombre: string; ventas: number; revenue: number }[];
+    /** Ventas sin autor: filas anteriores a la migración 025. Se cuentan en los totales. */
+    sinAtribuir: number;
+  };
+  /**
+   * Qué NO se puede medir, y por qué. Viene del backend a propósito: una lista de "esto no
+   * existe" mantenida en el cliente se desactualiza sola el día que el backend sí pueda
+   * calcularlo.
+   */
+  sinDato?: Record<string, string>;
+  error?: string;
+}
+
+export function fetchEstadisticas(periodo: PeriodoEstadisticas): Promise<EstadisticasResponse> {
+  return pedirAdmin<EstadisticasResponse>(`/api/estadisticas?periodo=${periodo}`);
+}

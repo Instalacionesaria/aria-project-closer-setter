@@ -33,8 +33,8 @@ import { fetchEmpresas, type EmpresaAdmin, type Rol } from "./lib/api";
  * quien no es admin: la vista entera está detrás del mismo gate.
  *
  * Los cuatro providers SIGUEN en el chunk de entrada, y no es una omisión: `useSetter()` lo
- * consumen también `gerenciaStore` y `AgentsAudit`, y `useAgentAudit()` lo consume `CloserAI`
- * — bajarlos a su vista los duplicaría en varios chunks.
+ * consume también `AgentsAudit`, y `useAgentAudit()` lo consume `CloserAI` — bajarlos a su vista
+ * los duplicaría en varios chunks.
  */
 const CloserAI = lazy(() => import("./views/CloserAI"));
 const SetterView = lazy(() => import("./views/SetterView"));
@@ -78,13 +78,13 @@ const NAV: {
   { key: "setter", label: "Setter", icon: Bot, roles: ["setter"] },
   { key: "agents_audit", label: "Auditoría de Agentes", icon: BrainCircuit, roles: ["tecnico"] },
   /**
-   * Estadísticas queda SOLO para el super admin, y no es una decisión de producto: su dataset
-   * es inventado (`src/lib/gerenciaStore.tsx`) y la especificación §8 no la incluye entre las
-   * secciones "en desarrollo". Mostrarle métricas fabricadas al admin de una empresa cliente
-   * sería mostrarle datos falsos a alguien que paga — la regla D3. Con `super_admin` la ve
-   * solo quien sabe que es una maqueta. Pendiente de decisión de Fabio.
+   * Estadísticas pasó de `super_admin` a `admin` el 2026-08-07, y no es que se aflojó un permiso:
+   * **desapareció el motivo de la restricción**. Estaba limitada porque su dataset era inventado
+   * y mostrarle métricas fabricadas al admin de una empresa cliente sería mostrarle datos falsos
+   * a alguien que paga (D3). Ahora sale de `GET /api/estadisticas`, que calcula por query sobre
+   * `closer_avances` y `closer_citas` de SU empresa, y lo que no se puede medir no se muestra.
    */
-  { key: "estadisticas", label: "Estadísticas", icon: TrendingUp, roles: ["super_admin"] },
+  { key: "estadisticas", label: "Estadísticas", icon: TrendingUp, roles: ["admin"] },
   { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-4" },
 ];
 

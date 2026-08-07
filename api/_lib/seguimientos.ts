@@ -359,6 +359,12 @@ export interface ProyeccionInput {
   detalleExtra?: Record<string, unknown>;
   /** Los tags que viajaron a GHL, para el registro inmutable. */
   tagsEnviados: string[];
+  /**
+   * Quién lo registró (migración `025`). `undefined` deja la fila **sin autor** en vez de
+   * atribuírsela a nadie: es lo que corresponde para un camino de máquina, y es lo que van a
+   * tener siempre las filas anteriores a que existiera la sesión.
+   */
+  autorUsuarioId?: string;
 }
 
 /**
@@ -389,6 +395,12 @@ export async function proyectarAvance(input: ProyeccionInput): Promise<string[]>
         ...(input.detalleExtra ?? {}),
       },
       tags_enviados: input.tagsEnviados,
+      /**
+       * Sin autor se escribe `null` y no un id por defecto. El desglose por persona del panel de
+       * Estadísticas cuenta estas filas en los totales y las excluye del reparto, diciéndolo —
+       * atribuirle una venta al closer más probable sería fabricar un hecho (§4.2).
+       */
+      autor_usuario_id: input.autorUsuarioId ?? null,
     });
   if (errAvance) advertencias.push(`closer_avances: ${errAvance.message}`);
 
@@ -646,6 +658,9 @@ export async function registrarResultadoAvanzar(
       nota: input.nota,
       detalleExtra: { pildora: input.pildora },
       tagsEnviados,
+      // El mismo id con el que se firma el seguimiento y el evento del historial: una sola
+      // noción de "quién hizo esto" por cada Avanzar.
+      autorUsuarioId: closerId,
     })),
   );
 
