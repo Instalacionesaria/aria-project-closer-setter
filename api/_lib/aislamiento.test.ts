@@ -25,10 +25,32 @@ const API = join(AQUI, "..");
 const DUENO_DEL_CLIENTE = "_lib/db.ts";
 
 /**
- * Archivos que pueden hablar con `closer_*` sin importar el helper, porque **son** el helper
- * o porque su trabajo es inspeccionar el esquema, no leer datos de negocio.
+ * Archivos que pueden hablar con `closer_*` sin importar el helper, porque **son** el helper.
  */
 const EXENTOS = new Set(["_lib/db.ts", "_lib/repo.ts"]);
+
+/**
+ * Los usos autorizados de `dbSinScope()`. Cada uno se agrega **a mano y con motivo**, así
+ * aparece en el diff y alguien lo mira.
+ *
+ * Todos los de hoy son de autenticación y comparten la misma razón: **corren antes de que
+ * exista una organización que aplicar**. Averiguar de qué empresa es alguien es justamente lo
+ * que hacen, así que scoparlos sería circular. Y las tablas que tocan (`closer_usuarios`,
+ * `closer_sesiones`, `closer_auditoria_accesos`, `closer_org_config`) son **transversales**:
+ * una sesión pertenece a una persona, no a una empresa.
+ */
+const ESCOTILLA_AUTORIZADA = new Set([
+  // Resuelve sesión → usuario → empresa efectiva. Es quien AVERIGUA la organización.
+  "_lib/auth.ts",
+  // Crea, renueva y cierra sesiones; `closer_sesiones` no tiene org_id y no debe tenerlo.
+  "_lib/sesion.ts",
+  // Busca al usuario por email: antes del login no hay ni sesión ni empresa.
+  "auth/login.ts",
+  // Lee el usuario y la empresa efectiva para armar el sidebar; cambia la contraseña.
+  "auth/sesion.ts",
+  // Crea el super admin cuando todavía no hay ningún usuario en el sistema.
+  "admin/bootstrap.ts",
+]);
 
 function archivosTs(raiz: string): string[] {
   const salida: string[] = [];
@@ -78,6 +100,9 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
   it("todo archivo que consulta una tabla closer_* obtiene su cliente del helper", () => {
     const culpables = ARCHIVOS.filter((a) => {
       if (EXENTOS.has(a.rel)) return false;
+      // Los de la escotilla no tienen que importar `db`: su uso ya lo audita el test de
+      // abajo, que es el que exige la justificación por escrito.
+      if (ESCOTILLA_AUTORIZADA.has(a.rel)) return false;
       if (!/\.from\(\s*["']closer_/.test(a.texto)) return false;
       // Tiene que traer `db` de repo.js (el atado a la organización) o de db.js.
       return !/import\s*\{[^}]*\bdb\b[^}]*\}\s*from\s*["'][^"']*\/(repo|db)\.js["']/.test(a.texto);
@@ -90,23 +115,27 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
   });
 
   it("la escotilla dbSinScope solo se usa donde está justificada", () => {
-    /**
-     * `dbSinScope()` existe para lo que de verdad no se puede scopear —resolver la empresa a
-     * partir del `locationId` de un webhook ocurre ANTES de saber de qué empresa se trata—.
-     * Cada uso nuevo tiene que sumarse acá a mano y con motivo, así aparece en el diff y
-     * alguien lo mira. Hoy no la usa nadie en `api/`.
-     */
-    const PERMITIDOS = new Set<string>([]);
-
     const usos = ARCHIVOS.filter(
       (a) => a.rel !== DUENO_DEL_CLIENTE && /\bdbSinScope\s*\(/.test(a.texto),
     ).map((a) => a.rel);
 
-    const noPermitidos = usos.filter((u) => !PERMITIDOS.has(u));
+    const noAutorizados = usos.filter((u) => !ESCOTILLA_AUTORIZADA.has(u));
     expect(
-      noPermitidos,
-      `Usan la escotilla sin estar en la lista: ${noPermitidos.join(", ")}. ` +
-        `Si el uso es legítimo, agregalo a PERMITIDOS con un comentario que diga por qué.`,
+      noAutorizados,
+      `Usan la escotilla sin estar en la lista: ${noAutorizados.join(", ")}. ` +
+        `Si el uso es legítimo, agregalo a ESCOTILLA_AUTORIZADA con un comentario que diga por qué.`,
     ).toEqual([]);
+  });
+
+  it("la lista de la escotilla no tiene entradas muertas", () => {
+    /**
+     * Si un archivo deja de usar `dbSinScope()` —o se borra— su permiso tiene que irse con
+     * él. Una lista de excepciones que solo crece deja de ser una lista de excepciones.
+     */
+    const usanDeVerdad = new Set(
+      ARCHIVOS.filter((a) => /\bdbSinScope\s*\(/.test(a.texto)).map((a) => a.rel),
+    );
+    const sobrantes = [...ESCOTILLA_AUTORIZADA].filter((p) => !usanDeVerdad.has(p));
+    expect(sobrantes, `Ya no usan la escotilla y siguen autorizados: ${sobrantes.join(", ")}`).toEqual([]);
   });
 });
