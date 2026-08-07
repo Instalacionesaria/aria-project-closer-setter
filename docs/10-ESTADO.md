@@ -120,8 +120,12 @@ real**. Es lo que falta para arrancar los auditores de voz.
 | Reproducir el audio de una llamada | `grabacion_url` se guarda y viaja; falta el reproductor |
 | Reintentar un mensaje fallido | — |
 | Estadísticas con datos reales | La vista existe y funciona, pero su dataset es inventado (`src/lib/gerenciaStore.tsx`). Por eso queda limitada a `super_admin`: mostrarle métricas fabricadas al admin de una empresa cliente sería mostrarle datos falsos a quien paga. Se llamaba Gerencia hasta el 2026-08-07 |
-| Autenticación real | Todo firma con un autor por defecto |
 | Sales calls en el tab Llamada | Nadie graba ni transcribe las reuniones del closer |
+
+> **La autenticación real existe desde el 2026-08-06** y salió de esta lista: sesiones con
+> cookie `httpOnly`, contraseñas con scrypt, 6 roles, bloqueo por intentos fallidos y auditoría
+> de accesos. Ver [11-MULTIEMPRESA](11-MULTIEMPRESA.md) cuando exista; hasta entonces, las
+> migraciones `018`–`024` y `api/_lib/auth.ts`.
 
 ## Huecos conocidos
 
@@ -141,7 +145,9 @@ Cosas que funcionan pero con un límite que conviene tener presente:
 - **Tres contactos con `bot_pausado_fallo` sin territorio** — el auditor no pudo tagearlos.
   Hay otra fuente sin identificar. Va como pregunta en el diagnóstico.
 - **La firma de los ajustes** usa el autor por defecto, que es el closer — pero quien aplica un
-  ajuste al prompt es el técnico. Dato falso, solo que poco visible.
+  ajuste al prompt es el técnico. Dato falso, solo que poco visible. Ya hay sesión con usuario
+  real (`AUTOR_POR_DEFECTO` en `api/_lib/repo.ts` es lo que quedó de antes): la firma puede salir
+  de `ctx.nombre` y todavía no lo hace.
 - **Si alguien mueve un stage a mano en GHL**, la plataforma no se entera (ver
   [09-DECISIONES](09-DECISIONES.md) § D1).
 
