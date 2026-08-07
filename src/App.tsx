@@ -4,6 +4,7 @@ import {
   UserCheck,
   Bot,
   BrainCircuit,
+  Megaphone,
   TrendingUp,
   Settings,
   Moon,
@@ -40,6 +41,7 @@ const CloserAI = lazy(() => import("./views/CloserAI"));
 const SetterView = lazy(() => import("./views/SetterView"));
 const AgentsAudit = lazy(() => import("./views/AgentsAudit"));
 const Estadisticas = lazy(() => import("./views/Estadisticas"));
+const Acquisition = lazy(() => import("./views/Acquisition"));
 const Ajustes = lazy(() => import("./views/Ajustes"));
 const Login = lazy(() => import("./views/Login"));
 
@@ -48,7 +50,7 @@ import { ClosurerProvider } from "./lib/closerStore";
 import { SetterProvider } from "./lib/setterStore";
 import { AgentAuditProvider } from "./lib/agentAuditStore";
 
-type View = "closer" | "setter" | "agents_audit" | "estadisticas" | "ajustes";
+type View = "closer" | "setter" | "agents_audit" | "adquisicion" | "estadisticas" | "ajustes";
 
 /**
  * Cada módulo declara QUÉ ROL lo habilita (ESPEC §3.2). El sidebar se arma desde acá, así que
@@ -84,6 +86,13 @@ const NAV: {
    * a alguien que paga (D3). Ahora sale de `GET /api/estadisticas`, que calcula por query sobre
    * `closer_avances` y `closer_citas` de SU empresa, y lo que no se puede medir no se muestra.
    */
+  /**
+   * Adquisición (§9 · fase 7). `media_buyer` es el rol para el que existe, y hasta hoy **ese rol
+   * no tenía ninguna entrada en el sidebar**: un usuario con solo ese rol entraba a la primera
+   * vista disponible y le rebotaba entera con 403. Se podía asignar desde el panel de usuarios,
+   * así que era un agujero real, no teórico.
+   */
+  { key: "adquisicion", label: "Adquisición", icon: Megaphone, roles: ["media_buyer", "admin"] },
   { key: "estadisticas", label: "Estadísticas", icon: TrendingUp, roles: ["admin"] },
   { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-4" },
 ];
@@ -221,6 +230,7 @@ function AppInner() {
             {view === "closer" && <CloserAI />}
             {view === "setter" && <SetterView />}
             {view === "agents_audit" && <AgentsAudit />}
+            {view === "adquisicion" && <Acquisition />}
             {view === "estadisticas" && <Estadisticas role={role} />}
             {view === "ajustes" && <Ajustes role={role} />}
           </Suspense>

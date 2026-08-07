@@ -1425,3 +1425,56 @@ export interface EstadisticasResponse {
 export function fetchEstadisticas(periodo: PeriodoEstadisticas): Promise<EstadisticasResponse> {
   return pedirAdmin<EstadisticasResponse>(`/api/estadisticas?periodo=${periodo}`);
 }
+
+/* ================================================================== */
+/* Acquisition — la lectura de Meta (ESPEC §9)                          */
+/* ================================================================== */
+
+export type NivelAcquisition = "cuenta" | "campana" | "adset" | "anuncio";
+
+/**
+ * Todas las métricas son `number | null`.
+ *
+ * `null` significa "Meta no mandó el campo" o "el denominador era cero", y en los dos casos la
+ * vista **no renderiza el número**. Un CPC de 0 afirmaría que los clics fueron gratis.
+ */
+export interface ObjetoAcquisition {
+  objetoId: string;
+  nombre: string | null;
+  dias: number;
+  gasto: number | null;
+  impresiones: number | null;
+  clics: number | null;
+  alcance: number | null;
+  leads: number | null;
+  ctr: number | null;
+  cpc: number | null;
+  cpm: number | null;
+  cpl: number | null;
+  video: {
+    reproducciones: number | null;
+    retencion25: number | null;
+    retencion50: number | null;
+    retencion75: number | null;
+    retencion100: number | null;
+  };
+}
+
+export interface AcquisitionResponse {
+  ok: boolean;
+  nivel?: NivelAcquisition;
+  dias?: number;
+  desde?: string;
+  /** `false` = la empresa no cargó sus credenciales de Meta. No es un error. */
+  conectado?: boolean;
+  /** `true` = hay credenciales pero el cron todavía no corrió. Distinto de "no hay datos". */
+  sinSincronizarAun?: boolean;
+  totales?: Omit<ObjetoAcquisition, "objetoId" | "nombre" | "dias" | "video">;
+  objetos?: ObjetoAcquisition[];
+  serie?: { fecha: string; gasto: number | null; leads: number | null }[];
+  error?: string;
+}
+
+export function fetchAcquisition(nivel: NivelAcquisition, dias = 30): Promise<AcquisitionResponse> {
+  return pedirAdmin<AcquisitionResponse>(`/api/acquisition?nivel=${nivel}&dias=${dias}`);
+}
