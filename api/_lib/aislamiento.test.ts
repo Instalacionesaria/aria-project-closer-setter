@@ -60,6 +60,15 @@ const ESCOTILLA_AUTORIZADA = new Set([
   // Crea el super admin cuando todavía no hay ningún usuario en el sistema.
   "admin/bootstrap.ts",
   /**
+   * Traduce el `locationId` de un webhook a una empresa (§6.3). Es el caso que `db.ts` nombra
+   * en el comentario de la escotilla: **ocurre antes de saber de qué organización se trata**,
+   * así que scoparlo sería circular.
+   *
+   * Y es el único lugar del proyecto que escribe `org_id: null` a propósito — un evento que no
+   * se pudo atribuir (D15). Con `db(orgId)` eso sería imposible de expresar.
+   */
+  "_lib/ruteoWebhook.ts",
+  /**
    * ── Los tres del panel de administración (§7) ───────────────────────
    *
    * Son la excepción de diseño: el panel **administra** las empresas, así que no puede estar

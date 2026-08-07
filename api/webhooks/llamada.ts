@@ -38,10 +38,11 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { env } from "../_lib/env.js";
-import { ORG_PRINCIPAL, db } from "../_lib/repo.js";
+import { db } from "../_lib/repo.js";
 import { parsearLlamada, redactarSecretos, type PayloadLlamada } from "../../src/lib/assistable.js";
 import type { CallOrigin } from "../../src/lib/closerStore.js";
-import { activar, resolverCredenciales } from "../_lib/credenciales.js";
+import { activar } from "../_lib/credenciales.js";
+import { atribuirWebhook, guardarHuerfano } from "../_lib/ruteoWebhook.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   /**
@@ -58,36 +59,50 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ ok: false, error: "Solo POST." });
   }
 
-  const esperado = process.env.LLAMADAS_TOKEN;
-  if (!esperado) {
-    // Falla cerrado, igual que el webhook de GHL: sin token configurado no se acepta nada.
-    // 503 y no 401 porque el problema es configuración nuestra, no la credencial del que llama.
-    console.error("[llamada] LLAMADAS_TOKEN sin configurar: se rechaza todo hasta que exista.");
-    return res.status(503).json({ ok: false, error: "LLAMADAS_TOKEN sin configurar en el servidor." });
+  /**
+   * El cuerpo primero: el token es por empresa (`assistable_token`) y de qué empresa se trata
+   * lo dice el `location_id` del payload — que Assistable ya manda y que se persiste en
+   * `closer_llamadas.location_id` desde la `016`. Misma inversión que en el webhook de GHL.
+   */
+  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
+  if (!cuerpo) return res.status(400).json({ ok: false, error: "Cuerpo JSON inválido." });
+
+  /* ── Autenticación y atribución de empresa (§6.3) ────────────────────── */
+  let atribucion;
+  try {
+    atribucion = await atribuirWebhook(cuerpo, String(req.query.token ?? "") || undefined, process.env.LLAMADAS_TOKEN, "assistableToken");
+  } catch (e) {
+    console.error(`[llamada] ${(e as Error).message}`);
+    return res.status(503).json({ ok: false, error: (e as Error).message });
   }
 
-  const token = String(req.query.token ?? "");
-  if (token !== esperado) {
+  if (atribucion.estado === "sin_secreto_configurado") {
+    // Falla cerrado, igual que el webhook de GHL. 503 y no 401 porque el problema es
+    // configuración nuestra, no la credencial de quien llama.
+    console.error("[llamada] ni la empresa ni LLAMADAS_TOKEN tienen token: se rechaza todo.");
+    return res.status(503).json({ ok: false, error: "Webhook de llamadas sin token configurado en el servidor." });
+  }
+  if (atribucion.estado === "secreto_invalido") {
     return res.status(401).json({ ok: false, error: "Token inválido." });
   }
 
   /**
-   * Camino de MÁQUINA: no hay sesión, así que las credenciales de la empresa se resuelven acá.
-   * Sin esto la ingesta y el auditor correrían con las variables globales — correcto hoy con
-   * una sola empresa, y una fuga el día que haya dos (§5.2).
-   *
-   * **Provisorio:** usa `ORG_PRINCIPAL` porque el ruteo por `locationId` del payload es §6.3, de la
-   * fase 5. Cuando eso exista, la organización sale del `locationId` y esta línea cambia.
+   * D15 · Sin empresa atribuible, el crudo se guarda y no se procesa. 200 a propósito: el
+   * evento llegó bien y no hay nada que reintentar. Una llamada de voz que no se puede
+   * atribuir es justamente lo que hay que poder auditar después, no descartar.
    */
-  try {
-    activar(await resolverCredenciales(ORG_PRINCIPAL));
-  } catch (e) {
-    console.error(`[credenciales] ${(e as Error).message}`);
-    return res.status(503).json({ ok: false, error: (e as Error).message });
+  if (atribucion.estado === "sin_empresa" || atribucion.estado === "empresa_inactiva") {
+    const marca = atribucion.estado === "sin_empresa" ? "huerfano" : "inactiva";
+    await guardarHuerfano("assistable", `${marca}:${String(cuerpo.call_id ?? cuerpo.callId ?? Date.now())}`, redactarSecretos(cuerpo));
+    const motivo =
+      atribucion.estado === "sin_empresa"
+        ? atribucion.motivo
+        : `La empresa "${atribucion.credenciales.nombre}" está desactivada.`;
+    console.warn(`[llamada] no se procesa: ${motivo}`);
+    return res.status(200).json({ ok: true, procesado: false, motivo });
   }
 
-  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
-  if (!cuerpo) return res.status(400).json({ ok: false, error: "Cuerpo JSON inválido." });
+  activar(atribucion.credenciales);
 
   /**
    * `call_id` como clave de idempotencia: si Assistable reintenta la misma llamada, el índice

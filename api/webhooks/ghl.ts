@@ -30,8 +30,9 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ORG_PRINCIPAL, db } from "../_lib/repo.js";
-import { activar, resolverCredenciales } from "../_lib/credenciales.js";
+import { db } from "../_lib/repo.js";
+import { activar } from "../_lib/credenciales.js";
+import { atribuirWebhook, guardarHuerfano } from "../_lib/ruteoWebhook.js";
 import { analizarYMarcar } from "../_lib/analizador.js";
 import { autorConEnv } from "../_lib/autoria.js";
 import { sincronizarContacto } from "../_lib/contactos.js";
@@ -71,41 +72,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ ok: false, error: "Solo POST." });
   }
 
-  /* ── Autenticación ───────────────────────────────────────────────────── */
-  // El endpoint es público: sin esto, cualquiera que descubra la URL puede inyectar
-  // contactos y eventos falsos. Los workflows de GHL permiten headers personalizados, así
-  // que un secreto compartido es la protección proporcionada al riesgo.
-  // Sin secreto configurado el endpoint se RECHAZA a sí mismo (antes solo avisaba por
-  // consola y aceptaba todo). Cambio del 2026-07-31: este endpoint dispara el analizador de
-  // Kevin (~$0,02 por inferencia) y escribe contactos — abierto, cualquiera que descubra la
-  // URL puede inyectar eventos falsos y generar gasto. 503 y no 401 porque el problema es
-  // configuración nuestra, no la credencial del que llama.
-  const secretoEsperado = process.env.WEBHOOK_SECRET;
-  if (!secretoEsperado) {
-    console.error("[webhook] WEBHOOK_SECRET sin configurar: se rechaza todo hasta que exista.");
-    return res.status(503).json({ ok: false, error: "WEBHOOK_SECRET sin configurar en el servidor." });
+  /**
+   * El cuerpo se parsea ANTES de autenticar, y no es un descuido.
+   *
+   * El secreto es por empresa (`ghl_webhook_secret`), y de qué empresa se trata lo dice el
+   * `locationId` del payload — así que hay que leerlo primero. El costo es parsear JSON de
+   * alguien que todavía no se autenticó; el beneficio es que el workflow de una empresa deja
+   * de poder inyectar eventos a nombre de otra, que con el secreto único era trivial.
+   */
+  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
+  if (!cuerpo) return res.status(400).json({ ok: false, error: "Cuerpo JSON inválido." });
+
+  /* ── Autenticación y atribución de empresa (§6.3) ────────────────────── */
+  /**
+   * El endpoint es público: sin secreto, cualquiera que descubra la URL puede inyectar
+   * contactos y eventos falsos, disparar el analizador (~$0,02 por inferencia) y generar gasto.
+   *
+   * Sin secreto configurado se RECHAZA a sí mismo — 503 y no 401 porque el problema es
+   * configuración nuestra, no la credencial de quien llama.
+   */
+  let atribucion;
+  try {
+    atribucion = await atribuirWebhook(cuerpo, req.headers["x-webhook-secret"] as string | undefined, process.env.WEBHOOK_SECRET);
+  } catch (e) {
+    // No se pudo AVERIGUAR la empresa (la base no respondió) ≠ el evento no es de nadie. 503
+    // para que GHL reintente: descartarlo perdería un evento bueno por una caída nuestra.
+    console.error(`[webhook] ${(e as Error).message}`);
+    return res.status(503).json({ ok: false, error: (e as Error).message });
   }
-  if (req.headers["x-webhook-secret"] !== secretoEsperado) {
+
+  if (atribucion.estado === "sin_secreto_configurado") {
+    console.error("[webhook] ni la empresa ni WEBHOOK_SECRET tienen secreto: se rechaza todo.");
+    return res.status(503).json({ ok: false, error: "Webhook sin secreto configurado en el servidor." });
+  }
+  if (atribucion.estado === "secreto_invalido") {
     return res.status(401).json({ ok: false, error: "Secreto inválido." });
   }
 
   /**
-   * Camino de MÁQUINA: no hay sesión, así que las credenciales de la empresa se resuelven acá.
-   * Sin esto la ingesta correría con las variables globales — correcto hoy con una sola
-   * empresa, y una fuga el día que haya dos (§5.2).
-   *
-   * **Provisorio:** usa `ORG_PRINCIPAL`. El ruteo por el `locationId` del payload es §6.3, de la
-   * fase 5; cuando exista, la organización sale de ahí y esta línea cambia.
+   * D15 · Un evento que no se puede atribuir se guarda crudo y **no se procesa**. Devuelve 200
+   * a propósito: el evento llegó bien, no hay nada que reintentar, y un 4xx haría que GHL lo
+   * repitiera para siempre. Queda visible en `closer_webhook_inbox` con `org_id is null`, que
+   * tiene índice parcial justamente para poder auditarlos.
    */
-  try {
-    activar(await resolverCredenciales(ORG_PRINCIPAL));
-  } catch (e) {
-    console.error(`[credenciales] ${(e as Error).message}`);
-    return res.status(503).json({ ok: false, error: (e as Error).message });
+  if (atribucion.estado === "sin_empresa") {
+    const idHuerfano = `huerfano:${String(cuerpo.eventId ?? cuerpo.external_id ?? Date.now())}`;
+    await guardarHuerfano("ghl", idHuerfano, cuerpo);
+    console.warn(`[webhook] evento sin empresa: ${atribucion.motivo}`);
+    return res.status(200).json({ ok: true, procesado: false, motivo: atribucion.motivo });
   }
 
-  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
-  if (!cuerpo) return res.status(400).json({ ok: false, error: "Cuerpo JSON inválido." });
+  if (atribucion.estado === "empresa_inactiva") {
+    const idHuerfano = `inactiva:${String(cuerpo.eventId ?? cuerpo.external_id ?? Date.now())}`;
+    await guardarHuerfano("ghl", idHuerfano, cuerpo);
+    return res.status(200).json({
+      ok: true,
+      procesado: false,
+      motivo: `La empresa "${atribucion.credenciales.nombre}" está desactivada.`,
+    });
+  }
+
+  /**
+   * Camino de MÁQUINA: no hay sesión, así que la empresa la puso el `locationId` del payload.
+   * `activar` es síncrono y se llama en el scope del handler — dentro de una función `async` no
+   * propagaría el contexto (medido en Node 24, ver el comentario de `activar()`).
+   */
+  activar(atribucion.credenciales);
 
   /**
    * El `evento` viaja en la URL (`?evento=cita.agendada`) — cambio del 2026-07-31.
