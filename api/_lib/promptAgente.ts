@@ -33,6 +33,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { credencialesActivas } from "./credenciales.js";
 import type { AgenteTextoId } from "./analizador.js";
 
 export interface PromptAgente {
@@ -71,8 +72,24 @@ const AUSENTE = (ruta: string): PromptAgente => ({
  * Las funciones de Vercel quedan calientes entre invocaciones y un redeploy crea instancias
  * nuevas, así que el ciclo de vida del proceso ES el TTL correcto: no hace falta invalidar
  * nada, y cachear el "no está" evita repetir dos `statSync` fallidos en cada mensaje.
+ *
+ * ── La clave lleva la empresa (2026-08-07) ────────────────────────────
+ *
+ * Estaba indexado **solo por agente**, y el razonamiento del párrafo de arriba era correcto con
+ * una sola empresa. Con dos deja de serlo: el prompt del chatbot es propio de cada subcuenta de
+ * GHL, así que una instancia caliente que ya cacheó el de ARIA le serviría ese mismo texto al
+ * auditor de la empresa B — que entonces mide al agente de B contra las instrucciones de ARIA y
+ * reporta como incumplimiento todo lo que difiera.
+ *
+ * Ese es el peor tipo de bug de los que aparecen acá: no falla, produce hallazgos convincentes
+ * y falsos.
  */
-const cache = new Map<AgenteTextoId, PromptAgente>();
+const cache = new Map<string, PromptAgente>();
+
+/** La clave del caché: empresa + agente. Fuera de contexto, `sin-empresa`. */
+function clave(agenteId: AgenteTextoId): string {
+  return `${credencialesActivas()?.orgId ?? "sin-empresa"}:${agenteId}`;
+}
 
 /**
  * Dónde buscar el archivo.
@@ -90,7 +107,7 @@ function candidatos(relativa: string): string[] {
 }
 
 export function cargarPromptAgente(agenteId: AgenteTextoId): PromptAgente {
-  const cacheado = cache.get(agenteId);
+  const cacheado = cache.get(clave(agenteId));
   if (cacheado) return cacheado;
 
   const relativa = RUTAS[agenteId];
@@ -113,7 +130,7 @@ export function cargarPromptAgente(agenteId: AgenteTextoId): PromptAgente {
     }
   }
 
-  cache.set(agenteId, resultado);
+  cache.set(clave(agenteId), resultado);
   return resultado;
 }
 

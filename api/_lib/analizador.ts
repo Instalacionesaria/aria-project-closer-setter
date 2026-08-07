@@ -627,6 +627,26 @@ async function patronesConocidos(agenteId: AgenteTextoId): Promise<string> {
  * lanzaba, el `catch` de arriba lo convertía en "sin veredicto" y nadie se enteraba. Por eso
  * también se chequea `stop_reason` explícitamente en vez de dejar que reviente el parser.
  */
+/**
+ * La API key de Anthropic de la empresa activa, o `null` si no hay ninguna disponible.
+ *
+ * ── Por qué esto importa más que el modelo (2026-08-07) ───────────────
+ *
+ * El modelo y el esfuerzo ya salían de la empresa; la key no. `new Anthropic()` sin argumentos
+ * lee `process.env.ANTHROPIC_API_KEY`, así que **todas las auditorías se le facturaban a ARIA**
+ * — las de sus clientes también. No es una fuga de datos: es una fuga de plata, y del tipo que
+ * no se nota hasta la factura.
+ *
+ * El fallback global se mantiene porque `resolverCredenciales` ya lo restringe a la empresa
+ * principal (§5.2): una empresa cliente sin key propia devuelve `null` y no audita, que es lo
+ * correcto — auditar con la cuenta de otro es peor que no auditar.
+ */
+function keyDeLaEmpresa(): string | null {
+  const cred = credencialesActivas();
+  if (cred) return cred.anthropicKey ?? null;
+  return process.env.ANTHROPIC_API_KEY ?? null;
+}
+
 export async function evaluarConversacion(opts: {
   transcript: string;
   hechos: string;
@@ -635,7 +655,17 @@ export async function evaluarConversacion(opts: {
   patrones: string;
 }): Promise<ResultadoEvaluacion> {
   if (!opts.transcript.trim()) return { ok: false, motivo: "transcript vacío" };
-  if (!process.env.ANTHROPIC_API_KEY) return { ok: false, motivo: "sin ANTHROPIC_API_KEY" };
+
+  const apiKey = keyDeLaEmpresa();
+  if (!apiKey) {
+    const cred = credencialesActivas();
+    return {
+      ok: false,
+      motivo: cred
+        ? `la empresa "${cred.nombre}" no tiene cargada su API key de Anthropic`
+        : "sin ANTHROPIC_API_KEY",
+    };
+  }
 
   const sinPrompt =
     "No tenés acceso al prompt del agente auditado. Poné fragmento_prompt en null y escribí " +
@@ -649,7 +679,9 @@ export async function evaluarConversacion(opts: {
   const modelo = modeloDeLaEmpresa();
   const esfuerzo = credencialesActivas()?.anthropicThinking ?? env.auditorEsfuerzo();
 
-  const cliente = new Anthropic();
+  // La key va EXPLÍCITA: sin el argumento el SDK lee `process.env.ANTHROPIC_API_KEY` y la
+  // empresa activa deja de importar.
+  const cliente = new Anthropic({ apiKey });
   const respuesta = await cliente.messages.create({
     /**
      * §5.3 · El modelo y el esfuerzo salen de la EMPRESA activa, con default global.
@@ -973,8 +1005,14 @@ export async function analizarYMarcar(
 ): Promise<ResultadoAnalisis> {
   const disparo = opts.disparo ?? "webhook";
   try {
-    if (!process.env.ANTHROPIC_API_KEY) {
-      return { analizado: false, motivo: "sin ANTHROPIC_API_KEY" };
+    if (!keyDeLaEmpresa()) {
+      const cred = credencialesActivas();
+      return {
+        analizado: false,
+        motivo: cred
+          ? `la empresa "${cred.nombre}" no tiene cargada su API key de Anthropic`
+          : "sin ANTHROPIC_API_KEY",
+      };
     }
 
     // Territorio + estado actual en una sola lectura del contacto.
