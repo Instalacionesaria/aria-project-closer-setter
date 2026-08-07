@@ -47,6 +47,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ejecutarMiDia } from "../_lib/miDia.js";
 import { ejecutarReconciliacion } from "../_lib/reconciliacion.js";
+import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 /** Deadline de la mitad de ingesta. Ver la nota de cabecera: cooperativo, no un race. */
@@ -56,6 +57,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
   const ctx = await exigir(req, res, ["closer", "setter"]);
   if (!ctx) return;
+  // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
+  activar(ctx.credenciales);
 
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");

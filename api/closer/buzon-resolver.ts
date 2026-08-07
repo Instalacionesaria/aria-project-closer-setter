@@ -12,12 +12,15 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { registrarEventoSistema } from "../_lib/ingesta.js";
 import { db } from "../_lib/repo.js";
+import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
   const ctx = await exigir(req, res, ["closer"]);
   if (!ctx) return;
+  // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
+  activar(ctx.credenciales);
 
   if (req.method !== "POST") {
     res.setHeader("Allow", "POST");

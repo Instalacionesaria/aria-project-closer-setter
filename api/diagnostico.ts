@@ -17,6 +17,8 @@ import { env } from "./_lib/env.js";
 import { ghl } from "./_lib/ghl/index.js";
 import { hoyOrg, verificarEsquema } from "./_lib/repo.js";
 import { CAMPOS, SITUACIONES, TAGS, literalesPendientes } from "../src/lib/ghl/contrato.js";
+import { enmascarar, hayClaveMaestra } from "./_lib/cifrado.js";
+import { activar } from "./_lib/credenciales.js";
 import { exigir } from "./_lib/auth.js";
 
 /** Los literales que este módulo necesita que existan en la cuenta. */
@@ -41,6 +43,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    */
   const ctx = await exigir(req, res, ["admin"]);
   if (!ctx) return;
+  // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
+  activar(ctx.credenciales);
 
   const reporte: Record<string, unknown> = {
     generadoEl: new Date().toISOString(),
@@ -110,6 +114,35 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (e) {
     reporte.ghl = { ok: false, error: (e as Error).message };
   }
+
+  /* ── Credenciales por empresa (§5) ── */
+  //
+  // Sin exponer ni un secreto: solo de DÓNDE sale cada una. `desdeEntorno` es la lista de las
+  // que todavía vienen de una variable global en vez de la empresa — mientras no esté vacía,
+  // la migración de credenciales no terminó, y esto lo hace visible en vez de dejarlo al
+  // olvido.
+  const cred = ctx.credenciales;
+  reporte.credenciales = {
+    empresa: cred.orgId,
+    esPrincipal: cred.esPrincipal,
+    claveMaestra: hayClaveMaestra() ? "configurada" : "FALTA (CIFRADO_MASTER_KEY)",
+    ghlPit: enmascarar(cred.ghlPit) ?? "FALTA",
+    ghlLocationId: cred.ghlLocationId ? `…${cred.ghlLocationId.slice(-4)}` : "FALTA",
+    ghlWebhookSecret: cred.ghlWebhookSecret ? "configurado" : "FALTA",
+    anthropicKey: enmascarar(cred.anthropicKey) ?? "FALTA",
+    auditor: { modelo: cred.anthropicModelo, thinking: cred.anthropicThinking },
+    assistable: cred.assistableToken ? "configurado" : "FALTA",
+    meta: cred.metaAdAccountId ? "configurado" : "FALTA",
+    zonaHoraria: cred.zonaHoraria,
+    desdeEntorno: cred.desdeEntorno,
+    ...(cred.desdeEntorno.length
+      ? {
+          pendiente:
+            `${cred.desdeEntorno.length} credencial(es) todavía salen de variables globales. ` +
+            "Cargarlas por empresa desde el panel de administración (§7.3) y quitar el fallback.",
+        }
+      : {}),
+  };
 
   /* ── Literales sin confirmar ── */
   // `assertEnviable()` los bloquea en modo real, así que si queda alguno pendiente y ya

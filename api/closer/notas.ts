@@ -26,6 +26,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { acotarLimite, crearNota, eliminarNota, leerNotas } from "../_lib/repo.js";
+import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 /** Cuántas notas devuelve una lectura sin `?limite=`. Un contacto rara vez pasa de unas pocas. */
@@ -35,6 +36,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
   const ctx = await exigir(req, res, ["closer", "setter"]);
   if (!ctx) return;
+  // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
+  activar(ctx.credenciales);
 
   if (req.method === "GET") return listar(req, res);
   if (req.method === "POST") return crear(req, res);

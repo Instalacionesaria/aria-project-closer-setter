@@ -76,16 +76,32 @@ async function llamar(
  * Se cachea por proceso: en una función serverless dura lo que dura la instancia caliente,
  * que es exactamente la vida útil que queremos — sin invalidación que mantener, y como
  * mucho una llamada extra por arranque en frío.
+ *
+ * ── La clave del Map es el locationId, y NO es un detalle ──────────────
+ *
+ * Hasta el 2026-08-06 esto era una sola variable sin clave, y era una bomba con temporizador
+ * para multi-empresa: **los ids de custom field son propios de cada subcuenta de GHL**. En
+ * una instancia caliente, la primera empresa que pasaba llenaba el caché y todas las
+ * siguientes leían y escribían custom fields con los ids de la primera.
+ *
+ * Se usa en las dos direcciones —`idDeCampo()` para escribir y `mapaIdAClave()` para leer el
+ * Perfil—, así que el daño era doble y silencioso: el tab Perfil mostraría los campos de
+ * calificación de otra empresa, y `avanzar` escribiría en el campo equivocado. Con una sola
+ * subcuenta no se notaba nada; el día 1 de la segunda habría empezado a corromper datos.
  */
-let cacheCampos: { claveAId: Map<string, string>; idAClave: Map<string, string> } | null = null;
+const cacheCampos = new Map<string, { claveAId: Map<string, string>; idAClave: Map<string, string> }>();
 
 /** GHL a veces devuelve la key con prefijo `contact.` y a veces sin él. */
 const normalizar = (k: string) => k.replace(/^contact\./, "").toLowerCase();
 
 async function catalogoCampos() {
-  if (cacheCampos) return cacheCampos;
+  // El locationId se lee DENTRO de la función, no al cargar el módulo: sale del contexto de la
+  // empresa activa y cambia entre requests de la misma instancia.
+  const location = env.ghlLocationId();
+  const cacheado = cacheCampos.get(location);
+  if (cacheado) return cacheado;
 
-  const r = await llamar("GET", `/locations/${env.ghlLocationId()}/customFields`);
+  const r = await llamar("GET", `/locations/${location}/customFields`);
   const claveAId = new Map<string, string>();
   const idAClave = new Map<string, string>();
 
@@ -98,7 +114,7 @@ async function catalogoCampos() {
     }
     // Solo se cachea un catálogo que se pudo leer. Cachear el vacío convertiría un fallo de
     // red pasajero en un "el campo no existe" permanente hasta el próximo arranque.
-    cacheCampos = { claveAId, idAClave };
+    cacheCampos.set(location, { claveAId, idAClave });
   }
 
   return { claveAId, idAClave };

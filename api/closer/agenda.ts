@@ -26,6 +26,7 @@ import { fechaHoraOrg, offsetOrg, sincronizarCitas } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
 import { ghl } from "../_lib/ghl/index.js";
 import { db } from "../_lib/repo.js";
+import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 interface FilaCita {
@@ -64,6 +65,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
   const ctx = await exigir(req, res, ["closer"]);
   if (!ctx) return;
+  // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
+  activar(ctx.credenciales);
 
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");

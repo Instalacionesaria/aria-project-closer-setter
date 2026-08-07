@@ -18,6 +18,7 @@ import { TAG_FALLO } from "../_lib/analizador.js";
 import { env } from "../_lib/env.js";
 import { contactosConTag } from "../_lib/ghl/lectura.js";
 import { db } from "../_lib/repo.js";
+import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 /** Cuando todavía no hay nota del analizador, se dice eso — no se inventa un diagnóstico. */
@@ -27,6 +28,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
   const ctx = await exigir(req, res, ["setter"]);
   if (!ctx) return;
+  // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
+  activar(ctx.credenciales);
 
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");

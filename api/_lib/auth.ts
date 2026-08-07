@@ -19,6 +19,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { resolverCredenciales, type Credenciales } from "./credenciales.js";
 import { dbSinScope } from "./db.js";
 import { ipDe, renovarSiHaceFalta, resolverSesion, tokenDeRequest } from "./sesion.js";
 
@@ -37,6 +38,12 @@ export interface Contexto {
   debeCambiarPassword: boolean;
   sesionId: string;
   ip: string | null;
+  /**
+   * Las credenciales de la empresa efectiva, ya resueltas y descifradas. El handler las
+   * activa con `activar(ctx.credenciales)` — ver el comentario de esa función para por qué no
+   * se activan acá adentro.
+   */
+  credenciales: Credenciales;
 }
 
 /**
@@ -124,6 +131,9 @@ export async function contextoDe(req: VercelRequest, res: VercelResponse): Promi
     debeCambiarPassword: Boolean(data.debe_cambiar_password),
     sesionId: sesion.sesionId,
     ip: ipDe(req),
+    // `exigir()` la reemplaza por la resuelta. `contextoDe` sola no las necesita: la usan el
+    // login y `/api/auth/sesion`, que no hablan con GHL.
+    credenciales: undefined as unknown as Credenciales,
   };
 }
 
@@ -158,6 +168,41 @@ export async function exigir(
       ok: false,
       codigo: "password_temporal",
       error: "Tenés que definir una contraseña nueva antes de seguir.",
+    });
+    return null;
+  }
+
+  /**
+   * ── Se activan las credenciales de la empresa (§5.2) ──────────────
+   *
+   * Desde acá y hasta el final del request, `env.ghlApiKey()` y `env.ghlLocationId()`
+   * devuelven las de ESTA empresa, no las globales. Es lo que permite que los catorce sitios
+   * que las leen de forma síncrona sigan sin cambiar.
+   *
+   * Va **después** de resolver el rol y antes de devolver el contexto: una empresa
+   * desactivada no opera, y averiguarlo acá evita que cada endpoint tenga que acordarse.
+   *
+   * Si la resolución falla —la organización no existe, o su credencial está cifrada con otra
+   * clave maestra— se responde 503 y se dice cuál es el problema. Dejar pasar el request
+   * produciría llamadas a GHL con un token vacío y un 401 imposible de diagnosticar.
+   */
+  try {
+    const cred = await resolverCredenciales(ctx.orgEfectiva);
+    if (!cred.activa) {
+      res.status(403).json({
+        ok: false,
+        codigo: "empresa_inactiva",
+        error: "Esta empresa está desactivada. Hablá con el administrador.",
+      });
+      return null;
+    }
+    ctx.credenciales = cred;
+  } catch (e) {
+    console.error(`[auth] credenciales de ${ctx.orgEfectiva}: ${(e as Error).message}`);
+    res.status(503).json({
+      ok: false,
+      codigo: "credenciales_irresolubles",
+      error: (e as Error).message,
     });
     return null;
   }

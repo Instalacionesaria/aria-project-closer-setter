@@ -30,12 +30,15 @@ import { ghl } from "../_lib/ghl/index.js";
 import { CAMPOS_PERFIL } from "../../src/lib/ghl/contrato.js";
 import { leerCampo, leerEntero, perfilDesdeContacto } from "../_lib/ghl/lectura.js";
 import { db } from "../_lib/repo.js";
+import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
   const ctx = await exigir(req, res, ["closer", "setter"]);
   if (!ctx) return;
+  // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
+  activar(ctx.credenciales);
 
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");

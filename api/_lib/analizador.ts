@@ -63,6 +63,7 @@ import { autorDeMensajeGhl } from "./autoria.js";
 import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
 import { cargarPromptAgente, type PromptAgente } from "./promptAgente.js";
+import { credencialesActivas } from "./credenciales.js";
 import { ORG_ID, db } from "./repo.js";
 import {
   contactosConTag,
@@ -72,6 +73,10 @@ import {
   textoDeMensaje,
   type MensajeGhl,
 } from "./ghl/lectura.js";
+
+/** El modelo de la empresa activa, o el default global. Un solo lugar que lo decide. */
+const modeloDeLaEmpresa = (): string =>
+  credencialesActivas()?.anthropicModelo ?? process.env.CLAUDE_MODEL ?? "claude-sonnet-5";
 
 /** El tag que enciende la cola roja y apaga al agente de GHL. */
 export const TAG_FALLO = "bot_pausado_fallo";
@@ -636,9 +641,24 @@ export async function evaluarConversacion(opts: {
     "No tenés acceso al prompt del agente auditado. Poné fragmento_prompt en null y escribí " +
     'la corrección como una instrucción autónoma para agregar (correccion_tipo="agregado").';
 
+  /**
+   * Las de la empresa activa, con el default global de `credenciales.ts`. Fuera de un request
+   * con contexto —un cron que todavía no activó organización— cae al default, que es el
+   * comportamiento correcto: mejor auditar con el modelo por defecto que no auditar.
+   */
+  const modelo = modeloDeLaEmpresa();
+  const esfuerzo = credencialesActivas()?.anthropicThinking ?? env.auditorEsfuerzo();
+
   const cliente = new Anthropic();
   const respuesta = await cliente.messages.create({
-    model: process.env.CLAUDE_MODEL || "claude-opus-5",
+    /**
+     * §5.3 · El modelo y el esfuerzo salen de la EMPRESA activa, con default global.
+     *
+     * El default pasó de `claude-opus-5` a `claude-sonnet-5` con esfuerzo `high`, y vive en
+     * `credenciales.ts` — un solo lugar. Cada empresa lo pisa con `anthropic_modelo` /
+     * `anthropic_thinking` sin desplegar, así que revertir es cambiar un campo.
+     */
+    model: modelo,
     max_tokens: 8000,
     system: [
       { type: "text" as const, text: TERRITORIOS[opts.territorio].contexto },
@@ -659,7 +679,7 @@ export async function evaluarConversacion(opts: {
       },
     ],
     output_config: {
-      effort: env.auditorEsfuerzo(),
+      effort: esfuerzo,
       format: { type: "json_schema", schema: ESQUEMA_VEREDICTO },
     },
     messages: [{ role: "user", content: `${opts.hechos}\n\nConversación a auditar:\n\n${opts.transcript}` }],
@@ -749,7 +769,9 @@ async function guardarAnalisis(e: {
         criterio: e.veredicto.criterioPrincipal,
         motivo: e.veredicto.motivoIntervencion || null,
         sentimiento: e.veredicto.sentimiento,
-        modelo: process.env.CLAUDE_MODEL || "claude-opus-5",
+        // Se guarda el modelo REAL con el que se juzgó: si mañana cambia, los análisis
+        // viejos siguen diciendo con qué se produjeron.
+        modelo: modeloDeLaEmpresa(),
         ia_cache_al_analizar: e.iaEnCache,
         prompt_hash: e.promptHash,
         auditable: e.veredicto.auditable,

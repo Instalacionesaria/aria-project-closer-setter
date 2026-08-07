@@ -25,6 +25,8 @@ function requerida(nombre: string): string {
  * La `service_role`, en cambio, NO puede vivir acá: da permiso total sobre la base, este
  * repo está en GitHub, y git no olvida — borrarla después no la saca del historial.
  */
+import { credencialesActivas } from "./credenciales.js";
+
 const SUPABASE_URL_SOFIA = "https://pajhjpzydkkpmjdofqqp.supabase.co";
 
 export const env = {
@@ -32,14 +34,24 @@ export const env = {
   supabaseServiceKey: () => requerida("SUPABASE_SERVICE_ROLE_KEY"),
 
   /**
-   * Private Integration Token de GHL.
+   * Private Integration Token de GHL — **de la empresa activa** (ESPEC §5.2).
    *
-   * Se acepta `GHL_PIT` (el nombre con el que ya está configurado en Vercel) y
-   * `GHL_API_KEY` como alias. Un solo nombre habría obligado a renombrar la variable
-   * existente, que es justo el tipo de cambio que rompe un deploy sin dejar rastro.
+   * Si hay una organización activa en el contexto del request, gana la suya. Fuera de un
+   * request con contexto —un cron, un test— cae a la variable global, que es la credencial
+   * de ARIA durante la transición.
+   *
+   * El getter sigue siendo SÍNCRONO a propósito: lo llaman catorce sitios dentro de
+   * `headers()` y compañía, y volverlos `async` habría propagado `await` por toda la capa de
+   * GHL. La resolución asíncrona ocurre una vez por request en `activarOrganizacion()`.
+   *
+   * Se acepta `GHL_PIT` (el nombre con el que ya está configurado en Vercel) y `GHL_API_KEY`
+   * como alias.
    */
-  ghlApiKey: () => process.env.GHL_PIT ?? requerida("GHL_API_KEY"),
-  ghlLocationId: () => requerida("GHL_LOCATION_ID"),
+  ghlApiKey: () => credencialesActivas()?.ghlPit ?? process.env.GHL_PIT ?? requerida("GHL_API_KEY"),
+  ghlLocationId: () => credencialesActivas()?.ghlLocationId ?? requerida("GHL_LOCATION_ID"),
+
+  /** La zona horaria de la empresa activa. Ver `closer_hoy_org(p_org_id)` en la 020. */
+  zonaHoraria: () => credencialesActivas()?.zonaHoraria ?? "America/Lima",
 
   /** Calendario "Aria | Llamada de Descubrimiento". Sin uso todavía — es para los links del menú "+" (§10). */
   ghlCalendarioPorDefecto: () => process.env.GHL_DEFAULT_CALENDAR_ID,

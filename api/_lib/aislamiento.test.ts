@@ -42,6 +42,15 @@ const EXENTOS = new Set(["_lib/db.ts", "_lib/repo.ts"]);
 const ESCOTILLA_AUTORIZADA = new Set([
   // Resuelve sesión → usuario → empresa efectiva. Es quien AVERIGUA la organización.
   "_lib/auth.ts",
+  /**
+   * Lee `closer_org_config` para resolver las credenciales DE una organización. El filtro por
+   * organización es su propio argumento, así que scoparlo sería circular: el helper `db(orgId)`
+   * necesitaría el orgId que esta función existe para resolver.
+   *
+   * También lista las organizaciones activas para el cron de §6.2, que por definición recorre
+   * todas.
+   */
+  "_lib/credenciales.ts",
   // Crea, renueva y cierra sesiones; `closer_sesiones` no tiene org_id y no debe tenerlo.
   "_lib/sesion.ts",
   // Busca al usuario por email: antes del login no hay ni sesión ni empresa.
@@ -124,6 +133,35 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
       noAutorizados,
       `Usan la escotilla sin estar en la lista: ${noAutorizados.join(", ")}. ` +
         `Si el uso es legítimo, agregalo a ESCOTILLA_AUTORIZADA con un comentario que diga por qué.`,
+    ).toEqual([]);
+  });
+
+  it("todo endpoint que exige sesión activa las credenciales de su empresa", () => {
+    /**
+     * `exigir()` resuelve las credenciales pero **no las activa**: activarlas dentro de una
+     * función `async` no propaga el contexto al handler (medido en Node 24 — ver el comentario
+     * de `activar()` en credenciales.ts). Así que el handler tiene que llamar a
+     * `activar(ctx.credenciales)` de forma síncrona.
+     *
+     * Olvidarse no da error: el endpoint sigue funcionando… con las credenciales GLOBALES.
+     * O sea que con dos empresas, una escribiría en la subcuenta de GHL de la otra sin que
+     * nada falle. Es exactamente el tipo de bug que este test existe para hacer imposible.
+     */
+    const SIN_CREDENCIALES = new Set([
+      // Usa `"cualquiera"` y no habla con GHL: lee la sesión y cambia la contraseña.
+      "auth/sesion.ts",
+    ]);
+
+    const culpables = ARCHIVOS.filter((a) => {
+      if (!/\bexigir\s*\(\s*req\s*,\s*res\s*,/.test(a.texto)) return false;
+      if (SIN_CREDENCIALES.has(a.rel)) return false;
+      return !/\bactivar\s*\(\s*ctx\.credenciales\s*\)/.test(a.texto);
+    }).map((a) => a.rel);
+
+    expect(
+      culpables,
+      `Exigen sesión pero NO activan las credenciales de la empresa, así que van a usar las ` +
+        `globales: ${culpables.join(", ")}. Agregá activar(ctx.credenciales) después del guard.`,
     ).toEqual([]);
   });
 
