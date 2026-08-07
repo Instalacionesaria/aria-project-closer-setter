@@ -19,7 +19,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { AgenteTextoId } from "../_lib/analizador.js";
-import { AUTOR_POR_DEFECTO, ORG_ID, db } from "../_lib/repo.js";
+import { AUTOR_POR_DEFECTO, db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -83,7 +83,6 @@ async function listar(req: VercelRequest, res: VercelResponse) {
   let q = db()
     .from("closer_ajustes_agente")
     .select(COLUMNAS)
-    .eq("org_id", ORG_ID)
     .order("aplicado_el", { ascending: false })
     .limit(200);
   if (agenteId) q = q.eq("agente_id", agenteId);
@@ -121,7 +120,6 @@ async function registrar(req: VercelRequest, res: VercelResponse) {
   const { data: fuente, error: errFuente } = await db()
     .from("closer_hallazgo_agente")
     .select("titulo, categoria, diagnostico, fragmento_prompt, correccion, prompt_hash")
-    .eq("org_id", ORG_ID)
     .eq("agente_id", agenteId)
     .eq("error_code", errorCode)
     .order("detectado_el", { ascending: false })
@@ -139,7 +137,6 @@ async function registrar(req: VercelRequest, res: VercelResponse) {
       resuelto_el: new Date().toISOString(),
       resuelto_por: AUTOR_POR_DEFECTO,
     })
-    .eq("org_id", ORG_ID)
     .eq("agente_id", agenteId)
     .eq("error_code", errorCode)
     .in("id", ids)
@@ -152,7 +149,6 @@ async function registrar(req: VercelRequest, res: VercelResponse) {
   const { data: fila, error: errInsert } = await db()
     .from("closer_ajustes_agente")
     .insert({
-      org_id: ORG_ID,
       agente_id: agenteId,
       error_code: errorCode,
       titulo: (fuente as { titulo: string }).titulo,

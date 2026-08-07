@@ -30,7 +30,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ORG_ID, db } from "../_lib/repo.js";
+import { ORG_PRINCIPAL, db } from "../_lib/repo.js";
 import { activar, resolverCredenciales } from "../_lib/credenciales.js";
 import { analizarYMarcar } from "../_lib/analizador.js";
 import { autorConEnv } from "../_lib/autoria.js";
@@ -94,11 +94,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    * Sin esto la ingesta correría con las variables globales — correcto hoy con una sola
    * empresa, y una fuga el día que haya dos (§5.2).
    *
-   * **Provisorio:** usa `ORG_ID`. El ruteo por el `locationId` del payload es §6.3, de la
+   * **Provisorio:** usa `ORG_PRINCIPAL`. El ruteo por el `locationId` del payload es §6.3, de la
    * fase 5; cuando exista, la organización sale de ahí y esta línea cambia.
    */
   try {
-    activar(await resolverCredenciales(ORG_ID));
+    activar(await resolverCredenciales(ORG_PRINCIPAL));
   } catch (e) {
     console.error(`[credenciales] ${(e as Error).message}`);
     return res.status(503).json({ ok: false, error: (e as Error).message });

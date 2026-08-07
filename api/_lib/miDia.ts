@@ -41,7 +41,7 @@ import { INDICADORES_VACIOS, type IndicadoresContacto } from "../../src/lib/indi
 import { offsetOrg } from "./citas.js";
 import { env } from "./env.js";
 import { cargarIndicadores } from "./indicadores.js";
-import { db, hoyOrg, ORG_ID } from "./repo.js";
+import { db, hoyOrg } from "./repo.js";
 
 export type CasoSeguimiento = "manual_de_hoy" | "manual_vencido" | "serie_agotada" | "automatico_en_curso";
 
@@ -108,7 +108,6 @@ export async function ejecutarMiDia() {
   const { data: contactosData, error: errContactos } = await db()
     .from("closer_contactos")
     .select(COLUMNAS_CONTACTO)
-    .eq("org_id", ORG_ID)
     .limit(2000);
   if (errContactos) throw new Error(`closer_contactos: ${errContactos.message}`);
   const contactos = (contactosData ?? []) as unknown as FilaContacto[];

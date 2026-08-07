@@ -34,7 +34,7 @@ import { hoyISO, sumarDias } from "../../src/lib/fechas.js";
 import { sincronizarCitas } from "../_lib/citas.js";
 import { sincronizarTerritorio } from "../_lib/contactos.js";
 import { env } from "../_lib/env.js";
-import { db, ORG_ID } from "../_lib/repo.js";
+import { db, orgActiva } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -88,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     /* ── Vía de la UI: candado + citas + tope bajo ────────────────────────── */
     const { data: gano, error: errClaim } = await db().rpc("closer_sincronizar_claim", {
-      p_org_id: ORG_ID,
+      p_org_id: orgActiva(),
       p_ventana_segundos: VENTANA_SEGUNDOS,
     });
     if (errClaim) throw new Error(`closer_sincronizar_claim: ${errClaim.message}`);

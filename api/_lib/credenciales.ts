@@ -29,6 +29,8 @@ import { dbSinScope } from "./db.js";
 
 export interface Credenciales {
   orgId: string;
+  /** Para los mensajes de error: "la empresa X no tiene cargado el PIT" se lee, un UUID no. */
+  nombre: string;
   esPrincipal: boolean;
   activa: boolean;
   ghlPit: string | null;
@@ -57,6 +59,7 @@ const THINKING_POR_DEFECTO = "high";
 /** Las columnas de `closer_org_config` que esta resolución necesita. */
 interface FilaOrgConfig {
   org_id: string;
+  nombre: string | null;
   es_principal: boolean | null;
   activa: boolean | null;
   zona_horaria: string | null;
@@ -133,7 +136,7 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
   const { data, error } = await dbSinScope()
     .from("closer_org_config")
     .select(
-      "org_id, es_principal, activa, zona_horaria, ghl_location_id, ghl_pit_cifrado, ghl_webhook_secret, " +
+      "org_id, nombre, es_principal, activa, zona_horaria, ghl_location_id, ghl_pit_cifrado, ghl_webhook_secret, " +
         "anthropic_key_cifrada, anthropic_modelo, anthropic_thinking, assistable_token, assistable_cuenta_id, " +
         "meta_ad_account_id, meta_token_cifrado",
     )
@@ -168,6 +171,7 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
 
   const valor: Credenciales = {
     orgId: fila.org_id as string,
+    nombre: (fila.nombre as string) || "sin nombre",
     esPrincipal,
     activa: Boolean(fila.activa),
     zonaHoraria: (fila.zona_horaria as string) || "America/Lima",

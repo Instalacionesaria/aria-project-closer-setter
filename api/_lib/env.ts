@@ -29,6 +29,34 @@ import { credencialesActivas } from "./credenciales.js";
 
 const SUPABASE_URL_SOFIA = "https://pajhjpzydkkpmjdofqqp.supabase.co";
 
+/**
+ * Una credencial de la empresa activa, o `null` si no hay empresa activa.
+ *
+ * ── Por qué esto no es un `??` más ────────────────────────────────────
+ *
+ * La versión anterior encadenaba `credencialesActivas()?.ghlPit ?? process.env.GHL_PIT`, y ese
+ * `??` anulaba en silencio la decisión de §5.2: `resolverCredenciales` devuelve `ghlPit: null`
+ * a propósito para una empresa cliente sin token, **para que no pueda operar**. Con el `??`,
+ * "no puede operar" se convertía en "opera con el token de ARIA" — una empresa a medio
+ * configurar escribiendo en la subcuenta de otra.
+ *
+ * Ahora, **si hay empresa activa, su valor manda, incluido el null**: se lanza con el nombre de
+ * la empresa y el de la credencial que falta. El fallback al entorno queda solo para cuando no
+ * hay contexto (tests, arranque), no para tapar una configuración incompleta.
+ */
+function deLaEmpresa(campo: "ghlPit" | "ghlLocationId", queEs: string): string | null {
+  const cred = credencialesActivas();
+  if (!cred) return null;
+  const valor = cred[campo];
+  if (!valor) {
+    throw new Error(
+      `La empresa "${cred.nombre}" no tiene cargado ${queEs} de GHL. ` +
+        `Se carga en Ajustes > Credenciales. No se usan las credenciales de otra empresa.`,
+    );
+  }
+  return valor;
+}
+
 export const env = {
   supabaseUrl: () => process.env.SUPABASE_URL ?? SUPABASE_URL_SOFIA,
   supabaseServiceKey: () => requerida("SUPABASE_SERVICE_ROLE_KEY"),
@@ -47,8 +75,8 @@ export const env = {
    * Se acepta `GHL_PIT` (el nombre con el que ya está configurado en Vercel) y `GHL_API_KEY`
    * como alias.
    */
-  ghlApiKey: () => credencialesActivas()?.ghlPit ?? process.env.GHL_PIT ?? requerida("GHL_API_KEY"),
-  ghlLocationId: () => credencialesActivas()?.ghlLocationId ?? requerida("GHL_LOCATION_ID"),
+  ghlApiKey: () => deLaEmpresa("ghlPit", "el Private Integration Token") ?? process.env.GHL_PIT ?? requerida("GHL_API_KEY"),
+  ghlLocationId: () => deLaEmpresa("ghlLocationId", "el Location ID") ?? requerida("GHL_LOCATION_ID"),
 
   /** La zona horaria de la empresa activa. Ver `closer_hoy_org(p_org_id)` en la 020. */
   zonaHoraria: () => credencialesActivas()?.zonaHoraria ?? "America/Lima",
@@ -70,8 +98,21 @@ export const env = {
     return env.tieneCredencialesGhl() ? "real" : "stub";
   },
 
-  /** Presencia de credenciales, sin exponerlas — para el endpoint de diagnóstico. */
-  tieneCredencialesGhl: () => Boolean((process.env.GHL_PIT ?? process.env.GHL_API_KEY) && process.env.GHL_LOCATION_ID),
+  /**
+   * Presencia de credenciales. Es el interruptor de TODO: de acá sale `ghlModo()`, y con él la
+   * elección entre el cliente real y el stub, y los cortes de la reconciliación, la sincro de
+   * citas y las cinco lecturas de `ghl/lectura.ts`.
+   *
+   * Miraba solo las variables globales, y por eso una empresa SIN credenciales propias pasaba
+   * el chequeo —las globales de ARIA están puestas— y seguía adelante hasta terminar usando la
+   * subcuenta de ARIA. Ahora responde por la empresa ACTIVA; el entorno solo cuenta cuando no
+   * hay ninguna, que es el caso de los tests y de un arranque sin contexto.
+   */
+  tieneCredencialesGhl: () => {
+    const cred = credencialesActivas();
+    if (cred) return Boolean(cred.ghlPit && cred.ghlLocationId);
+    return Boolean((process.env.GHL_PIT ?? process.env.GHL_API_KEY) && process.env.GHL_LOCATION_ID);
+  },
   tieneCredencialesSupabase: () => Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
 
   /* ── Auditor de IA ────────────────────────────────────────────────────── */

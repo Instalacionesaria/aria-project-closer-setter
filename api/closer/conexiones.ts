@@ -47,7 +47,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ORG_ID, db } from "../_lib/repo.js";
+import { db, orgActiva } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -221,9 +221,6 @@ async function leerFila(): Promise<Fila | null> {
   const { data, error } = await db()
     .from("closer_conexiones")
     .select(COLUMNAS_ESTADO)
-    // `ORG_ID` es una constante del servidor, no un dato del request. Sin autenticación,
-    // aceptar la org del cuerpo convertiría esto en "leé las credenciales de quien quieras".
-    .eq("org_id", ORG_ID)
     .maybeSingle();
 
   if (error) throw new Error(`conexiones: ${error.message}`);
@@ -341,7 +338,7 @@ async function guardar(req: VercelRequest, res: VercelResponse) {
    */
   const { error } = await db()
     .from("closer_conexiones")
-    .upsert({ org_id: ORG_ID, ...aGuardar, actualizado_el: new Date().toISOString() }, { onConflict: "org_id" });
+    .upsert({ ...aGuardar, actualizado_el: new Date().toISOString() }, { onConflict: "org_id" });
 
   if (error) {
     // FK contra `closer_org_config`: la org no existe. Pasa en una base a la que le falta el
@@ -350,7 +347,7 @@ async function guardar(req: VercelRequest, res: VercelResponse) {
       return res.status(409).json({
         ok: false,
         codigo: "org_inexistente",
-        error: `La organización ${ORG_ID} no existe en closer_org_config. Falta correr docs/db/002_bootstrap.sql.`,
+        error: `La organización ${orgActiva()} no existe en closer_org_config.`,
       });
     }
     throw new Error(`conexiones: ${error.message}`);
@@ -394,8 +391,7 @@ async function borrar(req: VercelRequest, res: VercelResponse) {
 
   const { error } = await db()
     .from("closer_conexiones")
-    .update({ [def.columna]: null, actualizado_el: new Date().toISOString() })
-    .eq("org_id", ORG_ID);
+    .update({ [def.columna]: null, actualizado_el: new Date().toISOString() });
 
   if (error) throw new Error(`conexiones: ${error.message}`);
 
@@ -448,7 +444,7 @@ const malo = (res: VercelResponse, error: string, codigo: string) => res.status(
  * SÍNCRONO (`env.ghlApiKey()` se llama dentro de `headers()` en `real.ts`, por request y sin
  * await), y leer de Supabase es asíncrono. Volver async esa superficie contagia media
  * `api/`. La forma barata es cargar las credenciales UNA vez al principio del request —
- * `await cargarCredenciales(ORG_ID)` en cada handler— y dejar que `env.*` lea de una caché
+ * `await cargarCredenciales(orgId)` en cada handler— y dejar que `env.*` lea de una caché
  * en memoria del módulo, con el entorno como respaldo cuando la caché no tiene el valor.
  * Ojo con el alcance de esa caché en funciones serverless: la instancia caliente se reusa
  * entre requests, así que cuando haya varias organizaciones tiene que estar indexada por

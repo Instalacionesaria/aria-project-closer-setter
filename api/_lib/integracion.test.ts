@@ -33,6 +33,9 @@ cargarEnv();
 const activa = process.env.INTEGRACION === "1" && Boolean(process.env.SUPABASE_URL);
 const describeSi = activa ? describe : describe.skip;
 
+/** La empresa del contacto de prueba. Duplica `ORG_PRINCIPAL` para no importar dentro de un `it`. */
+const ORG_PRINCIPAL_ID = "00000000-0000-0000-0000-000000000001";
+
 /** Contacto de prueba, inexistente en GHL a propósito: nada que se le pueda enviar. */
 const CONTACTO = "integracion_test_no_existe_en_ghl";
 
@@ -45,6 +48,15 @@ describeSi("integración — Supabase real, GHL en stub", () => {
     process.env.GHL_MODO = "stub";
     ({ db } = await import("./repo"));
     ({ registrarSeguimiento } = await import("./seguimientos"));
+
+    /**
+     * Desde el 2026-08-07 `db()` saca la organización del contexto y lanza si no hay ninguna.
+     * Este test corre fuera de todo handler, así que la abre él mismo — contra la empresa
+     * principal, que es donde vive el contacto de prueba.
+     */
+    const { activar, resolverCredenciales } = await import("./credenciales");
+    const { ORG_PRINCIPAL } = await import("./repo");
+    activar(await resolverCredenciales(ORG_PRINCIPAL));
   });
 
   afterAll(async () => {
@@ -82,7 +94,7 @@ describeSi("integración — Supabase real, GHL en stub", () => {
 
   it("la tarea del día queda completada — va a Completadas Hoy", async () => {
     const { data } = await db().from("closer_contacto_tarea").select("completada_dia").eq("ghl_contact_id", CONTACTO).single();
-    const { data: hoy } = await db().rpc("closer_hoy_org");
+    const { data: hoy } = await db().rpc("closer_hoy_org", { p_org_id: ORG_PRINCIPAL_ID });
     expect(data?.completada_dia).toBe(hoy);
   });
 

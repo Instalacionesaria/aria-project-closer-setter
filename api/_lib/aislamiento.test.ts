@@ -189,6 +189,41 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
     ).toEqual([]);
   });
 
+  it("todo handler activa una empresa antes de tocar la base", () => {
+    /**
+     * Desde el 2026-08-07 `db()` saca la organización de `credencialesActivas()` y **lanza** si
+     * no hay ninguna. Es lo correcto —una consulta sin organización no tiene respuesta segura—
+     * pero convierte un olvido en un 500 en producción, no en un aviso.
+     *
+     * Este test lo mueve al momento del commit. Un handler nuevo que se olvide de activar falla
+     * acá, con el nombre del archivo, en vez de fallar cuando alguien abra esa pantalla.
+     *
+     * Es distinto del test de más arriba: aquel exige `activar(ctx.credenciales)` a quien llama
+     * a `exigir()`. Este exige activar **algo** a todo handler, incluidos los caminos de máquina
+     * —webhooks y crons— que no tienen sesión de la que sacar las credenciales.
+     */
+    const SIN_BASE_DE_NEGOCIO = new Set([
+      // Crea el super admin cuando no hay ningún usuario: por definición, antes de toda empresa.
+      "admin/bootstrap.ts",
+      // Busca al usuario por email para dejarlo entrar. Antes del login no hay empresa.
+      "auth/login.ts",
+    ]);
+
+    const culpables = ARCHIVOS.filter((a) => {
+      // Solo los handlers: `_lib` son piezas que corren dentro del contexto que abre un handler.
+      if (a.rel.startsWith("_lib/")) return false;
+      if (SIN_BASE_DE_NEGOCIO.has(a.rel)) return false;
+      return !/\bactivar\s*\(/.test(a.texto);
+    }).map((a) => a.rel);
+
+    expect(
+      culpables,
+      `No activan ninguna empresa, así que el primer db() que ejecuten va a lanzar: ` +
+        `${culpables.join(", ")}. Con sesión va activar(ctx.credenciales); sin sesión, ` +
+        `activar(await resolverCredenciales(orgId)) o conCredenciales(cred, fn).`,
+    ).toEqual([]);
+  });
+
   it("la lista de la escotilla no tiene entradas muertas", () => {
     /**
      * Si un archivo deja de usar `dbSinScope()` —o se borra— su permiso tiene que irse con

@@ -7,24 +7,58 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { credencialesActivas } from "./credenciales.js";
 import { db as dbScopeado } from "./db.js";
 
 /**
  * El cliente, **ya atado a la organización** (ESPEC-MULTIEMPRESA §2.4, capa 1).
  *
  * Este `db()` sin argumentos existe para que los 94 puntos de acceso del proyecto no tuvieran
- * que cambiar: por dentro delega en `db(ORG_ID)` de `./db.js`, que inyecta
- * `.eq("org_id", …)` en todo select/update/delete y agrega `org_id` en todo insert/upsert.
- * O sea que **el scoping ya está activo en todas las consultas** sin haber editado ninguna.
+ * que cambiar: por dentro delega en `db(orgId)` de `./db.js`, que inyecta `.eq("org_id", …)`
+ * en todo select/update/delete y agrega `org_id` en todo insert/upsert. O sea que **el scoping
+ * está activo en todas las consultas** sin haber editado ninguna.
  *
  * El `createClient` se mudó a `./db.ts`, que es ahora el único archivo autorizado a crearlo
  * (lo verifica `aislamiento.test.ts`).
  *
- * **Fase 2:** cuando existan las sesiones, `ORG_ID` deja de ser una constante y sale del
- * usuario autenticado. Este es el único lugar que hay que tocar.
+ * ── La organización sale del contexto (2026-08-07) ────────────────────
+ *
+ * Hasta hoy esto decía `dbScopeado(ORG_ID)` con la constante de ARIA, y era la deuda que este
+ * mismo comentario anunciaba desde la fase 1. Mientras hubo una sola empresa daba la respuesta
+ * correcta; con dos, el resultado no era "no anda" sino algo peor — el tick de un usuario de la
+ * empresa B hablaba con la subcuenta de GHL de B y escribía en las filas de ARIA.
+ *
+ * Ahora sale de `credencialesActivas()`, que es lo que dejan `activar()` y `conCredenciales()`.
+ * **Hoy el valor es idéntico** (con una sola empresa, la activa es ARIA), así que el cambio no
+ * mueve nada en producción — lo que mueve es lo que pasa el día que exista la segunda.
+ *
+ * ── Falla CERRADO ─────────────────────────────────────────────────────
+ *
+ * Sin contexto activo esto **lanza**, no cae a la empresa principal. Un `?? ORG_ID` habría sido
+ * más cómodo y es exactamente el modo de fallar que este proyecto ya se comió una vez con el
+ * cron: silencioso, plausible, y descubierto por un cliente. Una consulta sin organización no
+ * tiene respuesta correcta — tiene una respuesta peligrosa.
+ *
+ * El mensaje nombra el arreglo porque el síntoma no lo sugiere: quien lo vea va a estar mirando
+ * un endpoint que "dejó de andar", no un problema de credenciales.
  */
 export function db(): SupabaseClient {
-  return dbScopeado(ORG_ID);
+  const cred = credencialesActivas();
+  if (!cred) {
+    throw new Error(
+      "db() sin empresa activa: nadie llamó a activar(). En un endpoint con sesión va " +
+        "activar(ctx.credenciales) después de exigir(); en un camino de máquina, " +
+        "activar(await resolverCredenciales(orgId)) o conCredenciales(cred, fn).",
+    );
+  }
+  return dbScopeado(cred.orgId);
+}
+
+/** La organización de la empresa activa. Misma regla que `db()`: sin contexto, lanza. */
+export function orgActiva(): string {
+  const cred = credencialesActivas();
+  if (!cred) throw new Error("orgActiva() sin empresa activa: falta activar().");
+  return cred.orgId;
 }
 
 /* ================================================================== */
@@ -41,8 +75,19 @@ export interface EntradaOutbox {
   orgId?: string;
 }
 
-/** Org única mientras no haya multi-tenant. Vive acá para tener un solo lugar que cambiar. */
-export const ORG_ID = "00000000-0000-0000-0000-000000000001";
+/**
+ * La empresa **principal** — ARIA. Es la fila que siembran `002_bootstrap.sql` y la `018`.
+ *
+ * Ya NO significa "la organización": significa "la nuestra". Se dejó exportada porque hay tres
+ * usos legítimos —el arranque, las migraciones y el fallback a variables de entorno, que §5.2
+ * restringe a propósito solo a esta empresa— pero **no es el valor por defecto de nada**. Si
+ * aparece en código nuevo que atiende a un usuario o a un webhook, está mal: la organización
+ * sale de `orgActiva()`.
+ *
+ * Se llamaba `ORG_ID` hasta el 2026-08-07. El nombre viejo era la mitad del problema: leído en
+ * un `.eq("org_id", ORG_ID)` parecía "el org_id que corresponda".
+ */
+export const ORG_PRINCIPAL = "00000000-0000-0000-0000-000000000001";
 
 /**
  * Registra la intención de un efecto en GHL.
@@ -54,7 +99,7 @@ export async function registrarEnOutbox(e: EntradaOutbox): Promise<void> {
   const { error } = await db()
     .from("closer_ghl_outbox")
     .insert({
-      org_id: e.orgId ?? ORG_ID,
+      org_id: e.orgId ?? orgActiva(),
       ghl_contact_id: e.ghlContactId,
       seguimiento_id: e.seguimientoId ?? null,
       operacion: e.operacion,
@@ -166,7 +211,7 @@ export async function crearNota(input: CrearNotaInput): Promise<Nota> {
   const { data, error } = await db()
     .from("closer_notas")
     .insert({
-      org_id: input.orgId ?? ORG_ID,
+      org_id: input.orgId ?? orgActiva(),
       ghl_contact_id: input.ghlContactId,
       texto: input.texto.trim(),
       contexto: input.contexto?.trim() || null,
@@ -338,8 +383,24 @@ export async function verificarEsquema(): Promise<EstadoTabla[]> {
   );
 }
 
-/** El "hoy" de la organización, calculado por Postgres — nunca por Node ni por el browser. */
+/**
+ * El "hoy" de la organización, calculado por Postgres — nunca por Node ni por el browser.
+ *
+ * ── El parámetro no es opcional por comodidad (2026-08-07) ────────────
+ *
+ * Hasta hoy esto llamaba a `closer_hoy_org()` **sin argumentos**, y Postgres resolvía por
+ * aridad a la sobrecarga vieja de la `001`, cuyo cuerpo es `select zona_horaria from
+ * closer_org_config limit 1` — sin `where` y sin `order by`. O sea: la zona horaria de *una
+ * empresa cualquiera*, la que el planificador devolviera primero.
+ *
+ * Con una sola fila daba siempre bien. Con cinco, el "hoy" que decide qué seguimientos están
+ * vencidos lo elegía el azar. La `020` creó la sobrecarga con `p_org_id` justamente para esto y
+ * dejó viva la vieja "hasta desplegar el código que la pasa" — este es ese código.
+ *
+ * `rpc` es el único método que el Proxy de `db.ts` deja pasar sin tocar (no puede adivinar cómo
+ * se llama el parámetro de cada función), así que acá la organización va a mano.
+ */
 export async function hoyOrg(): Promise<string | null> {
-  const { data, error } = await db().rpc("closer_hoy_org");
+  const { data, error } = await db().rpc("closer_hoy_org", { p_org_id: orgActiva() });
   return error ? null : (data as string);
 }

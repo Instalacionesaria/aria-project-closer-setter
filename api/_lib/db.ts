@@ -113,9 +113,9 @@ function envolverTabla(builder: unknown, tabla: string, orgId: string): unknown 
 /**
  * El cliente atado a una organización. **Todo acceso a datos pasa por acá.**
  *
- * Hoy el `orgId` siempre es el de ARIA porque todavía no hay sesiones (fase 2 de la
- * especificación). Cuando las haya, el único cambio es de dónde sale el argumento — el
- * scoping ya está puesto en los 94 puntos de acceso.
+ * De dónde sale el `orgId` lo decide `repo.ts`, que desde el 2026-08-07 lo toma de la empresa
+ * activa en el contexto (`credencialesActivas()`) y lanza si no hay ninguna. Acá abajo solo
+ * queda el mismo guard por si alguien llama a este `db(orgId)` directo.
  */
 export function db(orgId: string): SupabaseClient {
   if (!orgId) throw new Error("db(orgId): falta la organización. Ninguna consulta puede correr sin scope.");

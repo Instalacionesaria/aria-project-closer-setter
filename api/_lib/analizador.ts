@@ -64,7 +64,7 @@ import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
 import { cargarPromptAgente, type PromptAgente } from "./promptAgente.js";
 import { credencialesActivas } from "./credenciales.js";
-import { ORG_ID, db } from "./repo.js";
+import { db, orgActiva } from "./repo.js";
 import {
   contactosConTag,
   conversacionDeContacto,
@@ -759,7 +759,6 @@ async function guardarAnalisis(e: {
     const { data, error } = await db()
       .from("closer_analisis_agente")
       .insert({
-        org_id: ORG_ID,
         agente_id: e.agenteId,
         ghl_contact_id: e.ghlContactId,
         conversation_id: e.conversationId,
@@ -804,7 +803,6 @@ async function guardarHallazgos(
     .from("closer_hallazgo_agente")
     .insert(
       hallazgos.map((h) => ({
-        org_id: ORG_ID,
         analisis_id: analisisId,
         agente_id: agenteId,
         ghl_contact_id: ghlContactId,
@@ -1054,7 +1052,14 @@ export async function analizarYMarcar(
      * análisis explota, la resta sigue por encima del umbral y el próximo mensaje reintenta.
      */
     if (!opts.dryRun) {
+      /**
+       * `p_org_id` no estaba, y sin él Postgres resolvía a la sobrecarga vieja de la `014`,
+       * cuyo UPDATE filtra solo por `ghl_contact_id`. La `020` agregó la versión por empresa
+       * para que el candado falle CERRADO: dos empresas que tuvieran el mismo contacto en GHL
+       * compartían una sola ranura y una de las dos se quedaba sin auditar en silencio.
+       */
       const { data: gano } = await db().rpc("closer_auditor_claim", {
+        p_org_id: orgActiva(),
         p_contact_id: ghlContactId,
         p_ventana_segundos: env.auditorClaimSegundos(),
       });

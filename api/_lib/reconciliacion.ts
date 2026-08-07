@@ -51,7 +51,7 @@ import {
   type MensajeNormalizado,
 } from "./ingesta.js";
 import { env } from "./env.js";
-import { ORG_ID, db } from "./repo.js";
+import { db, orgActiva } from "./repo.js";
 
 /** La ventana del candado. El frontend pinga cada 10s; correr más seguido no aporta nada. */
 const VENTANA_MS = 10_000;
@@ -102,7 +102,7 @@ export async function ejecutarReconciliacion(
 
   /* ── 1. El candado (RPC — migración 012) ───────────────────────────── */
   const { data: claim, error: errClaim } = await db().rpc("closer_reconciliar_claim", {
-    p_org_id: ORG_ID,
+    p_org_id: orgActiva(),
     p_ventana_segundos: Math.round(VENTANA_MS / 1000),
   });
 
@@ -124,7 +124,6 @@ export async function ejecutarReconciliacion(
       // Con una sola org el comportamiento no cambia, pero es lo que vuelve elegibles los
       // índices compuestos `(org_id, …)` que ya existen — sin WHERE ningún índice puede
       // ayudar, y esta query corre cada 10 segundos.
-      .eq("org_id", ORG_ID)
       .limit(2000);
     if (errContactos) throw new Error(`closer_contactos: ${errContactos.message}`);
 
@@ -298,7 +297,7 @@ export async function ejecutarReconciliacion(
      */
     if (!truncado && marcaNueva > marcaAgua) {
       await db().rpc("closer_reconciliar_marca", {
-        p_org_id: ORG_ID,
+        p_org_id: orgActiva(),
         p_marca: new Date(marcaNueva).toISOString(),
       });
     }

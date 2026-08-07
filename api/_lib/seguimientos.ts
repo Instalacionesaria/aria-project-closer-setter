@@ -45,7 +45,7 @@ import { sincronizarContacto } from "./contactos.js";
 import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
 import type { ResultadoGhl } from "./ghl/port.js";
-import { ORG_ID, db, hoyOrg } from "./repo.js";
+import { db, hoyOrg, orgActiva } from "./repo.js";
 
 const CLOSER_POR_DEFECTO = "00000000-0000-0000-0000-0000000000c1";
 /** Un solo closer mientras `zona_closer` sea territorio y no asignación (§50.7). */
@@ -459,7 +459,7 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
     p_serie_dias: esAutomatico ? SERIE_RECUPERO.dias : null,
     p_texto_evento: textoEvento,
     p_autor_nombre: AUTOR_POR_DEFECTO,
-    p_org_id: ORG_ID,
+    p_org_id: orgActiva(),
   });
 
   if (error) throw new Error(`registrar seguimiento: ${error.message}`);
@@ -600,7 +600,6 @@ export async function registrarResultadoAvanzar(
   const nota = input.nota?.trim();
   if (nota) {
     const { error } = await db().from("closer_notas").insert({
-      org_id: ORG_ID,
       ghl_contact_id: input.ghlContactId,
       texto: nota,
       contexto: input.pildora,
@@ -622,7 +621,6 @@ export async function registrarResultadoAvanzar(
       .upsert(
         {
           ghl_contact_id: input.ghlContactId,
-          org_id: ORG_ID,
           fijada: false,
           completada_dia: hoy,
           completada_el: ahora,
@@ -679,7 +677,6 @@ async function registrarEvento(args: {
   const { error } = await db()
     .from("closer_contacto_eventos")
     .insert({
-      org_id: ORG_ID,
       ghl_contact_id: args.ghlContactId,
       seguimiento_id: args.seguimientoId ?? null,
       tipo: args.tipo,

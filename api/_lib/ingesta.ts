@@ -17,7 +17,7 @@ import { TAGS } from "../../src/lib/ghl/contrato.js";
 import type { AutorMensaje } from "../../src/lib/ghl/autoria.js";
 import { env } from "./env.js";
 import { sincronizarContacto } from "./contactos.js";
-import { ORG_ID, db } from "./repo.js";
+import { db } from "./repo.js";
 
 /* ================================================================== */
 /* Mensajes                                                            */
@@ -344,7 +344,6 @@ export async function registrarEventoSistema(
   payload: Record<string, unknown> = {},
 ): Promise<void> {
   await db().from("closer_contacto_eventos").insert({
-    org_id: ORG_ID,
     ghl_contact_id: ghlContactId,
     seguimiento_id: seguimientoId ?? null,
     tipo,

@@ -26,7 +26,7 @@ import { AUTORES, type AutorMensaje } from "../../src/lib/ghl/autoria.js";
 import { AUDITORES_ACTIVOS, TAG_FALLO, territorioDe } from "../_lib/analizador.js";
 import { estadoDeLosPrompts } from "../_lib/promptAgente.js";
 import { env } from "../_lib/env.js";
-import { ORG_ID, db } from "../_lib/repo.js";
+import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -55,7 +55,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: filas, error } = await db()
       .from("closer_contactos")
       .select("ghl_contact_id, nombre, tags, congelado")
-      .eq("org_id", ORG_ID)
       .limit(2000);
     if (error) throw new Error(`closer_contactos: ${error.message}`);
     const contactos = (filas ?? []) as FilaContacto[];

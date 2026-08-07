@@ -19,7 +19,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { refrescarContactosProximos, rangoRespaldo, sincronizarCitas } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
 import { activar, resolverCredenciales } from "../_lib/credenciales.js";
-import { ORG_ID } from "../_lib/repo.js";
+import { ORG_PRINCIPAL } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   /**
@@ -59,7 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    * que es —configuración— y no como un error de la operación que iba a hacer.
    */
   try {
-    activar(await resolverCredenciales(ORG_ID));
+    activar(await resolverCredenciales(ORG_PRINCIPAL));
   } catch (e) {
     console.error(`[credenciales] ${(e as Error).message}`);
     return res.status(503).json({ ok: false, error: (e as Error).message });

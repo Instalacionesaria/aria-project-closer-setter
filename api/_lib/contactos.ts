@@ -15,7 +15,7 @@
 import { CAMPOS, CAMPOS_PERFIL, TAGS } from "../../src/lib/ghl/contrato.js";
 import { ghl } from "./ghl/index.js";
 import { leerCampo, leerEntero } from "./ghl/lectura.js";
-import { ORG_ID, db } from "./repo.js";
+import { db } from "./repo.js";
 
 /** El chip de fuente que va en la fila (§8). Sin origen reconocible → DIRECTO, nunca vacío. */
 function fuenteDesdeTags(tags: readonly string[]): string {
@@ -49,7 +49,6 @@ export async function sincronizarContacto(ghlContactId: string): Promise<boolean
     .upsert(
       {
         ghl_contact_id: contacto.id,
-        org_id: ORG_ID,
         nombre: contacto.nombre || contacto.id,
         telefono: contacto.telefono ?? null,
         email: contacto.email ?? null,
@@ -151,8 +150,7 @@ export async function sincronizarTerritorio(opciones: { tope?: number } = {}): P
   // Quién estaba congelado ANTES, para poder informar cuántos volvieron. Cero llamadas a GHL.
   const { data: previos } = await db()
     .from("closer_contactos")
-    .select("ghl_contact_id, congelado")
-    .eq("org_id", ORG_ID);
+    .select("ghl_contact_id, congelado");
   const congeladoAntes = new Set(
     ((previos ?? []) as { ghl_contact_id: string; congelado: boolean }[])
       .filter((c) => c.congelado)
@@ -176,7 +174,6 @@ export async function sincronizarTerritorio(opciones: { tope?: number } = {}): P
     const { data, error } = await db()
       .from("closer_contactos")
       .update({ congelado: true })
-      .eq("org_id", ORG_ID)
       .eq("congelado", false)
       .not("ghl_contact_id", "in", `(${ids.map((i) => `"${i}"`).join(",")})`)
       .select("ghl_contact_id");

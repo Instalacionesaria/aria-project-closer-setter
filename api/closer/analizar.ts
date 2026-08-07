@@ -33,7 +33,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { analizarTerritorio, analizarYMarcar, type Territorio } from "../_lib/analizador.js";
 import { ghl } from "../_lib/ghl/index.js";
 import { activar, resolverCredenciales } from "../_lib/credenciales.js";
-import { ORG_ID } from "../_lib/repo.js";
+import { ORG_PRINCIPAL } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -68,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    * que es —configuración— y no como un error de la operación que iba a hacer.
    */
   try {
-    activar(await resolverCredenciales(ORG_ID));
+    activar(await resolverCredenciales(ORG_PRINCIPAL));
   } catch (e) {
     console.error(`[credenciales] ${(e as Error).message}`);
     return res.status(503).json({ ok: false, error: (e as Error).message });

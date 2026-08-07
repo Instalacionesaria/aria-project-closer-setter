@@ -27,7 +27,7 @@ import { INDICADORES_VACIOS } from "../../src/lib/indicadores.js";
 import { fechaHoraOrg } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
 import { cargarIndicadores } from "../_lib/indicadores.js";
-import { db, ORG_ID } from "../_lib/repo.js";
+import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -77,7 +77,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "nivel_interes_seguimiento, motivo_descalificacion, forma_pago_venta, razon_noshow, origen_nurture, " +
           "llamadas_ia_intentos, llamadas_ia_contestadas, ultimo_entrante_el",
       )
-      .eq("org_id", ORG_ID)
       .limit(TOPE_CONTACTOS);
     if (error) throw new Error(`closer_contactos: ${error.message}`);
 

@@ -20,7 +20,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { AUDITORES_ACTIVOS, type AgenteTextoId } from "../_lib/analizador.js";
 import { cargarPromptAgente } from "../_lib/promptAgente.js";
 import { env } from "../_lib/env.js";
-import { ORG_ID, db } from "../_lib/repo.js";
+import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -81,7 +81,6 @@ async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
   const { data, error } = await db()
     .from("closer_hallazgo_agente")
     .update({ estado: "resuelto_por_humano", resuelto_el: new Date().toISOString() })
-    .eq("org_id", ORG_ID)
     .eq("ghl_contact_id", ghlContactId)
     .eq("estado", "activo")
     .select("id");
@@ -128,7 +127,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "fragmento_prompt, prompt_seccion, correccion_tipo, correccion, prompt_hash, " +
           "evidencia_usuario, evidencia_ia, estado, detectado_el",
       )
-      .eq("org_id", ORG_ID)
       .gte("detectado_el", desde)
       .order("detectado_el", { ascending: false })
       .limit(2000);
@@ -154,7 +152,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: ajustesData } = await db()
       .from("closer_ajustes_agente")
       .select("agente_id, error_code, aplicado_el")
-      .eq("org_id", ORG_ID)
       .order("aplicado_el", { ascending: false })
       .limit(1000);
     const ultimoAjuste = new Map<string, string>();
@@ -240,7 +237,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: analisis } = await db()
       .from("closer_analisis_agente")
       .select("agente_id")
-      .eq("org_id", ORG_ID)
       .eq("auditable", true)
       .neq("disparo", "linea_base")
       .gte("analizado_el", desde)
