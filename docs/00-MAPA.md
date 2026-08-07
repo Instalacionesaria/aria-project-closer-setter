@@ -23,6 +23,8 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Dónde queda la transcripción de una llamada? | [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md) |
 | ¿Por qué esta llamada figura como no contestada si duró 2 segundos? | [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md) |
 | ¿Cómo mando un mensaje si pasaron las 24 h? | [08-MENSAJERIA](08-MENSAJERIA.md) § Plantillas |
+| ¿De dónde salen los números de gasto en pauta? ¿Por qué está vacío? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) y [10-ESTADO](10-ESTADO.md) |
+| ¿Qué ve un `media_buyer`? | [01-PRODUCTO](01-PRODUCTO.md) § Navegación |
 | ¿Cómo se aísla una empresa de otra? ¿Qué pasa si dos comparten un contacto? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) |
 | ¿Cómo entra alguien? ¿Qué ve cada rol? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Autenticación |
 | ¿Dónde están las credenciales de un cliente? ¿Cómo se rotan? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Credenciales |

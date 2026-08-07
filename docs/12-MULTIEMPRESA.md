@@ -284,7 +284,7 @@ Lo que costó tiempo, para que no cueste dos veces.
 | Resolver una intervención no quitaba `bot_pausado_fallo` | Arreglado. `removerTags` existía y nadie lo llamaba |
 | El texto de los agentes de voz decía que GHL no expone la transcripción | **Falso** desde la `016`. Corregido |
 | `media_buyer` se podía asignar y no tenía ninguna entrada de sidebar | Arreglado con Adquisición |
-| `gerenciaStore` afirmaba que Equipo era "100% EN VIVO" | **Falso**. `atribucionSetter` nunca se asigna. Store borrado |
+| `gerenciaStore` afirmaba que Equipo era "100% EN VIVO" | **Falso**. Su contraprueba dependía de `ClosurerContact.atribucionSetter`, que se declara y nunca se asigna — el del setter sí. Store borrado |
 | El show rate tenía **tres** definiciones con denominadores distintos | Una sola, la de `inicio.ts` |
 
 ---

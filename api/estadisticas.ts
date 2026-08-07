@@ -7,8 +7,9 @@
  * `ULTIMOS_3_MESES`) con los 61 números del panel. Peor que inventados: su encabezado afirmaba
  * que la sección Equipo era *"100% EN VIVO"* y que la contraprueba de automatización era
  * *"genuina"*, y las dos cosas eran falsas — `SETTER_COCKPIT_BASE` era igual de hardcodeado y
- * `atribucionSetter` no se asigna en ninguna parte del código, así que el porcentaje de
- * automatización salía siempre 100%. Un número inventado con etiqueta de real es el peor caso
+ * el **espejo del lado del closer** de `atribucionSetter` (`ClosurerContact.atribucionSetter`) se
+ * declara y no se asigna nunca — el del setter SÍ se asigna, en seis lugares de `setterStore`—, así
+ * que el porcentaje de automatización salía siempre 100%. Un número inventado con etiqueta de real es el peor caso
  * de D3, porque nadie lo va a verificar.
  *
  * ── Qué devuelve y qué NO ─────────────────────────────────────────────
@@ -258,7 +259,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
        */
       sinDato: {
         distribucionLeads: "La clasificación caliente/tibio/probable-LT no existe en la base.",
-        automatizacion: "`atribucionSetter` nunca se asigna: no hay señal de intervención manual.",
+        automatizacion:
+          "El espejo del lado del closer (`ClosurerContact.atribucionSetter`) nunca se asigna, así que " +
+          "no hay señal de intervención manual del setter que contrastar contra las ventas del closer.",
         cortesHighLowTicket: "Ninguna marca sobre una venta distingue high-ticket de low-ticket.",
         metricasSetter: "`api/setter/` no escribe nada todavía: ninguna acción de un setter llega a la base.",
         metricasVideo: "`contact._video_precall` llega de GHL pero no se persiste.",

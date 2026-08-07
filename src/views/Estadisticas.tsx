@@ -10,8 +10,9 @@
  * Lo peor no era eso. El encabezado de `gerenciaStore` afirmaba que la sección Equipo era
  * *"100% EN VIVO"* y que su contraprueba de automatización era *"genuina"* — y las dos
  * afirmaciones eran falsas: `SETTER_COCKPIT_BASE` estaba tan hardcodeado como el resto, y
- * `atribucionSetter` se declara pero **nunca se asigna en ninguna parte del código**, así que el
- * porcentaje de automatización salía siempre 100%. Un número inventado con etiqueta de real es el
+ * el **espejo del lado del closer** de `atribucionSetter` se declara y no se asigna nunca (el del
+ * setter sí, en seis lugares de `setterStore`), así que el porcentaje de automatización salía
+ * siempre 100%. Un número inventado con etiqueta de real es el
  * peor caso: nadie lo verifica, porque el código dice que ya está verificado.
  *
  * ── La regla que gobierna lo que se ve ────────────────────────────────

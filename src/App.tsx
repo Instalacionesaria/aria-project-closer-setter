@@ -94,7 +94,19 @@ const NAV: {
    */
   { key: "adquisicion", label: "Adquisición", icon: Megaphone, roles: ["media_buyer", "admin"] },
   { key: "estadisticas", label: "Estadísticas", icon: TrendingUp, roles: ["admin"] },
-  { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-4" },
+  /**
+   * Ajustes va **al fondo de la columna**, pegado al perfil.
+   *
+   * `mt-auto` y no un margen fijo: el contenedor del sidebar es `flex flex-col flex-1`, así que el
+   * margen automático se come todo el espacio libre y empuja este botón hasta abajo. Con `mt-4`
+   * —que era lo que había— quedaba a cuatro de separación de la última vista de operación y
+   * flotando en el medio cuando el usuario tenía pocos módulos.
+   *
+   * La ventaja de resolverlo con `mt-auto` es que **no depende de cuántas entradas haya**: un
+   * usuario con un solo módulo y otro con cinco ven Ajustes en el mismo lugar, justo arriba de su
+   * nombre. Un `margin-top` calculado habría necesitado saber el largo de la lista.
+   */
+  { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-auto" },
 ];
 
 function AppInner() {

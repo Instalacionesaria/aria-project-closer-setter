@@ -177,11 +177,21 @@ ocurren, en silencio.
 
 ## Navegación
 
-Sidebar: **Closer** · **Setter** · **Auditoría de Agentes** · **Estadísticas**
-(`super_admin`) · **Ajustes** (`admin`).
+| Entrada | Rol que la habilita |
+|---|---|
+| **Closer** | `closer` |
+| **Setter** | `setter` |
+| **Auditoría de Agentes** | `tecnico` |
+| **Adquisición** | `media_buyer` o `admin` |
+| **Estadísticas** | `admin` |
+| **Ajustes** | `admin` — **al fondo de la columna**, pegado al perfil |
 
 Cada entrada declara su rol en el array `NAV` de `src/App.tsx`, que es de donde se arma el
-sidebar. Es cosmética: la protección real es el 403 del backend.
+sidebar. Es cosmética: la protección real es el 403 del backend. Un `super_admin` las ve todas:
+`tieneRol()` lo deja pasar por cualquier lista, espejando el bypass de `exigir()`.
+
+Ajustes se empuja abajo con `mt-auto` y no con un margen fijo, así queda en el mismo lugar tenga
+el usuario un módulo o cinco.
 
 **Ajustes** tiene cinco pestañas: *Mi cuenta* · *Operación* · *Usuarios* · *Credenciales* ·
 *Empresas* (`super_admin`). Las tres últimas son el §7 de la especificación multi-empresa y su
@@ -201,6 +211,11 @@ difieren, gana el servidor.
 >   de los ajustes guardados NO se renombró (ver el comentario en `settingsStore.tsx`).
 > - **Administración** dejó de ser entrada del sidebar y pasó a ser pestañas de Ajustes.
 > - **Closer AI** pasó a llamarse **Closer**.
+> - **Adquisición** es nueva (fase 7): la lectura de la pauta de Meta. `media_buyer` existía como
+>   rol y **no tenía ninguna entrada de sidebar**, así que quien lo tuviera entraba a una pantalla
+>   que le rebotaba entera con 403.
+> - **Estadísticas** pasó de `super_admin` a `admin`. No se aflojó un permiso: desapareció el
+>   motivo de la restricción, que era que su dataset fuera inventado.
 > - **Sugerir Mejora se fue completo**: el botón del sidebar, la bandeja de Ajustes > Operación
 >   y el estado en `settingsStore`. La clave `sugerencias` de los blobs ya guardados en
 >   localStorage **no se borra** —simplemente se deja de leer—, así que lo que el equipo había
