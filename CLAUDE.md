@@ -29,6 +29,7 @@ leo esto".
 | [07-AUDITOR-IA](docs/07-AUDITOR-IA.md) | Portones, rúbrica, debounce, costo, los 4 agentes |
 | [08-MENSAJERIA](docs/08-MENSAJERIA.md) | Chat, ventana de 24 h, estados de entrega |
 | [11-VOZ-Y-LLAMADAS](docs/11-VOZ-Y-LLAMADAS.md) | Llamadas de los agentes de voz: Assistable, el tab Llamada |
+| [12-MULTIEMPRESA](docs/12-MULTIEMPRESA.md) | Aislamiento entre empresas, autenticación, roles, credenciales |
 | [09-DECISIONES](docs/09-DECISIONES.md) | El **porqué** de lo que no es obvio |
 | [10-ESTADO](docs/10-ESTADO.md) | Qué existe, qué está a medias, qué bloquea |
 | [db/README](docs/db/README.md) | Esquema y cómo correr migraciones |
@@ -66,7 +67,7 @@ el archivo.
 
 ## Trampas del entorno
 
-Estas cuatro ya rompieron producción. No son teóricas.
+Estas seis ya rompieron producción. No son teóricas.
 
 - **Imports de `api/` necesitan extensión `.js`**, y **no se puede importar una carpeta**. `tsc`
   no lo detecta: falla en runtime con `FUNCTION_INVOCATION_FAILED` sin decir cuál módulo.
@@ -74,6 +75,12 @@ Estas cuatro ya rompieron producción. No son teóricas.
   migración. Sin eso el primer INSERT falla con `42703` sobre una columna que existe.
 - **Los candados nacen como RPC**, no como `UPDATE` con filtros de PostgREST.
 - **Las variables de entorno se congelan al deploy.** Agregar una exige redesplegar.
+- **Vercel despliega TODO `.ts` bajo `api/`** como función serverless, y su único filtro es `/_`
+  en la ruta. Un test en `api/algo.test.ts` se publica como endpoint con vitest adentro: los
+  tests del backend van en `api/_lib/` o con guion bajo (`_algo.test.ts`).
+- **Ninguna consulta corre sin empresa activa.** `db()` saca la organización del contexto y
+  **lanza** si no hay ninguna. Todo handler tiene que llamar a `activar(ctx.credenciales)` —o a
+  `conCredenciales()` si recorre empresas— y un test lo hace cumplir.
 
 ## Verificación
 

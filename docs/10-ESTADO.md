@@ -1,13 +1,15 @@
 # Estado del proyecto
 
-**Actualizado: 2026-08-06.** Qué está construido, qué está a medias y qué no existe.
+**Actualizado: 2026-08-07.** Qué está construido, qué está a medias y qué no existe.
 
 > Este es el documento que más rápido queda viejo. Si la fecha de arriba tiene más de dos
 > semanas, verificá antes de confiar.
 
 ## En una línea
 
-El módulo Closer está conectado a datos reales de punta a punta. El Setter y Auditoría de
+El módulo Closer está conectado a datos reales de punta a punta. **La plataforma es
+multi-empresa** desde el 2026-08-07: autenticación, roles, credenciales cifradas por empresa y
+aislamiento en tres capas — ver [12-MULTIEMPRESA](12-MULTIEMPRESA.md). El Setter y Auditoría de
 Agentes tienen la estructura hecha pero les falta backend o les falta que Francisco publique
 configuración en GHL.
 
@@ -16,11 +18,15 @@ configuración en GHL.
 | Pieza | Estado |
 |---|---|
 | Frontend en Vercel | ✅ Producción, deploy por push a `main` |
-| Vercel Functions (`api/`) | ✅ 30+ endpoints |
-| Supabase SOFIA | ✅ 17 migraciones aplicadas |
+| Vercel Functions (`api/`) | ✅ 35+ endpoints, todos con portero de rol |
+| Supabase SOFIA | ✅ 26 migraciones aplicadas |
+| Multi-empresa | ✅ ARIA + hasta 4 clientes. Aislamiento en 3 capas, con tests que lo hacen cumplir |
+| Autenticación | ✅ Sesiones con cookie `httpOnly`, scrypt, 6 roles, bloqueo por intentos, auditoría |
+| Credenciales por empresa | ✅ AES-256-GCM. Ningún secreto en claro en Supabase ni en el browser |
+| Integración Meta (lectura) | ⚠️ Construida y **nunca ejecutada**: falta cargar las credenciales de una cuenta real |
 | Integración GHL (lectura) | ✅ Contactos, citas, conversaciones, custom fields |
 | Integración GHL (escritura) | ✅ Aplicar y quitar tags, custom fields, notas |
-| Webhooks de GHL | ⚠️ El endpoint existe; los workflows los tiene que crear Francisco |
+| Webhooks de GHL | ⚠️ El endpoint existe y rutea por `locationId`; los workflows los tiene que crear Francisco |
 | Webhook de llamadas (Assistable) | ✅ Recibe, redacta secretos, parsea y archiva en `closer_llamadas` |
 | Anthropic (auditor) | ✅ Cableado. **En cero por decisión** — ver abajo |
 
@@ -117,13 +123,81 @@ real**. Es lo que falta para arrancar los auditores de voz.
 | Auditores de voz (×2) | Ya tienen fuente y esquema: `closer_llamadas.turnos` guarda la transcripción entera. Falta la rúbrica y una llamada contestada |
 | Reproducir el audio de una llamada | `grabacion_url` se guarda y viaja; falta el reproductor |
 | Reintentar un mensaje fallido | — |
-| Estadísticas con datos reales | La vista existe y funciona, pero su dataset es inventado (`src/lib/gerenciaStore.tsx`). Por eso queda limitada a `super_admin`: mostrarle métricas fabricadas al admin de una empresa cliente sería mostrarle datos falsos a quien paga. Se llamaba Gerencia hasta el 2026-08-07 |
 | Sales calls en el tab Llamada | Nadie graba ni transcribe las reuniones del closer |
+| Atribución, alertas y recomendaciones de pauta | Fase 8 de la especificación: se ven en Adquisición **detrás del velo de "en desarrollo"**, sin un solo número |
+| Tracking del visitante (`visitor_id`, UTMs en la landing) | Ídem |
+
+### Los 33 números que Estadísticas NO puede mostrar
+
+El panel tenía 61 y ahora muestra **28**. El resto se reparte así, y el endpoint devuelve el motivo
+de cada uno en `sinDato` para que la vista lo diga al pie:
+
+| Qué falta | Cuántos | Por qué |
+|---|---|---|
+| **La clasificación caliente / tibio / probable-LT** | 3 | No existe en ninguna parte del sistema. Solo vivía en el store inventado |
+| **Los cuatro de automatización** | 4 | `ClosurerContact.atribucionSetter` se **declara y nunca se asigna**: no hay señal de intervención manual que contrastar |
+| **El corte high-ticket / low-ticket** | ~5 | Ninguna marca sobre una venta lo distingue. `closer_avances.salida` tiene las 6 salidas, no el tipo de ticket |
+| **Las cuatro del setter** | 4 | `api/setter/` tiene **un solo archivo** (`urgentes.ts`): ninguna acción de un setter llega a Supabase |
+| **ROAS, CAC, CPL, CPA y la serie de ROAS** | 5 | Dependen del gasto en pauta. Se destraban con la primera sincronización de Meta |
+| **Métricas de video** | ~4 | `contact._video_precall` llega de GHL y **no se persiste** |
+| **La tendencia de 6 meses** | ~6 | No hay historial anterior a este sistema y no se puede fabricar |
+| **Fecha de entrada del lead** | 1 | El `dateAdded` de GHL no se captura. `closer_contactos.creado_el` es la fecha del CACHÉ, no del negocio |
+| **Comisión por persona** | 2 | Vive en `settingsStore`, que es localStorage, no en la base |
 
 > **La autenticación real existe desde el 2026-08-06** y salió de esta lista: sesiones con
 > cookie `httpOnly`, contraseñas con scrypt, 6 roles, bloqueo por intentos fallidos y auditoría
 > de accesos. Ver [11-MULTIEMPRESA](11-MULTIEMPRESA.md) cuando exista; hasta entonces, las
 > migraciones `018`–`024` y `api/_lib/auth.ts`.
+
+## Parches vivos y deuda con fecha
+
+Cosas que **funcionan a propósito de una forma provisoria**. Cada una tiene un motivo escrito y un
+momento en el que hay que volver.
+
+### El contract que falta
+
+La migración multi-empresa usó **expand → deploy → contract** y el tercer paso no se dio. Siguen
+vivas, sin usarse:
+
+| Qué | Por qué se dejó | Cuándo se saca |
+|---|---|---|
+| `closer_hoy_org()`, `closer_dia_org(p_momento)`, `closer_auditor_claim(p_contact_id, p_ventana)` | Dropearlas ahora convertiría cualquier llamador que se haya escapado en un error inmediato en producción | Después de una semana estable |
+| `closer_usuarios.rol` (singular), nullable | Mismo criterio. La reemplazó `roles text[]` | Ídem |
+
+> **Ojo con `closer_registrar_seguimiento`:** su parámetro `p_org_id` tiene
+> `DEFAULT '00000000-…-0001'`. Mientras ese default exista, un llamador que se olvide del
+> parámetro **escribe en ARIA en silencio**. Hoy el único llamador lo pasa.
+
+### Lo global que debería ser por empresa
+
+| Qué | Consecuencia | Gravedad |
+|---|---|---|
+| **`GHL_DEFAULT_CALENDAR_ID`** — no hay columna por empresa | El cron le pediría a cada empresa el calendario de ARIA con su propio token: sus citas no se sincronizan | **Bloquea dar de alta un cliente con agenda** |
+| **`ZONA_HORARIA_ORG`** hardcodeada en `src/lib/fechas.ts` | `env.zonaHoraria()` ya resuelve por empresa; faltan los consumidores | Media: hoy todas las empresas están en Lima |
+| **Las seis perillas del auditor** (`AUDITOR_UMBRAL_IA`, `AUDITOR_FUENTES_IA`, `AUDITOR_CLAIM_S`…) | Están calibradas contra una cuenta. Un cliente con otro volumen hereda el umbral de ARIA | Baja |
+| **`CLOSER_POR_DEFECTO` y `AUTOR_POR_DEFECTO`** | La firma de un ajuste al prompt dice "el closer" cuando quien lo aplica es el técnico. Ya hay `ctx.nombre` para arreglarlo | Baja, pero es un dato falso |
+
+### Parches de UI
+
+- **El velo de "en desarrollo"** tapa cuatro secciones de Adquisición con contenido de maqueta
+  detrás. Activar cada una es cambiar un `true` por `false` en `src/lib/enDesarrollo.tsx` — y el
+  test que fija las seis claves va a fallar hasta que se actualice, a propósito.
+- **La bandeja de sugerencias se borró** pero la clave `sugerencias` sigue en los blobs de
+  localStorage de cada usuario. Se dejó de leer, no se borró: lo que el equipo había mandado sigue
+  ahí si algún día hace falta.
+- **`gerencia` en `settingsStore`** conserva el nombre viejo del módulo. **No renombrar**: es una
+  clave de nivel 1 del JSON guardado, y renombrarla sin shim borra la inversión en Meta Ads y el
+  objetivo de facturación de cada usuario — en silencio, porque el fallback no falla, sustituye.
+
+### Lo que hay que verificar la primera vez que corra
+
+- **La sincronización de Meta nunca se ejecutó.** El mapeo de `api/_lib/meta/real.ts` está escrito
+  desde la documentación de Meta, no desde una respuesta observada. La primera corrida es una
+  verificación: abrir `closer_meta_crudo` y comparar contra lo que quedó en
+  `closer_meta_metricas`. Por eso existe la tabla de crudos (D15).
+- **`closer_avances.autor_usuario_id`** empieza a llenarse desde el 2026-08-07. Las filas anteriores
+  quedan en `null` **a propósito** — probable no es medido. El panel las cuenta en los totales y las
+  excluye del desglose por persona, diciéndolo en pantalla.
 
 ## Huecos conocidos
 
@@ -152,6 +226,15 @@ Cosas que funcionan pero con un límite que conviene tener presente:
 ## Operativo
 
 - **Credenciales**: en `.env.local`, gitignored. **Pendiente rotarlas** — circularon en chats.
+- **Rotar el token de Facebook.** Estuvo en reposo en `closer_webhook_inbox`; ya está redactado en
+  los payloads nuevos, pero el token sigue vivo.
+- **Rotar `Fabio@123`.** Es super admin sobre las cinco empresas y circuló en texto plano.
+- **`Quiroz Prueba` sigue con `bot_pausado_fallo`** de la prueba del auditor del 06/08.
+- **Variables de entorno nuevas**: `CIFRADO_MASTER_KEY` (obligatoria para guardar cualquier
+  credencial), `CRON_SECRET` (sin ella los dos crons devuelven 503 y no corren), `BOOTSTRAP_TOKEN`,
+  `ADMIN_PRINCIPAL_EMAIL`, `ADMIN_PRINCIPAL_PASSWORD`.
+- **Vercel puede activar su Security Checkpoint** si se le pega con muchos `curl` seguidos. Los
+  navegadores lo pasan solos; verificar con el navegador y no con `curl`.
 - **El access token de Facebook de la subcuenta** llegó dentro de los payloads de Assistable y
   estuvo en reposo en `closer_webhook_inbox`. Ya se redactó de las filas guardadas y el webhook
   lo recorta de entrada, pero **conviene rotarlo**.

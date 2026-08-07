@@ -157,11 +157,20 @@ Así, en cualquier orden de llegada queda exactamente una fila, con la hora buen
 | Abrir una ficha | 1 (el contacto vivo, que además refresca los contadores de voz) |
 | Enviar un mensaje | 1 · **0 si la ventana de 24 h está cerrada** (se corta antes) |
 | Sincronizar CRM (manual) | 2 + 1 por contacto activo. Los congelados cuestan 0 |
-| Cron de citas (:25, :55) | 1 + 1 por contacto nuevo descubierto |
+| Cron de citas (:25, :55) | 1 + 1 por contacto nuevo descubierto, **por empresa activa** |
+| Cron de Meta (06:20 UTC) | 4 a la Graph API por empresa con credenciales — un nivel cada una |
 | Chat, Mi Día, Pipeline, Inicio | **0** — todo sale de la caché |
+| Estadísticas | **0** a GHL: es agregación por query sobre Supabase |
+| Adquisición | **0** a Meta: lee `closer_meta_metricas`, que llena el cron |
+
+**Todo lo de arriba se multiplica por la cantidad de empresas activas**, y el límite de GHL es
+**por subcuenta**, así que el presupuesto por cliente no cambia: cinco empresas son cinco
+presupuestos de 200.000 diarios, no uno repartido. Lo que sí se multiplica es el **tiempo** de un
+cron secuencial — por eso `citas-respaldo` tiene `maxDuration: 300`.
 
 **Lo que sí crece con el negocio** no es el polling: es el auditor. Cada análisis es una
-llamada al modelo. Ver [07-AUDITOR-IA](07-AUDITOR-IA.md).
+llamada al modelo, y se factura contra la key de **cada empresa**, no contra una global. Ver
+[07-AUDITOR-IA](07-AUDITOR-IA.md).
 
 ## Congelados
 

@@ -99,9 +99,27 @@ Un solo endpoint: **`POST /api/webhooks/ghl`**, con el evento en la URL
 gratis) no permite editar el cuerpo JSON — manda su payload nativo tal cual. La URL sí se
 puede editar.
 
-**Autenticación:** header `x-webhook-secret`. Sin `WEBHOOK_SECRET` configurado, el endpoint se
-rechaza a sí mismo con 503. Abierto, cualquiera que descubra la URL puede inyectar eventos y
-generar gasto.
+**Autenticación:** header `x-webhook-secret`, y **el secreto es por empresa** desde el
+2026-08-07 (`closer_org_config.ghl_webhook_secret`), con `WEBHOOK_SECRET` como fallback — que es
+cómo está configurada ARIA hoy. Sin ninguno de los dos, el endpoint se rechaza a sí mismo con 503.
+Abierto, cualquiera que descubra la URL puede inyectar eventos y generar gasto.
+
+Con un secreto único compartido entre las cinco empresas, el workflow de cualquiera podía inyectar
+eventos a nombre de otra, y rotarlo obligaba a tocar los workflows de todos los clientes.
+
+**De qué empresa es el evento:** del **`locationId` del payload**, contra el índice único de
+`closer_org_config.ghl_location_id`.
+
+> **Ojo con dónde viene.** Se contaron las 84 filas reales de `closer_webhook_inbox`: **GHL manda
+> `location.id` ANIDADO** en 80 de 81 eventos, y ninguno lo trae como `locationId` arriba.
+> Assistable sí lo manda arriba, como `location_id`. Las tres formas se aceptan.
+
+Consecuencia de diseño: **el cuerpo se parsea ANTES de autenticar**, porque el secreto es por
+empresa y de qué empresa se trata lo dice el payload.
+
+**Un evento cuyo `locationId` no corresponde a ninguna empresa** se guarda crudo con
+`org_id = null`, **no se procesa**, y responde 200 para que GHL no reintente. Nunca se atribuye a
+la empresa principal por descarte: eso sería una fuga indetectable (D23).
 
 **Nada se procesa sin guardarse primero.** Todo cuerpo entra crudo a `closer_webhook_inbox`
 antes de interpretarse. Si el mapeo falla, el evento no se perdió.
@@ -131,8 +149,11 @@ lógica de "gemelos" que reconcilia el mensaje fabricado con el real.
 El secreto va en la **URL** porque Assistable solo ofrece un campo de URL, sin headers. Se
 compensa por el lado del daño posible:
 
-- **Token propio** (`LLAMADAS_TOKEN`), distinto del `WEBHOOK_SECRET`. Ese otro protege un
-  endpoint que aplica tags y dispara al auditor.
+- **Token propio y por empresa** (`closer_org_config.assistable_token`, con `LLAMADAS_TOKEN`
+  como fallback), distinto del secreto del webhook de GHL. Ese otro protege un endpoint que
+  aplica tags y dispara al auditor.
+- **La empresa sale del `location_id` del payload**, igual que en el de GHL. Assistable sí lo
+  manda arriba. Sin empresa atribuible, el crudo se guarda con `org_id = null` y no se procesa.
 - **El endpoint es inerte**: guarda el cuerpo crudo y responde 200. No llama a GHL, no llama
   al modelo, no escribe en ninguna otra tabla.
 

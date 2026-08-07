@@ -23,10 +23,17 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Dónde queda la transcripción de una llamada? | [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md) |
 | ¿Por qué esta llamada figura como no contestada si duró 2 segundos? | [11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md) |
 | ¿Cómo mando un mensaje si pasaron las 24 h? | [08-MENSAJERIA](08-MENSAJERIA.md) § Plantillas |
+| ¿Cómo se aísla una empresa de otra? ¿Qué pasa si dos comparten un contacto? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) |
+| ¿Cómo entra alguien? ¿Qué ve cada rol? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Autenticación |
+| ¿Dónde están las credenciales de un cliente? ¿Cómo se rotan? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Credenciales |
+| Agregué un endpoint y explota con "sin empresa activa" | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Capa 1 |
+| ¿De qué empresa es este webhook? ¿Por qué hay filas con `org_id` nulo? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Webhooks |
+| ¿De dónde salen los números de Estadísticas? ¿Por qué falta el ROAS? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) y [10-ESTADO](10-ESTADO.md) |
+| ¿Qué es una sección "En desarrollo" y cómo se activa? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Lo que queda |
 | ¿Por qué se decidió X y no Y? | [09-DECISIONES](09-DECISIONES.md) |
 | ¿Qué está construido y qué falta? | [10-ESTADO](10-ESTADO.md) |
 | ¿Cómo corro una migración? ¿Qué tablas hay? | [db/README](db/README.md) |
-| ¿Dónde pego el prompt del agente de GHL? | [prompts/README](prompts/README.md) |
+| ¿Dónde pego el prompt del agente de GHL? | En **Ajustes › Credenciales**. Ver [07-AUDITOR-IA](07-AUDITOR-IA.md) |
 | ¿Cómo despliego? ¿Cómo trabajo en este repo? | [../CLAUDE.md](../CLAUDE.md) |
 
 ## Los documentos, en orden de lectura
@@ -43,7 +50,8 @@ Si venís de cero, leelos en este orden. Los cuatro primeros alcanzan para enten
 8. **[08-MENSAJERIA](08-MENSAJERIA.md)** — el chat y las reglas de WhatsApp.
 9. **[09-DECISIONES](09-DECISIONES.md)** — el porqué de lo que no es obvio.
 10. **[11-VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md)** — las llamadas de los agentes de voz.
-11. **[10-ESTADO](10-ESTADO.md)** — qué existe hoy, qué está a medias, qué no existe.
+11. **[12-MULTIEMPRESA](12-MULTIEMPRESA.md)** — el aislamiento, la autenticación y los roles.
+12. **[10-ESTADO](10-ESTADO.md)** — qué existe hoy, qué está a medias, qué no existe.
 
 ## Dónde vive cada cosa que NO es documentación
 

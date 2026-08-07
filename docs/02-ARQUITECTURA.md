@@ -34,6 +34,10 @@ porque casi todos los bugs caros del proyecto salieron de tener dos fuentes para
 | **Monto de la venta** | **Supabase** | Ídem |
 | Seguimientos, notas, avances, eventos | **Supabase** | Nacen acá; GHL no los conoce |
 | Análisis del auditor y sus hallazgos | **Supabase** | Ídem |
+| Usuarios, sesiones, roles | **Supabase** | No se usa Supabase Auth: exigiría la `anon key` en el bundle del browser |
+| Credenciales de cada empresa | **Supabase**, cifradas | AES-256-GCM con clave maestra en Vercel. Ver [12-MULTIEMPRESA](12-MULTIEMPRESA.md) |
+| El prompt de cada agente auditado | **Supabase** | Era un archivo del repo hasta el 2026-08-07. Uno por empresa, no uno global |
+| Métricas de pauta | **Meta**, cacheadas por día | `closer_meta_metricas`. Las tasas se guardan como las manda Meta, no recalculadas |
 
 ### La excepción que hay que entender
 
@@ -46,6 +50,29 @@ en el momento del Avanzar, pero la pantalla lee de Supabase.
 
 La consecuencia práctica: **si alguien mueve un contacto de stage a mano en GHL, la
 plataforma no se entera.** Es un límite conocido, no un bug.
+
+## Cuatro piezas, no tres: la empresa activa
+
+Desde el 2026-08-07 hay una dimensión más y atraviesa todo: **de qué empresa es este dato**.
+
+No es una columna que se agregó a unas tablas. Es un contexto que se abre al principio de cada
+request y del que salen tres cosas a la vez: con qué credenciales se le habla a GHL y a Anthropic,
+qué filas de Supabase se pueden leer, y qué se le muestra.
+
+```
+        exigir()  →  resuelve sesión → usuario → empresa efectiva → roles
+            │
+            └─ activar(ctx.credenciales)     ← SÍNCRONO, en el scope del handler
+                     │
+                     ├─ db()                 → Proxy con .eq("org_id") ya puesto
+                     ├─ env.ghlApiKey()      → el PIT de ESA empresa
+                     └─ credencialesActivas()→ modelo, prompts, tokens
+```
+
+La regla operativa: **ninguna consulta corre sin empresa activa**. `db()` lanza si no hay
+contexto, y un test exige que todo handler active una. El detalle completo, incluido por qué
+`activar` y `conCredenciales` no son intercambiables, está en
+[12-MULTIEMPRESA](12-MULTIEMPRESA.md).
 
 ## El frontend nunca llama a GHL
 

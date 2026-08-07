@@ -313,3 +313,86 @@ con su propio backup y su propio riesgo de fuga, **para no usarla jamás**.
 
 La regla general: un secreto que llega sin haber sido pedido se recorta en la frontera, no se
 archiva "por si acaso".
+
+## D22 · La organización sale del contexto, y sin ella se lanza
+
+`db()` saca la empresa de `credencialesActivas()` y **lanza** si no hay ninguna. La alternativa
+cómoda era `?? ORG_PRINCIPAL`.
+
+Se descartó porque es el mismo modo de fallar que este proyecto ya se comió una vez con el cron de
+citas: **silencioso, plausible, y descubierto por un cliente**. Una consulta sin organización no
+tiene una respuesta correcta — tiene una respuesta peligrosa, que son los datos de otra empresa.
+
+El costo es real y se aceptó: un handler que se olvida de `activar()` devuelve 500 en vez de andar.
+Por eso hay un test que lo caza en el commit.
+
+## D23 · Un webhook sin empresa NO se atribuye por descarte
+
+Si el `locationId` de un evento no corresponde a ninguna empresa, se guarda crudo con
+`org_id = null` y **no se procesa**. Responde 200: el evento llegó bien y no hay nada que reintentar.
+
+La tentación era mandarlo a la empresa principal "por ahora". Eso es una fuga **indetectable**: los
+datos de un cliente entrando a ARIA se ven exactamente igual que los de ARIA. El índice parcial sobre
+`org_id is null` de la `019` existe para poder auditar esas filas.
+
+Es la razón por la que `conOrg()` en `db.ts` respeta un `org_id: null` explícito y solo ese: es la
+única excepción a que el Proxy pise la organización, y existe para esta línea.
+
+## D24 · El secreto del webhook se valida DESPUÉS de saber la empresa
+
+Suena al revés y es deliberado: el secreto es **por empresa** (`ghl_webhook_secret`), así que no hay
+contra qué compararlo hasta saber contra cuál.
+
+El costo es parsear el cuerpo de alguien que todavía no se autenticó. El beneficio es que el workflow
+de una empresa deja de poder inyectar eventos a nombre de otra — con un secreto único compartido
+entre las cinco eso era trivial, y rotarlo obligaba a tocar los workflows de todos los clientes.
+
+## D25 · Un modo de prueba cuesta trabajo activarlo, no desactivarlo
+
+`AUDITOR_SIN_PORTON_TAGS` saltea el portón del tag `bot_activado`. Estuvo **encendido por default**
+un día, para una prueba, y al apagarlo se invirtió el default en el **código**: ahora saltea el
+portón solo si vale `"1"`.
+
+El motivo no es estético. Un default peligroso que se desactiva con una variable de entorno se
+vuelve a encender solo en cualquier entorno donde la variable no esté — un preview, un clon local,
+un proyecto nuevo. La variable tiene que ser la que **enciende**.
+
+En el mismo movimiento se borró el default hardcodeado de `AUDITOR_USER_IDS_IA`, que era el userId
+de GHL de una persona real de ARIA: con cinco empresas ese id no existe en las otras subcuentas, y si
+existiera sería de otra persona.
+
+## D26 · Lo que no se puede medir no se muestra, y se dice por qué
+
+El panel de Estadísticas tenía 61 números y ninguno salía de la base. Al conectarlo, **28** se
+podían calcular y el resto no.
+
+Los que no tienen dato de origen **no se renderizan**: sin velo, sin cero, sin guion de relleno.
+Y el endpoint devuelve `sinDato` con el motivo de cada uno, que la vista lista al pie.
+
+La razón de mostrar el motivo y no solo omitir: quien mira el panel tiene que poder distinguir *"el
+negocio no tiene este número"* de *"el sistema todavía no lo mide"*. Son dos conclusiones opuestas y
+la segunda es la única que se puede arreglar.
+
+> Lo peor que había no era el número inventado: era la **etiqueta**. El encabezado de
+> `gerenciaStore` afirmaba que la sección Equipo era "100% EN VIVO" y que su contraprueba de
+> automatización era "genuina", y las dos cosas eran falsas. Un número inventado con etiqueta de
+> real es el peor caso, porque nadie lo verifica — el código dice que ya está verificado.
+
+## D27 · Una sección "en desarrollo" dice qué VA A HACER, no por qué no lo hace
+
+El velo de §8 muestra la sección completa detrás y una línea en presente: *"Va a decir de qué anuncio
+salió cada lead"*. No dice "todavía no está listo" ni promete una fecha, y un test lo hace cumplir.
+
+Dos motivos. El cliente necesita saber qué viene, no enterarse de nuestras deudas. Y el motivo
+técnico ya vive en [10-ESTADO](10-ESTADO.md): repetirlo en la UI serían dos vitrinas del mismo hecho.
+
+Las claves están en un literal del código y **no** en una variable de entorno: activar una sección
+que muestra números tiene que aparecer en un diff para que alguien lo mire.
+
+## D28 · El stub de Meta no simula cifras
+
+El stub de GHL simula efectos y anota la intención en el outbox. El de Meta devuelve **vacío**.
+
+La diferencia es qué pasa si alguien confunde el stub con el real. Un tag que no se aplicó se nota
+enseguida; un gasto en pauta simulado se usa para decidir dónde poner plata. Inventar una cifra ahí
+sería el peor dato falso del producto.

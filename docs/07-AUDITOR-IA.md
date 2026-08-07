@@ -34,8 +34,9 @@ adivine el estado del bot. **El auditor está en cero deliberadamente.**
 > subcuentas, y si existiera sería de otra persona.
 
 Para ver el estado exacto: **`GET /api/agentes/auditor-estado`**. Devuelve el embudo contacto
-por contacto, el conteo de cada tag, los salientes por autoría, si el archivo de prompt existe,
-y una lista `loQueFalta[]` redactada para reenviar tal cual.
+por contacto, el conteo de cada tag, los salientes por autoría, si el prompt de la empresa está cargado,
+y una lista `loQueFalta[]` redactada para reenviar tal cual. El `presente` del prompt ahora
+mira la columna de la empresa, no un archivo del repo.
 
 Dos renglones de ese endpoint son alarmas tempranas:
 
@@ -199,6 +200,25 @@ Dos cosas que importan:
 - Con la mudanza se cayó la dependencia de **`includeFiles` en `vercel.json`**, y con ella su
   trampa: `@vercel/nft` no traza lecturas dinámicas, así que el `.md` andaba en local y
   desaparecía en producción sin ruido.
+
+## Por empresa
+
+Desde el 2026-08-07 el auditor es por empresa en todo lo que importa:
+
+| Qué | De dónde sale | Si falta |
+|---|---|---|
+| API key de Anthropic | `closer_org_config.anthropic_key_cifrada` | **No audita**, y lo dice con el nombre de la empresa |
+| Modelo y esfuerzo | `anthropic_modelo` / `anthropic_thinking` | Default global: `claude-sonnet-5` / `high` |
+| El prompt del agente auditado | `prompt_appointment_texto` / `prompt_lead_texto` | Degrada limpio: corrección como instrucción autónoma |
+| El candado | `closer_auditor_claim(p_org_id, …)` | — |
+| La caché del prompt | Indexada por **empresa + agente** | — |
+
+> `new Anthropic()` sin argumentos lee `process.env.ANTHROPIC_API_KEY`, así que hasta ese día
+> **todas las auditorías se le facturaban a ARIA** — las de sus clientes también. No era una fuga de
+> datos: era una fuga de plata, del tipo que no se nota hasta la factura.
+
+Una empresa sin key propia **no audita** en vez de auditar con la de otra. Es lo correcto: auditar
+con la cuenta de un tercero es peor que no auditar.
 
 ## El costo
 
