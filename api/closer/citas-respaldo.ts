@@ -18,6 +18,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { refrescarContactosProximos, rangoRespaldo, sincronizarCitas } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
+import { activar, resolverCredenciales } from "../_lib/credenciales.js";
+import { ORG_ID } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   /**
@@ -52,6 +54,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (env.ghlModo() === "stub") {
     return res.status(200).json({ ok: true, corrio: false, motivo: "Modo stub." });
+  }
+
+  /**
+   * Camino de MÁQUINA: no hay sesión, así que las credenciales de la empresa se resuelven acá.
+   * Sin esto el auditor y la ingesta correrían con las variables globales — correcto hoy con
+   * una sola empresa, y una fuga el día que haya dos (§5.2).
+   *
+   * Se resuelve ANTES del `try` de la lógica para que un fallo de credenciales se vea como lo
+   * que es —configuración— y no como un error de la operación que iba a hacer.
+   */
+  try {
+    activar(await resolverCredenciales(ORG_ID));
+  } catch (e) {
+    console.error(`[credenciales] ${(e as Error).message}`);
+    return res.status(503).json({ ok: false, error: (e as Error).message });
   }
 
   try {

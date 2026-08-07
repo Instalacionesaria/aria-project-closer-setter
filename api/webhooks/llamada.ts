@@ -38,9 +38,10 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { env } from "../_lib/env.js";
-import { db } from "../_lib/repo.js";
+import { ORG_ID, db } from "../_lib/repo.js";
 import { parsearLlamada, redactarSecretos, type PayloadLlamada } from "../../src/lib/assistable.js";
 import type { CallOrigin } from "../../src/lib/closerStore.js";
+import { activar, resolverCredenciales } from "../_lib/credenciales.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   /**
@@ -68,6 +69,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const token = String(req.query.token ?? "");
   if (token !== esperado) {
     return res.status(401).json({ ok: false, error: "Token inválido." });
+  }
+
+  /**
+   * Camino de MÁQUINA: no hay sesión, así que las credenciales de la empresa se resuelven acá.
+   * Sin esto la ingesta y el auditor correrían con las variables globales — correcto hoy con
+   * una sola empresa, y una fuga el día que haya dos (§5.2).
+   *
+   * **Provisorio:** usa `ORG_ID` porque el ruteo por `locationId` del payload es §6.3, de la
+   * fase 5. Cuando eso exista, la organización sale del `locationId` y esta línea cambia.
+   */
+  try {
+    activar(await resolverCredenciales(ORG_ID));
+  } catch (e) {
+    console.error(`[credenciales] ${(e as Error).message}`);
+    return res.status(503).json({ ok: false, error: (e as Error).message });
   }
 
   const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;

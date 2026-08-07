@@ -32,6 +32,8 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { analizarTerritorio, analizarYMarcar, type Territorio } from "../_lib/analizador.js";
 import { ghl } from "../_lib/ghl/index.js";
+import { activar, resolverCredenciales } from "../_lib/credenciales.js";
+import { ORG_ID } from "../_lib/repo.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
@@ -55,6 +57,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (req.headers["x-webhook-secret"] !== secreto) {
     return res.status(401).json({ ok: false, error: "Secreto inválido." });
+  }
+
+  /**
+   * Camino de MÁQUINA: no hay sesión, así que las credenciales de la empresa se resuelven acá.
+   * Sin esto el auditor y la ingesta correrían con las variables globales — correcto hoy con
+   * una sola empresa, y una fuga el día que haya dos (§5.2).
+   *
+   * Se resuelve ANTES del `try` de la lógica para que un fallo de credenciales se vea como lo
+   * que es —configuración— y no como un error de la operación que iba a hacer.
+   */
+  try {
+    activar(await resolverCredenciales(ORG_ID));
+  } catch (e) {
+    console.error(`[credenciales] ${(e as Error).message}`);
+    return res.status(503).json({ ok: false, error: (e as Error).message });
   }
 
   try {

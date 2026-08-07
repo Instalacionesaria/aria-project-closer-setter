@@ -30,7 +30,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { db } from "../_lib/repo.js";
+import { ORG_ID, db } from "../_lib/repo.js";
+import { activar, resolverCredenciales } from "../_lib/credenciales.js";
 import { analizarYMarcar } from "../_lib/analizador.js";
 import { autorConEnv } from "../_lib/autoria.js";
 import { sincronizarContacto } from "../_lib/contactos.js";
@@ -86,6 +87,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   if (req.headers["x-webhook-secret"] !== secretoEsperado) {
     return res.status(401).json({ ok: false, error: "Secreto inválido." });
+  }
+
+  /**
+   * Camino de MÁQUINA: no hay sesión, así que las credenciales de la empresa se resuelven acá.
+   * Sin esto la ingesta correría con las variables globales — correcto hoy con una sola
+   * empresa, y una fuga el día que haya dos (§5.2).
+   *
+   * **Provisorio:** usa `ORG_ID`. El ruteo por el `locationId` del payload es §6.3, de la
+   * fase 5; cuando exista, la organización sale de ahí y esta línea cambia.
+   */
+  try {
+    activar(await resolverCredenciales(ORG_ID));
+  } catch (e) {
+    console.error(`[credenciales] ${(e as Error).message}`);
+    return res.status(503).json({ ok: false, error: (e as Error).message });
   }
 
   const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
