@@ -35,6 +35,12 @@ const CREDENCIALES = [
   { clave: "ghlPit", columna: "ghl_pit_cifrado", cifrado: true, etiqueta: "Private Integration Token de GHL" },
   { clave: "ghlLocationId", columna: "ghl_location_id", cifrado: false, etiqueta: "Location ID de GHL" },
   { clave: "ghlWebhookSecret", columna: "ghl_webhook_secret", cifrado: false, etiqueta: "Secreto del webhook de GHL" },
+  /**
+   * El calendario del que el cron lee las citas. **Sin él la empresa no sincroniza agenda**, así
+   * que es tan obligatorio como el PIT para un cliente que use citas — y el cron lo reporta por
+   * separado justamente para que se sepa cuál de los dos falta.
+   */
+  { clave: "ghlCalendarioId", columna: "ghl_calendario_id", cifrado: false, etiqueta: "Calendario de GHL" },
   { clave: "anthropicKey", columna: "anthropic_key_cifrada", cifrado: true, etiqueta: "API key de Anthropic" },
   { clave: "assistableToken", columna: "assistable_token", cifrado: false, etiqueta: "Token del webhook de Assistable" },
   { clave: "assistableCuentaId", columna: "assistable_cuenta_id", cifrado: false, etiqueta: "Cuenta de Assistable" },
@@ -55,7 +61,7 @@ const PROMPTS = [
 ] as const;
 
 /** El `ghl_location_id` no es secreto pero tampoco hace falta mostrarlo entero. */
-const CLARAS_VISIBLES = new Set(["ghlLocationId", "assistableCuentaId", "metaAdAccountId"]);
+const CLARAS_VISIBLES = new Set(["ghlLocationId", "ghlCalendarioId", "assistableCuentaId", "metaAdAccountId"]);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.1: *"La configuración solo se toca desde `admin` o `super_admin`"*. Un técnico con rol

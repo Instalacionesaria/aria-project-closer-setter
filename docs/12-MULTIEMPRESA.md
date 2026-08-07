@@ -1,6 +1,6 @@
 # Multi-empresa, autenticación y roles
 
-**Implementado entre el 2026-08-06 y el 2026-08-07.** Migraciones `018`–`026`.
+**Implementado entre el 2026-08-06 y el 2026-08-07.** Migraciones `018`–`027`.
 
 > El número es **12** y no 11 porque el 11 ya era [VOZ-Y-LLAMADAS](11-VOZ-Y-LLAMADAS.md). La
 > especificación pedía `11-MULTIEMPRESA.md` sin saberlo.
@@ -123,6 +123,16 @@ Consecuencia buscada: una filtración del volcado de Supabase **no entrega ning�
 
 `resolverCredenciales(orgId)` resuelve todo con una caché de 60 s. El fallback a variables de entorno
 está restringido **a la empresa principal** y se anota en `desdeEntorno[]`.
+
+Lo que resuelve, por empresa: PIT y `location_id` de GHL, **el calendario**, el secreto del webhook,
+la key de Anthropic con su modelo y esfuerzo, el token y la cuenta de Assistable, los de Meta, la
+zona horaria y los cuatro prompts.
+
+> **El calendario fue el último en mudarse** (migración `027`). Era `GHL_DEFAULT_CALENDAR_ID`, una
+> variable global, y era el único agujero que bloqueaba dar de alta un cliente con agenda: el cron
+> le habría pedido a cada empresa los eventos del calendario de ARIA usando el token de esa empresa
+> — 404 de GHL, o peor, cero citas sin explicación. Un calendario pertenece a una subcuenta igual
+> que el `location_id`.
 
 > **El `??` que anulaba esa decisión.** `env.ghlApiKey()` decía
 > `credencialesActivas()?.ghlPit ?? process.env.GHL_PIT`, y ese `??` convertía "esta empresa no
@@ -264,6 +274,7 @@ Lo que costó tiempo, para que no cueste dos veces.
 | **Un comentario mío describía mal el bug que arreglaba** | Corregido. La lista vieja **sí** incluía `admin`, y por eso rebotaba |
 | **`git checkout` sobre trabajo sin commitear** | Se perdió el bucle del cron y hubo que rehacerlo. No usar `git checkout` para revertir un sabotaje de prueba |
 | **Vercel activó su Security Checkpoint** por el volumen de `curl` | Los navegadores lo pasan solo. Verificar con el navegador, no con `curl` |
+| **Un segundo almacén de credenciales sin consumidores** | `closer_conexiones` guarda `ghl_calendar_id` y **nadie la lee**: `env.ts` no la consulta. Es el mismo modo de fallar que los prompts. El calendario se puso en `closer_org_config`, no ahí |
 
 ### Bugs que la migración destapó y no había creado
 
@@ -287,9 +298,6 @@ Lo que costó tiempo, para que no cueste dos veces.
   dejan a propósito hasta verificar el deploy: dropearlas ahora convertiría cualquier llamador que
   se haya escapado en un error inmediato en producción. **Dropear después de una semana estable.**
 - **`closer_usuarios.rol`** (singular) sigue existiendo, nullable, sin usarse. Mismo criterio.
-- **`GHL_DEFAULT_CALENDAR_ID` es global.** No hay columna por empresa, así que el cron de citas le
-  pediría a cada empresa el calendario de ARIA con su propio token. **Bloquea dar de alta un cliente
-  con agenda.**
 - **`ZONA_HORARIA_ORG`** está hardcodeada en `src/lib/fechas.ts`. `env.zonaHoraria()` ya la resuelve
   por empresa; falta que los consumidores la usen.
 - **`AUDITOR_USER_IDS_IA`** y las otras cinco perillas del auditor son globales. Deberían ser por
@@ -326,4 +334,4 @@ setter (nada de `api/setter/` escribe todavía) y el historial anterior a este s
 | `api/_lib/aislamiento.test.ts` | La capa 2 |
 | `src/lib/authStore.tsx` | La sesión en el browser |
 | `src/lib/enDesarrollo.tsx` | El helper y el velo de §8 |
-| `docs/db/018`–`026` | Las migraciones, cada una con su porqué en el encabezado |
+| `docs/db/018`–`027` | Las migraciones, cada una con su porqué en el encabezado |

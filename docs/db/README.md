@@ -17,7 +17,7 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-Van de la `001` a la **`026`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
+Van de la `001` a la **`027`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
 esquema base (`001`–`005`, aplicadas el 2026-07-25); de la `006` en adelante **el encabezado de
 cada archivo explica por qué existe** —esa es la fuente— y el tema al que pertenecen está
 documentado en el `docs/` correspondiente:
@@ -30,7 +30,7 @@ documentado en el `docs/` correspondiente:
 | `016` | `closer_llamadas` — las llamadas de los agentes de voz | [11-VOZ-Y-LLAMADAS](../11-VOZ-Y-LLAMADAS.md) |
 | `017` | `closer_plantillas` — plantillas de WhatsApp aprobadas | [08-MENSAJERIA](../08-MENSAJERIA.md) § Plantillas |
 
-Las `018`–`024` son la **capa multi-empresa**, y conviene leerlas en orden porque cada una
+Las `018`–`027` son la **capa multi-empresa**, y conviene leerlas en orden porque cada una
 depende de la anterior:
 
 | Migración | Qué agrega |
@@ -44,6 +44,7 @@ depende de la anterior:
 | `024` | `closer_usuarios.tema` — la preferencia de modo claro/oscuro, por usuario |
 | `025` | `closer_avances.autor_usuario_id` — quién registró cada Avanzar. Nullable y **sin backfill**: las filas viejas no tienen autor y no se inventó uno |
 | `026` | `closer_meta_metricas` y `closer_meta_crudo` — la pauta de Meta, una fila por objeto y por día |
+| `027` | `closer_org_config.ghl_calendario_id` — el calendario por empresa. Era una variable de entorno global, y el último bloqueante para dar de alta un cliente con agenda |
 
 | Archivo | Qué hace | Por qué existe |
 |---|---|---|

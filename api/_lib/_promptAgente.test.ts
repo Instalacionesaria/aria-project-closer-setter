@@ -24,6 +24,7 @@ function empresa(over: Partial<Credenciales> = {}): Credenciales {
     ghlPit: null,
     ghlLocationId: null,
     ghlWebhookSecret: null,
+    ghlCalendarioId: null,
     anthropicKey: null,
     anthropicModelo: "claude-sonnet-5",
     anthropicThinking: "high",

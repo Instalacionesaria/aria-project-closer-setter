@@ -36,6 +36,14 @@ export interface Credenciales {
   ghlPit: string | null;
   ghlLocationId: string | null;
   ghlWebhookSecret: string | null;
+  /**
+   * El calendario del que el cron lee las citas. Era `GHL_DEFAULT_CALENDAR_ID`, una variable
+   * GLOBAL, y era el último agujero que bloqueaba dar de alta un cliente con agenda: el cron le
+   * habría pedido a cada empresa el calendario de ARIA con el token de esa empresa.
+   *
+   * `null` = no cargado, y entonces **no sincroniza citas y lo dice**. No hereda el de ARIA.
+   */
+  ghlCalendarioId: string | null;
   anthropicKey: string | null;
   anthropicModelo: string;
   anthropicThinking: string;
@@ -83,6 +91,7 @@ const THINKING_POR_DEFECTO = "high";
 interface FilaOrgConfig {
   org_id: string;
   nombre: string | null;
+  ghl_calendario_id: string | null;
   prompt_appointment_texto: string | null;
   prompt_lead_texto: string | null;
   prompt_appointment_voz: string | null;
@@ -163,7 +172,8 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
   const { data, error } = await dbSinScope()
     .from("closer_org_config")
     .select(
-      "org_id, nombre, es_principal, activa, zona_horaria, ghl_location_id, ghl_pit_cifrado, ghl_webhook_secret, " +
+      "org_id, nombre, es_principal, activa, zona_horaria, ghl_location_id, ghl_calendario_id, " +
+        "ghl_pit_cifrado, ghl_webhook_secret, " +
         "anthropic_key_cifrada, anthropic_modelo, anthropic_thinking, assistable_token, assistable_cuenta_id, " +
         "meta_ad_account_id, meta_token_cifrado, " +
         "prompt_appointment_texto, prompt_lead_texto, prompt_appointment_voz, prompt_lead_voz",
@@ -220,6 +230,19 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
       (fila.ghl_location_id as string | null) ?? null,
       process.env.GHL_LOCATION_ID,
       "GHL_LOCATION_ID",
+    ),
+    /**
+     * El fallback a la variable de entorno queda restringido a la empresa principal, igual que el
+     * resto. Es lo que hace que una empresa cliente sin calendario devuelva `null` y **no** herede
+     * el de ARIA — que era el bug entero.
+     *
+     * La `027` ya sembró el de ARIA en la base, así que este fallback es solo la red por si
+     * alguien borra la columna.
+     */
+    ghlCalendarioId: conFallbackPrincipal(
+      (fila.ghl_calendario_id as string | null) ?? null,
+      process.env.GHL_DEFAULT_CALENDAR_ID,
+      "GHL_DEFAULT_CALENDAR_ID",
     ),
     ghlWebhookSecret: conFallbackPrincipal(
       (fila.ghl_webhook_secret as string | null) ?? null,

@@ -172,7 +172,6 @@ vivas, sin usarse:
 
 | Qué | Consecuencia | Gravedad |
 |---|---|---|
-| **`GHL_DEFAULT_CALENDAR_ID`** — no hay columna por empresa | El cron le pediría a cada empresa el calendario de ARIA con su propio token: sus citas no se sincronizan | **Bloquea dar de alta un cliente con agenda** |
 | **`ZONA_HORARIA_ORG`** hardcodeada en `src/lib/fechas.ts` | `env.zonaHoraria()` ya resuelve por empresa; faltan los consumidores | Media: hoy todas las empresas están en Lima |
 | **Las seis perillas del auditor** (`AUDITOR_UMBRAL_IA`, `AUDITOR_FUENTES_IA`, `AUDITOR_CLAIM_S`…) | Están calibradas contra una cuenta. Un cliente con otro volumen hereda el umbral de ARIA | Baja |
 | **`CLOSER_POR_DEFECTO` y `AUTOR_POR_DEFECTO`** | La firma de un ajuste al prompt dice "el closer" cuando quien lo aplica es el técnico. Ya hay `ctx.nombre` para arreglarlo | Baja, pero es un dato falso |
@@ -185,6 +184,11 @@ vivas, sin usarse:
 - **La bandeja de sugerencias se borró** pero la clave `sugerencias` sigue en los blobs de
   localStorage de cada usuario. Se dejó de leer, no se borró: lo que el equipo había mandado sigue
   ahí si algún día hace falta.
+- **`closer_conexiones` es un almacén de credenciales paralelo y muerto.** La escribe y la lee solo
+  `api/closer/conexiones.ts`; `env.ts` no la consulta nunca, así que un admin podía guardar ahí su
+  calendario, ver el éxito, y nada lo leía. Es el mismo modo de fallar que tenían los prompts. Las
+  credenciales de verdad viven en `closer_org_config` y se editan en Ajustes › Credenciales — ese
+  panel y esa tabla habría que borrarlos.
 - **`gerencia` en `settingsStore`** conserva el nombre viejo del módulo. **No renombrar**: es una
   clave de nivel 1 del JSON guardado, y renombrarla sin shim borra la inversión en Meta Ads y el
   objetivo de facturación de cada usuario — en silencio, porque el fallback no falla, sustituye.

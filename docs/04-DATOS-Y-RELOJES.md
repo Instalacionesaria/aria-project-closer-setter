@@ -16,6 +16,13 @@ De GHL a la pantalla. Este documento responde "¿por qué tarda X?" y "¿cuánto
    > La respuesta trae `porEmpresa` con el detalle, y devuelve **207** si alguna falló: no es un
    > éxito, y tampoco un fracaso si las otras corrieron.
    >
+   > **Cada empresa lee de SU calendario** (`closer_org_config.ghl_calendario_id`, migración `027`).
+   > Era una variable de entorno global, y mientras lo fue el cron le habría pedido a cada empresa los
+   > eventos del calendario de ARIA con su propio token — 404 de GHL, o peor, cero citas sin
+   > explicación. Una empresa sin calendario cargado se saltea **diciendo cuál de las dos cosas
+   > falta**: el token o el calendario. `sincronizarCitas` devuelve `sinCalendario: true` para que
+   > "no se pudo sincronizar" no se confunda con "no había citas".
+   >
    > `maxDuration` subió de 60 s a **300 s** por esto mismo. Los 60 estaban dimensionados para
    > una pasada; el bucle es secuencial, así que con cinco empresas el techo viejo cortaba a la
    > cuarta por timeout — y un cron que se corta a mitad no avisa, simplemente deja empresas sin

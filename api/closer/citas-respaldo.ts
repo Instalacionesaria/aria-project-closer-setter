@@ -94,6 +94,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       /**
+       * El calendario es su propio corte, separado del PIT, porque es su propia falla: una
+       * empresa puede tener el token bien y el calendario sin cargar. Se dice cuál de las dos
+       * cosas falta en vez de un "sin credenciales" que manda a revisar la equivocada.
+       *
+       * `ghl_calendario_id` es por empresa desde la `027`. Era una variable de entorno global, y
+       * mientras lo fue el cron le habría pedido a cada empresa los eventos del calendario de
+       * ARIA con su propio token — 404, o peor, cero citas sin explicación.
+       */
+      if (!cred.ghlCalendarioId) {
+        porEmpresa[cred.nombre] = {
+          corrio: false,
+          motivo: "sin calendario de GHL cargado — se configura en Ajustes › Credenciales",
+        };
+        continue;
+      }
+
+      /**
        * `conCredenciales` usa `almacen.run()`, que abre el contexto y lo **cierra** al resolver
        * la promesa. Es lo que hace que dos iteraciones no se pisen: con `activar()`
        * (`enterWith`) el contexto quedaría vivo después de la iteración y la empresa siguiente

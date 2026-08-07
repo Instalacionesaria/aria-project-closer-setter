@@ -81,8 +81,20 @@ export const env = {
   /** La zona horaria de la empresa activa. Ver `closer_hoy_org(p_org_id)` en la 020. */
   zonaHoraria: () => credencialesActivas()?.zonaHoraria ?? "America/Lima",
 
-  /** Calendario "Aria | Llamada de Descubrimiento". Sin uso todavía — es para los links del menú "+" (§10). */
-  ghlCalendarioPorDefecto: () => process.env.GHL_DEFAULT_CALENDAR_ID,
+  /**
+   * El calendario de la empresa activa, del que el cron lee las citas.
+   *
+   * ── Era global, y era el último bloqueante (2026-08-07) ─────────────
+   *
+   * Decía `process.env.GHL_DEFAULT_CALENDAR_ID` a secas. Con dos empresas eso significaba pedirle a
+   * la empresa B los eventos del calendario de ARIA usando el token de B: 404 de GHL, o peor —cero
+   * eventos sin decir por qué— y las citas del cliente nunca sincronizadas. Un calendario pertenece
+   * a una subcuenta igual que el `location_id`.
+   *
+   * `undefined` cuando la empresa no lo cargó. Quien llama **tiene que distinguir eso de "no hay
+   * citas"**: `sincronizarCitas` devuelve `sinCalendario: true` justamente para eso.
+   */
+  ghlCalendarioPorDefecto: () => credencialesActivas()?.ghlCalendarioId ?? process.env.GHL_DEFAULT_CALENDAR_ID,
 
   /**
    * El modo se DEDUCE de las credenciales en vez de configurarse: con token y location es

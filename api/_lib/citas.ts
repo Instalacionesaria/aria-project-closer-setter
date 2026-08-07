@@ -57,6 +57,15 @@ export interface ResultadoSyncCitas {
   eventos: number;
   contactosNuevos: number;
   llamadasGhl: number;
+  /**
+   * `true` cuando la empresa **no tiene calendario cargado**. Distinto de `eventos: 0`, que
+   * significa "sincronizó y no había citas".
+   *
+   * La distinción no es cosmética: sin ella, una empresa mal configurada se reportaba idéntica a
+   * una empresa tranquila, y el cron decía "0 citas" durante semanas sin que nadie sospechara. Es
+   * la regla §4.2 — `null` y `[]` no pueden significar dos cosas a la vez.
+   */
+  sinCalendario?: true;
 }
 
 /**
@@ -66,7 +75,17 @@ export interface ResultadoSyncCitas {
  */
 export async function sincronizarCitas(desdeIso: string, hastaIso: string): Promise<ResultadoSyncCitas> {
   const calendarId = env.ghlCalendarioPorDefecto();
-  if (!calendarId || !env.tieneCredencialesGhl()) return { eventos: 0, contactosNuevos: 0, llamadasGhl: 0 };
+
+  /**
+   * Sin calendario **no se puede sincronizar**, y se dice. Antes esto devolvía `{eventos: 0}` igual
+   * que una empresa sin citas: dos hechos distintos con la misma respuesta.
+   *
+   * El calendario es por empresa desde la `027`. Una empresa cliente que no cargó el suyo devuelve
+   * `null` y NO hereda el de ARIA — pedirle a GHL los eventos del calendario de otra subcuenta con
+   * el token propio da 404, o peor, vacío sin explicación.
+   */
+  if (!calendarId) return { eventos: 0, contactosNuevos: 0, llamadasGhl: 0, sinCalendario: true };
+  if (!env.tieneCredencialesGhl()) return { eventos: 0, contactosNuevos: 0, llamadasGhl: 0 };
 
   const { desdeMs, hastaMs } = rangoDelDia(desdeIso, hastaIso);
   const eventos = await eventosDeCalendario({ calendarId, desdeMs, hastaMs });
