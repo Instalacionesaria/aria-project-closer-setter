@@ -170,7 +170,6 @@ Verificado contra la API, no inferido:
 | Estado de asistencia a las citas | GHL nunca marca `showed`. En 633 citas hay 386 `confirmed`, 245 `cancelled`, 1 `noshow` y **cero** `showed` |
 | Qué plantilla generó un mensaje | **El mensaje no lo guarda.** `GET /conversations/messages/{id}` sobre salientes con `source: "workflow"` no trae ningún `templateId` — ni el `TYPE_WHATSAPP` con `wamid` real de Meta. O sea que los ids de plantilla **no se pueden cosechar del historial**: la única fuente es la UI |
 | Las acciones de un workflow | `GET /workflows/?locationId=` **lista** los 120 (id, nombre, estado), pero `GET /workflows/{id}` da 404. Se puede encontrar un workflow por nombre; no se puede saber qué hace |
-| Quitar un tag | El puerto solo tiene `aplicarTags`. **No existe `quitarTags`** — ver [10-ESTADO](10-ESTADO.md) |
 
 **Para mandar una plantilla** hay dos caminos y la plataforma soporta los dos, elegibles por
 plantilla: `templateId` en `POST /conversations/messages` (sin variables) y disparar un

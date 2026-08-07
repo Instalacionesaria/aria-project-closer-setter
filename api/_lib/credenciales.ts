@@ -44,6 +44,29 @@ export interface Credenciales {
   metaAdAccountId: string | null;
   metaToken: string | null;
   zonaHoraria: string;
+  /**
+   * Los prompts de los agentes que el auditor compara (§7.3). **Texto, no secretos** — es lo
+   * que el cliente pegó de sus propios agentes de GHL.
+   *
+   * Viajan acá y no en un módulo aparte por un motivo concreto: `cargarPromptAgente()` es
+   * SÍNCRONA y la llaman funciones síncronas (`alertas.ts` la usa dentro de un `map`). Si el
+   * prompt se leyera de la base en el momento de usarlo, esa función tendría que volverse
+   * `async` y el `await` se propagaría por toda la capa de alertas. Al venir resueltos con las
+   * credenciales —una sola consulta por request, con la caché de 60 s ya hecha— nada cambia de
+   * forma.
+   *
+   * `null` = la empresa no cargó ese prompt. El auditor degrada limpio (§7.3): pide la
+   * corrección como instrucción autónoma en vez de citar un fragmento.
+   */
+  promptAppointmentTexto: string | null;
+  promptLeadTexto: string | null;
+  /**
+   * Los de voz se resuelven pero **todavía no tienen consumidor**: `AgenteTextoId` es solo
+   * `lead-flow-ai | appointment-flow-ai`. Se traen igual para que el día que existan los
+   * auditores de voz no haya que volver a tocar esta capa.
+   */
+  promptAppointmentVoz: string | null;
+  promptLeadVoz: string | null;
   /** Qué credenciales salieron de una variable de entorno global en vez de la empresa. */
   desdeEntorno: string[];
 }
@@ -60,6 +83,10 @@ const THINKING_POR_DEFECTO = "high";
 interface FilaOrgConfig {
   org_id: string;
   nombre: string | null;
+  prompt_appointment_texto: string | null;
+  prompt_lead_texto: string | null;
+  prompt_appointment_voz: string | null;
+  prompt_lead_voz: string | null;
   es_principal: boolean | null;
   activa: boolean | null;
   zona_horaria: string | null;
@@ -138,7 +165,8 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
     .select(
       "org_id, nombre, es_principal, activa, zona_horaria, ghl_location_id, ghl_pit_cifrado, ghl_webhook_secret, " +
         "anthropic_key_cifrada, anthropic_modelo, anthropic_thinking, assistable_token, assistable_cuenta_id, " +
-        "meta_ad_account_id, meta_token_cifrado",
+        "meta_ad_account_id, meta_token_cifrado, " +
+        "prompt_appointment_texto, prompt_lead_texto, prompt_appointment_voz, prompt_lead_voz",
     )
     .eq("org_id", orgId)
     .maybeSingle();
@@ -175,6 +203,13 @@ export async function resolverCredenciales(orgId: string): Promise<Credenciales>
     esPrincipal,
     activa: Boolean(fila.activa),
     zonaHoraria: (fila.zona_horaria as string) || "America/Lima",
+
+    // Se normaliza el vacío a null: un prompt de cadena vacía y uno sin cargar son el mismo
+    // hecho, y dejar los dos casos vivos obligaría a cada consumidor a chequear los dos.
+    promptAppointmentTexto: (fila.prompt_appointment_texto as string | null)?.trim() || null,
+    promptLeadTexto: (fila.prompt_lead_texto as string | null)?.trim() || null,
+    promptAppointmentVoz: (fila.prompt_appointment_voz as string | null)?.trim() || null,
+    promptLeadVoz: (fila.prompt_lead_voz as string | null)?.trim() || null,
 
     ghlPit: conFallbackPrincipal(
       abrir(fila.ghl_pit_cifrado as string | null),

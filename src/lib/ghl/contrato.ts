@@ -252,7 +252,11 @@ export const TAGS_BOT = {
     valor: "bot_pausado_fallo",
     confianza: "confirmado",
     fuente: "api/_lib/analizador.ts (el auditor de Kevin lo aplica)",
-    uso: "El auditor IA apagó el bot por fallo grave. Solo lectura — es de Kevin.",
+    uso:
+      "El auditor IA apagó el bot por fallo grave. Lo APLICA el auditor y lo QUITA " +
+      "`api/agentes/alertas.ts` al resolver la intervención por humano (§10 de la espec " +
+      "multiempresa, 2026-08-07). Antes decía 'solo lectura': sin quitarlo, el contacto volvía a " +
+      "Urgentes en el próximo tick con la alerta ya resuelta.",
   },
   botApagadoManual: {
     valor: "bot_apagado_manual",

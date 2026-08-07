@@ -19,7 +19,7 @@ configuración en GHL.
 | Vercel Functions (`api/`) | ✅ 30+ endpoints |
 | Supabase SOFIA | ✅ 17 migraciones aplicadas |
 | Integración GHL (lectura) | ✅ Contactos, citas, conversaciones, custom fields |
-| Integración GHL (escritura) | ✅ Tags, custom fields, notas. **Falta `quitarTags`** |
+| Integración GHL (escritura) | ✅ Aplicar y quitar tags, custom fields, notas |
 | Webhooks de GHL | ⚠️ El endpoint existe; los workflows los tiene que crear Francisco |
 | Webhook de llamadas (Assistable) | ✅ Recibe, redacta secretos, parsea y archiva en `closer_llamadas` |
 | Anthropic (auditor) | ✅ Cableado. **En cero por decisión** — ver abajo |
@@ -77,17 +77,15 @@ pestaña de Auditoría queda en su estado vacío.
 
 ### 2. El prompt del Appointment Flow AI
 
-Pegarlo en `docs/prompts/appointment-flow-ai.md`. Sin él, las correcciones del auditor son
-instrucciones genéricas en vez de reemplazos citados. **No requiere código ni deploy**: el
-siguiente análisis lo toma solo.
+Pegarlo en **Ajustes › Credenciales › Prompts de los agentes**. Queda guardado en la
+configuración de la empresa (`closer_org_config`), con su hash, y el siguiente análisis lo toma
+solo. **No requiere código ni deploy.**
 
-### 3. `quitarTags` en el puerto de GHL
+Desde el 2026-08-07 el prompt sale de ahí y no de `docs/prompts/<agente>.md`: un archivo del repo
+solo puede tener un prompt, y con cinco empresas auditar al agente de una contra el prompt de otra
+no da un resultado peor — da uno convincente y falso.
 
-Resolver una intervención marca el hallazgo y lo persiste, pero **no saca el tag** — así que el
-contacto vuelve a Urgentes en el próximo tick. Es un cambio de producto: hay que decidir si la
-plataforma puede quitar tags en GHL.
-
-### 4. Las plantillas de WhatsApp — **en pausa por decisión**
+### 3. Las plantillas de WhatsApp — **en pausa por decisión**
 
 El envío está construido de punta a punta, pero `closer_plantillas` está **vacía a propósito**:
 Fabio decidió el 2026-08-06 dejarlo apagado y resolverlo más adelante. Mientras no haya filas,
@@ -106,7 +104,7 @@ entregada y con `wamid` real de Meta — o sea que ese camino funciona en esta c
 directo (`templateId`) no se pudo probar sin mandar un mensaje real, y de todos modos no tiene
 campo para las 4 variables de esa plantilla.
 
-### 5. Una llamada contestada de Assistable
+### 4. Una llamada contestada de Assistable
 
 Las tres que llegaron cayeron en buzón de voz, así que **todavía nadie vio una transcripción
 real**. Es lo que falta para arrancar los auditores de voz.

@@ -42,7 +42,11 @@ const CREDENCIALES = [
   { clave: "metaToken", columna: "meta_token_cifrado", cifrado: true, etiqueta: "Token de Meta" },
 ] as const;
 
-/** Los cuatro prompts de §7.3. Reemplazan a `docs/prompts/<agente>.md`. */
+/**
+ * Los cuatro prompts de §7.3. Reemplazaron a `docs/prompts/<agente>.md` el 2026-08-07, cuando
+ * `api/_lib/promptAgente.ts` pasó a leer de estas columnas. Antes de esa fecha esto los guardaba
+ * y nadie los leía.
+ */
 const PROMPTS = [
   { clave: "promptAppointmentTexto", columna: "prompt_appointment_texto", agente: "Appointment Flow — chat (closer)" },
   { clave: "promptLeadTexto", columna: "prompt_lead_texto", agente: "Lead Flow — chat (setter)" },

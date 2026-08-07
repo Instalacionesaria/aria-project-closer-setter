@@ -206,8 +206,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     if (!estadoDeLosPrompts()["appointment-flow-ai"].presente) {
       loQueFalta.push(
-        "Falta el prompt del Appointment Flow AI en docs/prompts/appointment-flow-ai.md. Sin él el auditor " +
-          "funciona igual, pero sus correcciones son instrucciones genéricas en vez de reemplazos citados.",
+        "Falta el prompt del Appointment Flow AI. Se pega en Ajustes › Credenciales › Prompts de los " +
+          "agentes y queda guardado en la configuración de la empresa — no requiere deploy. Sin él el " +
+          "auditor funciona igual, pero sus correcciones son instrucciones genéricas en vez de " +
+          "reemplazos citados.",
       );
     }
 

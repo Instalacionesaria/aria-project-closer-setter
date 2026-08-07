@@ -3,9 +3,8 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
-    "api/webhooks/ghl.ts": { "maxDuration": 60, "includeFiles": "docs/prompts/**" },
-    "api/closer/analizar.ts": { "maxDuration": 60, "includeFiles": "docs/prompts/**" },
-    "api/agentes/auditor-estado.ts": { "includeFiles": "docs/prompts/**" },
+    "api/webhooks/ghl.ts": { "maxDuration": 60 },
+    "api/closer/analizar.ts": { "maxDuration": 60 },
     "api/closer/citas-respaldo.ts": { "maxDuration": 300 },
     "api/closer/sincronizar.ts": { "maxDuration": 60 },
     "api/closer/tick.ts": { "maxDuration": 15 }

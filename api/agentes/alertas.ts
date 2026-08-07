@@ -23,6 +23,8 @@ import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
+import { ghl } from "../_lib/ghl/index.js";
+import { TAGS_BOT } from "../../src/lib/ghl/contrato.js";
 
 const DIAS_POR_DEFECTO = 30;
 
@@ -66,10 +68,27 @@ function urlDeGhl(ghlContactId: string): string | null {
  * Se identifica por `ghlContactId`. El cruce por nombre que había antes estaba roto desde
  * que el closer indexa por id, y encima solo vivía en memoria: refrescar lo revertía.
  *
- * **Lo que esto NO hace, y hay que decirlo:** no quita el tag `bot_pausado_fallo` en GHL. El
- * puerto solo tiene `aplicarTags`, no existe `quitarTags`. O sea que la alerta queda resuelta
- * y persistida, pero el contacto vuelve a aparecer en Urgentes en el próximo tick. Agregar
- * `quitarTags` es un cambio de producto que Fabio tiene que autorizar aparte.
+ * ── Ahora sí quita el tag (2026-08-07) ───────────────────────────────
+ *
+ * Hasta hoy esto marcaba el hallazgo y **no tocaba GHL**, así que el contacto volvía a Urgentes
+ * en el próximo tick con la alerta ya resuelta: el closer lo atendía, lo resolvía, y lo veía
+ * reaparecer. La nota que había acá decía que el puerto no tenía `quitarTags` — era falso,
+ * `removerTags` existe desde hace tiempo (`ghl/port.ts`) y ya tiene un llamador que funciona en
+ * `seguimientos.ts`. Lo que faltaba era llamarlo desde acá.
+ *
+ * Lo autoriza la especificación §10 con todas las letras: *"Sin él, resolver una intervención no
+ * saca `bot_pausado_fallo` y el contacto vuelve a Urgentes en el siguiente tick. Con 5 empresas
+ * eso se multiplica por 5 y ensucia el pipeline de todos."*
+ *
+ * ── Lo que sigue sin hacer, y es a propósito ─────────────────────────
+ *
+ * **No escribe `bot_reactivar`.** El contrato §9 lo define como una ORDEN de reactivar, no como
+ * un estado, y quitar la pausa no es lo mismo que pedirle al bot que vuelva a atender a alguien
+ * cuya conversación se pausó por un fallo grave. Que el bot retome es una decisión de producto
+ * de Fabio, no una consecuencia técnica de resolver la alerta.
+ *
+ * Consecuencia concreta: después de esto el contacto sale de Urgentes y **queda sin bot**, en
+ * manos del humano que lo tomó. Que es exactamente lo que "resolver por humano" significa.
  */
 async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
   const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
@@ -86,7 +105,48 @@ async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
     .select("id");
   if (error) throw new Error(`closer_hallazgo_agente: ${error.message}`);
 
-  return res.status(200).json({ ok: true, resueltos: data?.length ?? 0 });
+  const resueltos = data?.length ?? 0;
+
+  /**
+   * El tag se quita DESPUÉS de persistir, y el orden importa: si GHL falla, el hallazgo ya
+   * quedó resuelto en nuestra base y lo único que pasa es que el contacto reaparece en Urgentes
+   * —el estado de antes—. Al revés, un tag quitado con la base sin actualizar dejaría al
+   * contacto fuera de la cola con su alerta todavía activa, o sea invisible.
+   *
+   * La idempotencia va por contacto y por día: reintentar la misma resolución no debe anotar dos
+   * efectos en el outbox, y resolver otra alerta del mismo contacto la semana siguiente sí.
+   *
+   * `removerTags` **no lanza**: devuelve una unión discriminada por `ok`. El `try` es solo por
+   * si explota algo antes de la llamada, y el fallo esperado se lee del resultado.
+   */
+  let tagQuitado: { ok: boolean; aplicado?: boolean; error?: string };
+  try {
+    const dia = new Date().toISOString().slice(0, 10);
+    const r = await ghl().removerTags({
+      ghlContactId,
+      tags: [TAGS_BOT.botPausadoFallo.valor],
+      idempotencyKey: `resolver-humano:${ghlContactId}:${dia}`,
+    });
+    /**
+     * `ok: true` con `aplicado: false` es un caso legítimo y distinto del error: en modo stub la
+     * intención queda anotada en el outbox y nada llega a GHL. Se reportan separados para que la
+     * UI no diga "listo" cuando lo único que pasó fue que se guardó la intención.
+     */
+    tagQuitado = r.ok ? { ok: true, aplicado: r.aplicado } : { ok: false, error: r.error };
+    if (!r.ok) {
+      console.error(`[alertas] no se pudo quitar ${TAGS_BOT.botPausadoFallo.valor} de ${ghlContactId}: ${r.error}`);
+    }
+  } catch (e) {
+    /**
+     * No se propaga: la resolución YA ocurrió y devolver 500 le diría al closer que no se
+     * resolvió nada. Se reporta en la respuesta para que la UI pueda decir la verdad completa
+     * —"resuelto, pero el tag no se pudo quitar"— en vez de elegir entre dos medias verdades.
+     */
+    console.error(`[alertas] excepción al quitar el tag de ${ghlContactId}: ${(e as Error).message}`);
+    tagQuitado = { ok: false, error: (e as Error).message };
+  }
+
+  return res.status(200).json({ ok: true, resueltos, tagQuitado });
 }
 
 function safeJson(s: string): unknown {

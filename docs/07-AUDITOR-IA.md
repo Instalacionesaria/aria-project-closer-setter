@@ -171,18 +171,34 @@ estricto es más frágil que una obligatoria que puede ser `null`.
 Para que el veredicto no diga solo *"prometió un financiamiento que no existe"* sino *"esta
 línea del prompt lo permite, reemplazala por esta otra"*.
 
-Vive en **`docs/prompts/<agente>.md`**, versionado en git. **Todavía no existe** — todo
-degrada limpio: sin archivo, `fragmento_prompt` queda `null` y la corrección se emite como
-instrucción autónoma para agregar. Cuando aparezca, **no hay que tocar código**.
+Vive en **la configuración de la empresa**: las columnas `prompt_*` de `closer_org_config`, que
+se editan en Ajustes › Credenciales › Prompts de los agentes. Sin prompt cargado todo degrada
+limpio: `fragmento_prompt` queda `null` y la corrección se emite como instrucción autónoma para
+agregar. Cargarlo **no requiere deploy**: el siguiente análisis lo toma solo.
 
-Dos trampas resueltas:
+> **Vivía en `docs/prompts/<agente>.md` hasta el 2026-08-07**, y el cambio no fue cosmético. Un
+> archivo del repo solo puede tener un prompt, y el prompt del chatbot es propio de cada
+> subcuenta de GHL: auditar al agente de la empresa B contra el de ARIA no da un resultado peor,
+> da uno **convincente y falso**. Además cambiarlo exigía un commit, que es una barrera absurda
+> para que un cliente ajuste su propio agente.
+>
+> Los dos archivos `.md` nunca existieron, así que durante todo ese tiempo el auditor corrió sin
+> prompt de referencia. Peor: desde la fase 4 el panel ya los guardaba en la base con su hash y
+> los mostraba confirmados en pantalla — la escritura andaba y la lectura miraba otro lado. Un
+> éxito reportado sin efecto, que es lo que §4.2 prohíbe.
 
-- **`includeFiles` en `vercel.json` no es opcional.** `@vercel/nft` no traza lecturas
-  dinámicas, así que sin declararlo el `.md` anda en local y desaparece en producción sin
-  ruido. Por eso el diagnóstico reporta `presente`.
-- **Se versiona por hash del contenido**, no por commit: el archivo puede no cambiar entre
-  commits. El hash es lo que permite avisar *"el prompt cambió desde que se detectó esto"* —
-  sin él, el técnico pega un reemplazo de un fragmento que ya no existe.
+Dos cosas que importan:
+
+- **Se versiona por hash del contenido.** El hash se recalcula del texto en cada lectura y NO se
+  lee de la columna `*_hash` que el panel guarda al lado: esa dice qué hash tenía el texto al
+  guardarse, y el que vale para comparar contra `closer_hallazgo_agente.prompt_hash` es el del
+  texto que el auditor está usando ahora. Es lo que permite avisar *"el prompt cambió desde que
+  se detectó esto"* — sin él, el técnico pega un reemplazo de un fragmento que ya no existe.
+- **El caché de prompts está indexado por empresa + agente.** Una instancia caliente de Vercel
+  que ya cacheó el de ARIA no puede servírselo al auditor de otra empresa.
+- Con la mudanza se cayó la dependencia de **`includeFiles` en `vercel.json`**, y con ella su
+  trampa: `@vercel/nft` no traza lecturas dinámicas, así que el `.md` andaba en local y
+  desaparecía en producción sin ruido.
 
 ## El costo
 
