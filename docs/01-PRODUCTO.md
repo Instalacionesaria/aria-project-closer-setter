@@ -177,11 +177,25 @@ ocurren, en silencio.
 
 ## Navegación
 
-Sidebar: **Closer AI** · **Setter** · **Auditoría de Llamadas** (deshabilitado,
-"Próximamente") · **Auditoría de Agentes** · **Gerencia** (deshabilitado) · **Ajustes**.
+Sidebar: **Closer AI** · **Setter** · **Auditoría de Agentes** · **Estadísticas**
+(`super_admin`) · **Ajustes** (`admin`).
+
+Cada entrada declara su rol en el array `NAV` de `src/App.tsx`, que es de donde se arma el
+sidebar. Es cosmética: la protección real es el 403 del backend.
+
+**Ajustes** tiene cinco pestañas: *Mi cuenta* · *Operación* · *Usuarios* · *Credenciales* ·
+*Empresas* (`super_admin`). Las tres últimas son el §7 de la especificación multi-empresa y su
+código vive en `src/views/Administracion.tsx`.
+
+> **Cambios del 2026-08-07.** Se fue **Auditoría de Llamadas**: estaba deshabilitada con el
+> cartel "Próximamente" y nunca tuvo vista — lo que prometía ya lo cubre Auditoría de Agentes
+> con su pestaña de agentes de voz. **Gerencia** pasó a llamarse **Estadísticas** (solo el
+> nombre visible; la clave `gerencia` de los ajustes guardados NO se renombró, ver el comentario
+> en `settingsStore.tsx`). Y **Administración**, que era una entrada propia del sidebar, pasó a
+> ser pestañas de Ajustes.
 
 Al pie: **Sugerir Mejora (💡)** — popover que captura texto, usuario, fecha y vista activa, y
-lo manda a la bandeja de Ajustes > Administración con un chip clicable de la vista de origen.
+lo manda a la bandeja de Ajustes > Operación con un chip clicable de la vista de origen.
 Y el **toggle de modo oscuro**.
 
 Un ítem del sidebar siempre lleva a la raíz de su módulo.

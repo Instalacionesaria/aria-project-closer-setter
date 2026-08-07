@@ -3,7 +3,6 @@ import {
   Zap,
   UserCheck,
   Bot,
-  PhoneCall,
   BrainCircuit,
   TrendingUp,
   Settings,
@@ -11,7 +10,6 @@ import {
   Sun,
   LogOut,
   Building2,
-  ShieldCheck,
   ChevronDown,
 } from "lucide-react";
 import { cn } from "./lib/utils";
@@ -23,12 +21,16 @@ import { fetchEmpresas, type EmpresaAdmin, type Rol } from "./lib/api";
  * ── Una vista, un chunk (2026-08-04) ──
  *
  * Antes las cinco entraban en un único bundle: alguien que solo usa Closer descargaba igual
- * el código de Setter, Auditoría de Agentes, Gerencia y Ajustes. Con `React.lazy` cada una
+ * el código de Setter, Auditoría de Agentes, Estadísticas y Ajustes. Con `React.lazy` cada una
  * viaja cuando se abre por primera vez.
  *
  * `ContactDrawer` (2400 líneas, el archivo más grande del repo) queda en el chunk de Closer
  * porque las dos vistas que lo usan ya son lazy — separarlo otra vez agregaría un salto de
  * red justo al abrir una ficha, que es la acción más frecuente de la app.
+ *
+ * Las secciones de administración viajan en el chunk de Ajustes desde que son pestañas suyas
+ * (2026-08-07). Es más código en un solo chunk, pero ninguna de las dos partes se le sirve a
+ * quien no es admin: la vista entera está detrás del mismo gate.
  *
  * Los cuatro providers SIGUEN en el chunk de entrada, y no es una omisión: `useSetter()` lo
  * consumen también `gerenciaStore` y `AgentsAudit`, y `useAgentAudit()` lo consume `CloserAI`
@@ -37,9 +39,8 @@ import { fetchEmpresas, type EmpresaAdmin, type Rol } from "./lib/api";
 const CloserAI = lazy(() => import("./views/CloserAI"));
 const SetterView = lazy(() => import("./views/SetterView"));
 const AgentsAudit = lazy(() => import("./views/AgentsAudit"));
-const Gerencia = lazy(() => import("./views/Gerencia"));
+const Estadisticas = lazy(() => import("./views/Estadisticas"));
 const Ajustes = lazy(() => import("./views/Ajustes"));
-const Administracion = lazy(() => import("./views/Administracion"));
 const Login = lazy(() => import("./views/Login"));
 
 import { SettingsProvider, useSettings } from "./lib/settingsStore";
@@ -47,7 +48,7 @@ import { ClosurerProvider } from "./lib/closerStore";
 import { SetterProvider } from "./lib/setterStore";
 import { AgentAuditProvider } from "./lib/agentAuditStore";
 
-type View = "closer" | "setter" | "sales_calls" | "agents_audit" | "gerencia" | "ajustes" | "administracion";
+type View = "closer" | "setter" | "agents_audit" | "estadisticas" | "ajustes";
 
 /**
  * Cada módulo declara QUÉ ROL lo habilita (ESPEC §3.2). El sidebar se arma desde acá, así que
@@ -55,35 +56,45 @@ type View = "closer" | "setter" | "sales_calls" | "agents_audit" | "gerencia" | 
  *
  * Es cosmética: la protección real es el 403 del backend. Sirve para no mostrarle a alguien
  * una pestaña que le va a rebotar.
+ *
+ * ── Dos entradas que se fueron el 2026-08-07 ──────────────────────────
+ *
+ * **Auditoría de Llamadas** estaba deshabilitada con el cartel "Próximamente" desde siempre y
+ * nunca tuvo vista. Lo que prometía ya lo hace Auditoría de Agentes, que tiene su pestaña de
+ * agentes de voz. Una entrada que no lleva a ningún lado no reserva el lugar de una función:
+ * la anuncia y no la entrega.
+ *
+ * **Administración** pasó a ser pestañas de Ajustes. Eran dos entradas de sidebar con el mismo
+ * gate de rol que llevaban a dos pantallas de configuración; ahora es una sola.
  */
 const NAV: {
   key: View;
   label: string;
   icon: typeof Zap;
   roles: Rol[];
-  disabled?: boolean;
-  soon?: boolean;
   extra?: string;
 }[] = [
   { key: "closer", label: "Closer AI", icon: UserCheck, roles: ["closer"] },
   { key: "setter", label: "Setter", icon: Bot, roles: ["setter"] },
-  { key: "sales_calls", label: "Auditoría de Llamadas", icon: PhoneCall, roles: ["tecnico"], disabled: true, soon: true },
   { key: "agents_audit", label: "Auditoría de Agentes", icon: BrainCircuit, roles: ["tecnico"] },
   /**
-   * Gerencia queda SOLO para el super admin, y no es una decisión de producto: su dataset es
-   * inventado (`src/lib/gerenciaStore.tsx`) y la especificación §8 no la incluye entre las
+   * Estadísticas queda SOLO para el super admin, y no es una decisión de producto: su dataset
+   * es inventado (`src/lib/gerenciaStore.tsx`) y la especificación §8 no la incluye entre las
    * secciones "en desarrollo". Mostrarle métricas fabricadas al admin de una empresa cliente
    * sería mostrarle datos falsos a alguien que paga — la regla D3. Con `super_admin` la ve
    * solo quien sabe que es una maqueta. Pendiente de decisión de Fabio.
    */
-  { key: "gerencia", label: "Gerencia", icon: TrendingUp, roles: ["super_admin"] },
+  { key: "estadisticas", label: "Estadísticas", icon: TrendingUp, roles: ["super_admin"] },
   { key: "ajustes", label: "Ajustes", icon: Settings, roles: ["admin"], extra: "mt-4" },
-  /**
-   * §7 · Empresas, usuarios y credenciales. Va debajo de Ajustes y no arriba: se usa al dar de
-   * alta un cliente y después casi nunca, mientras que las de operación se usan todos los días.
-   */
-  { key: "administracion", label: "Administración", icon: ShieldCheck, roles: ["admin"] },
 ];
+
+/**
+ * Las vistas con sub-pestañas reportan la suya (Mi Día, Pipeline Setter, Credenciales…) por
+ * `onScreenChange`, que es lo que etiqueta una sugerencia de mejora. Las demás usan el label
+ * de NAV. La lista vive acá, al lado de NAV, para que se lea de un vistazo cuál es cuál en vez
+ * de tener que abrir las cinco vistas.
+ */
+const REPORTAN_SU_PANTALLA = new Set<View>(["closer", "setter", "estadisticas", "ajustes"]);
 
 function AppInner() {
   const { usuario, empresa, mirandoOtraEmpresa, tieneRol, salir } = useAuth();
@@ -96,11 +107,11 @@ function AppInner() {
   const visibleNav = NAV.filter((n) => tieneRol(...n.roles));
 
   /** Con un solo módulo, se entra directo a él (§3.2). */
-  const [view, setView] = useState<View>(() => visibleNav.find((n) => !n.disabled)?.key ?? "closer");
+  const [view, setView] = useState<View>(() => visibleNav[0]?.key ?? "closer");
 
   /**
-   * `Gerencia` y `Ajustes` siguen recibiendo un `role` de tres valores porque su UI interna lo
-   * usa. Se deriva del rol real en vez de mantener un estado propio: una sola fuente.
+   * `Estadísticas` y `Ajustes` siguen recibiendo un `role` de tres valores porque su UI interna
+   * lo usa. Se deriva del rol real en vez de mantener un estado propio: una sola fuente.
    */
   const role: "admin" | "closer" | "setter" = tieneRol("admin") ? "admin" : tieneRol("setter") ? "setter" : "closer";
   const [dark, setDark] = useState(false);
@@ -115,10 +126,8 @@ function AppInner() {
     document.documentElement.classList.toggle("dark", next);
   };
 
-  // Closer/Setter reportan su propia sub-pestaña (Mi Día, Pipeline Setter, etc.) vía onScreenChange;
-  // el resto de las vistas no tienen sub-pestañas, así que usan directamente el label de NAV.
   useEffect(() => {
-    if (view !== "closer" && view !== "setter" && view !== "gerencia") {
+    if (!REPORTAN_SU_PANTALLA.has(view)) {
       setScreenLabel(NAV.find((n) => n.key === view)?.label ?? "");
     }
   }, [view]);
@@ -130,7 +139,7 @@ function AppInner() {
    */
   useEffect(() => {
     if (!visibleNav.some((n) => n.key === view)) {
-      setView(visibleNav.find((n) => !n.disabled)?.key ?? "closer");
+      setView(visibleNav[0]?.key ?? "closer");
     }
   }, [visibleNav, view]);
 
@@ -158,34 +167,22 @@ function AppInner() {
           <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-[0.15em] mb-4 px-2">
             Vistas de Operación
           </div>
-          {visibleNav.map(({ key, label, icon: Icon, disabled, soon, extra }) => {
+          {visibleNav.map(({ key, label, icon: Icon, extra }) => {
             const active = view === key;
             return (
               <button
                 key={key}
-                disabled={disabled}
-                onClick={() => !disabled && setView(key)}
+                onClick={() => setView(key)}
                 className={cn(
-                  "inline-flex items-center text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 py-2 w-full justify-start gap-3 rounded-2xl min-h-12 px-4 transition-all",
+                  "inline-flex items-center text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 py-2 w-full justify-start gap-3 rounded-2xl min-h-12 px-4 transition-all",
                   extra,
-                  disabled
-                    ? "opacity-40 cursor-not-allowed text-muted-foreground"
-                    : active
-                      ? "bg-primary/5 text-primary hover:bg-primary/10"
-                      : "text-muted-foreground hover:bg-muted/50 hover:text-accent-foreground"
+                  active
+                    ? "bg-primary/5 text-primary hover:bg-primary/10"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-accent-foreground",
                 )}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                {soon ? (
-                  <span className="flex flex-col items-start min-w-0">
-                    <span className="truncate">{label}</span>
-                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground/70">
-                      Próximamente
-                    </span>
-                  </span>
-                ) : (
-                  <span className="truncate">{label}</span>
-                )}
+                <span className="truncate">{label}</span>
               </button>
             );
           })}
@@ -289,9 +286,8 @@ function AppInner() {
             {view === "closer" && <CloserAI onScreenChange={setScreenLabel} />}
             {view === "setter" && <SetterView onScreenChange={setScreenLabel} />}
             {view === "agents_audit" && <AgentsAudit onScreenChange={setScreenLabel} />}
-            {view === "gerencia" && <Gerencia role={role} onScreenChange={setScreenLabel} />}
-            {view === "ajustes" && <Ajustes role={role} />}
-            {view === "administracion" && <Administracion />}
+            {view === "estadisticas" && <Estadisticas role={role} onScreenChange={setScreenLabel} />}
+            {view === "ajustes" && <Ajustes role={role} onScreenChange={setScreenLabel} />}
           </Suspense>
         </LimiteDeError>
       </div>

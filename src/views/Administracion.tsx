@@ -1,9 +1,19 @@
 /**
- * El módulo Administración (ESPEC-MULTIEMPRESA §7).
+ * Las tres secciones de administración (ESPEC-MULTIEMPRESA §7): **Empresas** (solo el super
+ * admin), **Usuarios** y **Configuración**.
  *
- * Tres secciones detrás de la misma pestaña: **Empresas** (solo el super admin), **Usuarios** y
- * **Configuración**. Van juntas porque son el mismo trabajo —dar de alta un cliente— y
- * separarlas en tres entradas del sidebar obligaría a saber cuál de las tres abrir.
+ * ── Este archivo no es una vista: son tres pestañas de Ajustes ────────
+ *
+ * Hasta el 2026-08-07 fue un módulo propio del sidebar, con su título y su barra de pestañas.
+ * Fabio pidió meterlo dentro de Ajustes y tenía razón: eran dos entradas del sidebar con el
+ * mismo gate de rol que llevaban a dos pantallas de configuración, y había que saber de
+ * antemano cuál de las dos abrir para encontrar cada cosa.
+ *
+ * Lo que se fue es la cáscara —el `export default`, el `<h1>` y la barra de pestañas—; el
+ * dueño de todo eso ahora es `Ajustes.tsx`. Lo que queda son los tres componentes de sección,
+ * exportados por nombre. **No se fusionaron los dos archivos** a propósito: entre los dos hay
+ * 1700 líneas, dos `export default` y seis imports repetidos, y pegarlos habría dado un
+ * archivo que nadie abre por gusto.
  *
  * ── Nada de lo que hay acá protege nada ───────────────────────────────
  *
@@ -20,21 +30,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  Building2,
-  Check,
-  Copy,
-  Eye,
-  KeyRound,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Save,
-  Trash2,
-  Users,
-  X,
-} from "lucide-react";
+import { AlertTriangle, Check, Copy, Eye, Loader2, Lock, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../lib/authStore";
 import {
@@ -55,8 +51,6 @@ import {
   type UsuarioAdmin,
 } from "../lib/api";
 
-type Seccion = "empresas" | "usuarios" | "configuracion";
-
 const ETIQUETA_ROL: Record<Rol, string> = {
   super_admin: "Super admin",
   admin: "Admin",
@@ -69,66 +63,36 @@ const ETIQUETA_ROL: Record<Rol, string> = {
 /** Las que ofrece el selector al crear. Cualquier otra igual se acepta escribiéndola. */
 const ZONAS = ["America/Lima", "America/Bogota", "America/Mexico_City", "America/Argentina/Buenos_Aires", "America/Santiago", "Europe/Madrid"];
 
-export default function Administracion() {
-  const { tieneRol, usuario } = useAuth();
-  const esSuper = Boolean(usuario?.esSuperAdmin);
+/**
+ * Lo que una sección le avisa al contenedor antes de que cambie de pestaña.
+ *
+ * Devolver un texto = "hay algo que se pierde si te vas, preguntale". `null` = se puede salir.
+ * Existe porque al ser pestañas y no vistas separadas, cambiar de pestaña desmonta la sección
+ * y con ella su estado: sin esto, un clic en "Usuarios" se llevaría puesta una contraseña
+ * temporal recién generada o una rotación de credenciales a medio escribir, sin decir nada.
+ */
+export type Retencion = (motivo: () => string | null) => void;
 
-  // Un admin de empresa cliente no ve que existen otras empresas: ni la sección, ni la pestaña.
-  const [seccion, setSeccion] = useState<Seccion>(esSuper ? "empresas" : "usuarios");
+/** No hay nada que retener. Ahorra un `?.()` en cada sección. */
+const SIN_RETENCION: Retencion = () => {};
 
-  const secciones: { key: Seccion; label: string; icon: typeof Building2 }[] = [
-    ...(esSuper ? [{ key: "empresas" as const, label: "Empresas", icon: Building2 }] : []),
-    { key: "usuarios", label: "Usuarios", icon: Users },
-    { key: "configuracion", label: "Configuración", icon: KeyRound },
-  ];
-
-  if (!tieneRol("admin")) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
-        Esta sección es solo para administradores.
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="max-w-5xl mx-auto p-8 space-y-6">
-        <div>
-          <h1 className="text-2xl font-light tracking-tight">Administración</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            {esSuper ? "Empresas, usuarios y credenciales de la plataforma." : "Los usuarios y la configuración de tu empresa."}
-          </p>
-        </div>
-
-        <div className="flex gap-1 border-b border-border/40">
-          {secciones.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setSeccion(key)}
-              className={cn(
-                "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
-                seccion === key
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Icon className="w-4 h-4" />
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {seccion === "empresas" && esSuper && <SeccionEmpresas />}
-        {seccion === "usuarios" && <SeccionUsuarios esSuper={esSuper} />}
-        {seccion === "configuracion" && <SeccionConfiguracion />}
-      </div>
-    </div>
-  );
+/**
+ * Registra el motivo de retención en cada render.
+ *
+ * Sin array de dependencias a propósito: el motivo se calcula desde estado que cambia todo el
+ * tiempo, y una lista de dependencias acá sería una lista para desactualizar. Re-registrar una
+ * función en cada render es barato; devolver un motivo viejo, no.
+ */
+function useRetener(registrar: Retencion, motivo: () => string | null) {
+  useEffect(() => {
+    registrar(motivo);
+    return () => registrar(() => null);
+  });
 }
 
 /* ══════════════════════════════ Empresas (§7.1) ══════════════════════════════ */
 
-function SeccionEmpresas() {
+export function SeccionEmpresas() {
   const { empresa: empresaActiva, mirarEmpresa } = useAuth();
   const [empresas, setEmpresas] = useState<EmpresaAdmin[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +109,28 @@ function SeccionEmpresas() {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  /**
+   * Cambia la empresa que se está mirando y **recarga la página**, igual que el selector del
+   * header (`SelectorEmpresa` en `App.tsx`).
+   *
+   * La recarga no es pereza: cambiar de empresa cambia lo que devuelven todos los endpoints,
+   * pero los cuatro providers ya tienen en memoria los contactos, la agenda y las alertas de
+   * la anterior. Sin recargar, quedaban los datos de una empresa abajo del banner que anuncia
+   * la otra — que es exactamente lo que ese banner existe para evitar.
+   *
+   * Se recarga SOLO si el PATCH salió bien: si falló, el backend sigue en la empresa vieja y
+   * una recarga incondicional taparía el error sin decir nada.
+   */
+  const verEmpresa = async (e: EmpresaAdmin) => {
+    setTrabajando(e.id);
+    const r = await mirarEmpresa(e.id);
+    if (!r.ok) {
+      setTrabajando(null);
+      return setError(r.error ?? "No se pudo cambiar de empresa.");
+    }
+    window.location.reload();
+  };
 
   const alternarActiva = async (e: EmpresaAdmin) => {
     setTrabajando(e.id);
@@ -227,7 +213,7 @@ function SeccionEmpresas() {
               <div className="flex items-center gap-1 shrink-0">
                 {empresaActiva?.id !== e.id && (
                   <button
-                    onClick={() => void mirarEmpresa(e.id)}
+                    onClick={() => void verEmpresa(e)}
                     title="Ver los datos de esta empresa"
                     className="h-8 px-2.5 rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5"
                   >
@@ -355,7 +341,7 @@ function ModalEmpresa({ onCerrar, onCreada }: { onCerrar: () => void; onCreada: 
 
 /* ══════════════════════════════ Usuarios (§7.2) ══════════════════════════════ */
 
-function SeccionUsuarios({ esSuper }: { esSuper: boolean }) {
+export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSuper: boolean; registrar?: Retencion }) {
   const { empresa: empresaActiva } = useAuth();
   const [usuarios, setUsuarios] = useState<UsuarioAdmin[] | null>(null);
   const [rolesOtorgables, setRolesOtorgables] = useState<Rol[]>([]);
@@ -381,6 +367,17 @@ function SeccionUsuarios({ esSuper }: { esSuper: boolean }) {
   }, [cargar, esSuper]);
 
   const nombreEmpresa = useMemo(() => new Map(empresas.map((e) => [e.id, e.nombre])), [empresas]);
+
+  /**
+   * La contraseña temporal es el único dato de toda la app que no se puede volver a consultar.
+   * Irse de la pestaña con el cartel abierto la borra para siempre y obliga a regenerarla —
+   * lo que además le cierra las sesiones al usuario otra vez.
+   */
+  useRetener(registrar, () =>
+    temporal
+      ? "Todavía no cerraste la contraseña temporal. Si salís de acá no se puede volver a ver y hay que generar otra. ¿Salir igual?"
+      : null,
+  );
 
   const regenerar = async (u: UsuarioAdmin) => {
     if (!confirm(`¿Generar una contraseña temporal para ${u.nombre}? Se le cierran todas las sesiones.`)) return;
@@ -551,12 +548,32 @@ function ModalUsuario({
 }) {
   const [nombre, setNombre] = useState(usuario?.nombre ?? "");
   const [email, setEmail] = useState(usuario?.email ?? "");
-  const [roles, setRoles] = useState<Rol[]>(usuario?.roles ?? []);
   const [orgId, setOrgId] = useState(usuario?.orgId ?? empresaPorDefecto ?? empresas[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  const alternarRol = (r: Rol) => setRoles((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
+  /**
+   * ── Los roles se parten en dos (2026-08-07) ─────────────────────────
+   *
+   * `bloqueados` son los que el usuario YA tiene y quien está editando no puede otorgar —
+   * típicamente `admin`, cuando quien edita es un admin y no el super admin. Se muestran con
+   * candado, no se pueden tocar, y **viajan igual al guardar**.
+   *
+   * Antes esos roles estaban en el estado pero **no se dibujaban**: el modal de un admin se
+   * veía sin ningún rol marcado y con el contador de 4 ya medio gastado por algo invisible.
+   * Peor: la lista que viajaba sí llevaba `admin`, y el `validarRoles` viejo rechazaba
+   * cualquier lista con un rol no operativo — así que un admin no podía ni corregirle el
+   * nombre a otro admin, ni al suyo propio, y el 403 hablaba de roles que él no había tocado.
+   *
+   * El arreglo de fondo está en el backend, que ahora compara el CAMBIO y no la lista
+   * (`validarRoles` en `api/admin/usuarios.ts`). Esto de acá es lo que lo hace visible: que se
+   * vea qué rol tiene y por qué no lo podés mover.
+   */
+  const bloqueados = (usuario?.roles ?? []).filter((r) => !rolesOtorgables.includes(r));
+  const [elegidos, setElegidos] = useState<Rol[]>((usuario?.roles ?? []).filter((r) => rolesOtorgables.includes(r)));
+  const roles = [...bloqueados, ...elegidos];
+
+  const alternarRol = (r: Rol) => setElegidos((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
 
   const guardar = async () => {
     setGuardando(true);
@@ -612,7 +629,7 @@ function ModalUsuario({
           </Campo>
         )}
 
-        <Campo etiqueta="Roles" ayuda="Hasta 4. El backend rechaza los que no podés otorgar.">
+        <Campo etiqueta="Roles" ayuda="Hasta 4 por usuario.">
           <div className="flex flex-wrap gap-2">
             {/* La lista viene del backend: un admin común no ve `admin` ni `super_admin`. */}
             {rolesOtorgables.map((r) => (
@@ -621,13 +638,25 @@ function ModalUsuario({
                 onClick={() => alternarRol(r)}
                 className={cn(
                   "h-8 px-3 rounded-full text-xs font-medium border transition-colors",
-                  roles.includes(r)
+                  elegidos.includes(r)
                     ? "bg-primary/10 border-primary/40 text-primary"
                     : "border-border text-muted-foreground hover:bg-accent",
                 )}
               >
                 {ETIQUETA_ROL[r] ?? r}
               </button>
+            ))}
+            {/* Los que ya tiene y no podés otorgar: se ven para que no parezca que se perdieron,
+                pero no se tocan. Se guardan tal cual. */}
+            {bloqueados.map((r) => (
+              <span
+                key={r}
+                title="Solo el super admin puede cambiar este rol."
+                className="h-8 px-3 rounded-full text-xs font-medium border border-dashed border-border/70 text-muted-foreground inline-flex items-center gap-1.5 cursor-default"
+              >
+                <Lock className="w-3 h-3" />
+                {ETIQUETA_ROL[r] ?? r}
+              </span>
             ))}
           </div>
         </Campo>
@@ -712,7 +741,7 @@ function CartelPassword({
 
 /* ══════════════════════════ Configuración (§7.3) ══════════════════════════ */
 
-function SeccionConfiguracion() {
+export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?: Retencion } = {}) {
   const [datos, setDatos] = useState<ConfiguracionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guardado, setGuardado] = useState(false);
@@ -733,6 +762,19 @@ function SeccionConfiguracion() {
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  /**
+   * La barra de "tenés cambios sin guardar" de Ajustes vigila el store de ajustes, no esto:
+   * lo de acá se guarda con su propio botón y contra otro endpoint. Sin esta retención, un
+   * PIT recién pegado se perdería al tocar otra pestaña y nadie se enteraría hasta que el
+   * webhook fallara.
+   */
+  useRetener(registrar, () => {
+    const pendientes = Object.keys(cambios).length + borrar.length;
+    return pendientes > 0
+      ? `Tenés ${pendientes} ${pendientes === 1 ? "cambio" : "cambios"} sin guardar en Credenciales. Si salís se pierden. ¿Salir igual?`
+      : null;
+  });
 
   const guardar = async () => {
     setGuardando(true);

@@ -407,7 +407,7 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
 
   const cashCollected = inicio?.cashCollected ?? 0;
   const ventas = inicio?.ventas ?? 0;
-  /** Comisión = cash real × el % del closer en Ajustes > Administración (§30). */
+  /** Comisión = cash real × el % del closer en Ajustes > Operación (§30). */
   const { comisiones } = useSettings();
   const pct = (comisiones["Jorge Q."] ?? 10) / 100;
   const comisionReal = Math.round(cashCollected * pct);

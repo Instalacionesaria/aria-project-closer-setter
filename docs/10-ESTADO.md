@@ -119,8 +119,7 @@ real**. Es lo que falta para arrancar los auditores de voz.
 | Auditores de voz (×2) | Ya tienen fuente y esquema: `closer_llamadas.turnos` guarda la transcripción entera. Falta la rúbrica y una llamada contestada |
 | Reproducir el audio de una llamada | `grabacion_url` se guarda y viaja; falta el reproductor |
 | Reintentar un mensaje fallido | — |
-| Gerencia | Placeholder "Próximamente" |
-| Auditoría de Llamadas | Placeholder "Próximamente" |
+| Estadísticas con datos reales | La vista existe y funciona, pero su dataset es inventado (`src/lib/gerenciaStore.tsx`). Por eso queda limitada a `super_admin`: mostrarle métricas fabricadas al admin de una empresa cliente sería mostrarle datos falsos a quien paga. Se llamaba Gerencia hasta el 2026-08-07 |
 | Autenticación real | Todo firma con un autor por defecto |
 | Sales calls en el tab Llamada | Nadie graba ni transcribe las reuniones del closer |
 

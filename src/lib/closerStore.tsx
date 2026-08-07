@@ -505,7 +505,7 @@ function buildSeedContacts(): Record<string, ClosurerContact> {
    contacto y el dinero real sale de las oportunidades de GHL (`/api/closer/cockpit`), así que
    no queda ningún número del cockpit sin un dato detrás. */
 
-/** Closer activo del demo (sin auth real) — su % vive en Ajustes > Administración > Comisiones. */
+/** Closer activo del demo (sin auth real) — su % vive en Ajustes > Operación > Comisiones. */
 const CURRENT_CLOSER_NAME = "Jorge Q.";
 
 /**

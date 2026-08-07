@@ -173,7 +173,8 @@ async function editar(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
   if (typeof cuerpo?.activo === "boolean") parche.activo = cuerpo.activo;
 
   if (Array.isArray(cuerpo?.roles)) {
-    const problema = validarRoles(cuerpo.roles as string[], ctx);
+    // Se pasan los roles actuales: la validación mira el CAMBIO, no la lista suelta.
+    const problema = validarRoles(cuerpo.roles as string[], ctx, objetivo.roles);
     if (problema) return res.status(problema.status).json({ ok: false, codigo: problema.codigo, error: problema.error });
     parche.roles = cuerpo.roles;
   }
@@ -304,10 +305,10 @@ async function eliminar(req: VercelRequest, res: VercelResponse, ctx: Contexto) 
 async function cargarObjetivo(
   id: string,
   ctx: Contexto,
-): Promise<{ orgId: string; esAdminPrincipal: boolean } | { error: string; status: number }> {
+): Promise<{ orgId: string; esAdminPrincipal: boolean; roles: Rol[] } | { error: string; status: number }> {
   const { data, error } = await dbSinScope()
     .from("closer_usuarios")
-    .select("id, org_id, es_admin_principal")
+    .select("id, org_id, es_admin_principal, roles")
     .eq("id", id)
     .maybeSingle();
 
@@ -317,10 +318,37 @@ async function cargarObjetivo(
   if (!ctx.esSuperAdmin && data.org_id !== ctx.orgPropia) {
     return { error: "Ese usuario no existe.", status: 404 };
   }
-  return { orgId: data.org_id as string, esAdminPrincipal: Boolean(data.es_admin_principal) };
+  return {
+    orgId: data.org_id as string,
+    esAdminPrincipal: Boolean(data.es_admin_principal),
+    // Los roles que YA tiene hacen falta para comparar contra los que se piden: sin eso no se
+    // puede distinguir "me estás otorgando admin" de "admin ya lo tenía y no lo tocaste".
+    roles: ((data.roles as Rol[] | null) ?? []),
+  };
 }
 
-function validarRoles(roles: string[], ctx: Contexto): { error: string; codigo: string; status: number } | null {
+/**
+ * @param previos Los roles que el usuario YA tenía. `[]` en un alta.
+ *
+ * ── Se compara el CAMBIO, no la lista (corregido el 2026-08-07) ───────
+ *
+ * La primera versión rechazaba cualquier lista que contuviera un rol no operativo. Suena
+ * bien y estaba mal: un `admin` de empresa cliente que quisiera **corregirle el nombre** a
+ * otro admin —o a sí mismo— mandaba la lista de roles sin tocar, con `admin` adentro, y se
+ * comía un 403 `rol_no_permitido`. O sea que editar a un admin era imposible para un admin.
+ *
+ * Lo que §7.2 prohíbe es *asignar* roles que no le corresponden. Preservar los que ya
+ * estaban no es asignar. La regla correcta es: **el conjunto de roles no operativos tiene que
+ * quedar idéntico**. Así un admin no puede otorgarse `super_admin` (agregar) ni degradar al
+ * admin principal de su empresa (quitar), pero sí puede editar a cualquiera.
+ */
+export function validarRoles(
+  roles: string[],
+  // Solo necesita saber si quien pide es super admin. Pedir el `Contexto` entero obligaría a
+  // fabricar una sesión completa para probarlo, y esta es la regla que más merece un test.
+  ctx: { esSuperAdmin: boolean },
+  previos: Rol[] = [],
+): { error: string; codigo: string; status: number } | null {
   if (roles.length === 0) {
     return { error: "Elegí al menos un rol.", codigo: "sin_roles", status: 400 };
   }
@@ -334,21 +362,35 @@ function validarRoles(roles: string[], ctx: Contexto): { error: string; codigo: 
   if (new Set(roles).size !== roles.length) {
     return { error: "Hay un rol repetido.", codigo: "rol_repetido", status: 400 };
   }
+
+  if (ctx.esSuperAdmin) return null;
+
   /**
-   * La escalada de privilegios: un `admin` de empresa cliente que se otorgue `super_admin`
-   * vería los datos de todas. El trigger de la 023 lo bloquea fuera de la principal, pero un
-   * admin DE ARIA sí podría — y no debe: §7.2 dice que un admin "solo puede asignar roles
-   * operativos (nunca `super_admin`)".
+   * La escalada de privilegios que esto existe para cortar: un `admin` de empresa cliente que
+   * se otorgue `super_admin` vería los datos de todas. El trigger de la 023 lo bloquea fuera
+   * de la principal, pero un admin DE ARIA sí podría — y no debe.
    */
-  if (!ctx.esSuperAdmin) {
-    const prohibido = roles.find((r) => !ROLES_OPERATIVOS.includes(r as Rol));
-    if (prohibido) {
-      return {
-        error: `Solo el super admin puede otorgar el rol "${prohibido}".`,
-        codigo: "rol_no_permitido",
-        status: 403,
-      };
-    }
+  const noOperativos = (lista: string[]) =>
+    [...new Set(lista.filter((r) => !ROLES_OPERATIVOS.includes(r as Rol)))].sort();
+
+  const antes = noOperativos(previos);
+  const despues = noOperativos(roles);
+
+  const otorgado = despues.find((r) => !antes.includes(r));
+  if (otorgado) {
+    return {
+      error: `Solo el super admin puede otorgar el rol "${otorgado}".`,
+      codigo: "rol_no_permitido",
+      status: 403,
+    };
+  }
+  const quitado = antes.find((r) => !despues.includes(r));
+  if (quitado) {
+    return {
+      error: `Solo el super admin puede quitar el rol "${quitado}".`,
+      codigo: "rol_no_permitido",
+      status: 403,
+    };
   }
   return null;
 }

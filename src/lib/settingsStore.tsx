@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useState } from "react";
 
 /**
  * Single source of truth para Ajustes (§ arquitectura de Ajustes, 2026-07-10): Mi Cuenta +
- * Administración. El menú + del chat, el anillo de comisión de Inicio, y el buzón de
+ * Operación. El menú + del chat, el anillo de comisión de Inicio, y el buzón de
  * Sugerencias leen de aquí — nunca guardan su propia copia.
  */
 
@@ -41,7 +41,7 @@ export interface Sugerencia {
   fecha: string;
   /** Rol capitalizado ("Closer"/"Setter"/"Admin") — no hay auth real en el demo. */
   autor: string;
-  /** Vista de origen (ej. "Mi Día", "Pipeline Setter") — clicable en Administración para filtrar. */
+  /** Vista de origen (ej. "Mi Día", "Pipeline Setter") — clicable en Ajustes > Operación para filtrar. */
   pantalla: string;
   texto: string;
   atendida: boolean;
@@ -102,13 +102,41 @@ interface PersistedSettings {
   catalog: CatalogLink[];
   categorias: string[];
   sugerencias: Sugerencia[];
+  /**
+   * **No renombrar a `estadisticas`.** El módulo pasó a llamarse Estadísticas el 2026-08-07,
+   * pero esta es la clave literal del JSON que ya está escrito en el navegador de cada
+   * usuario. Si se renombra, la lectura de abajo no la encuentra, cae a `DEFAULT_GERENCIA` y
+   * la Inversión en Meta Ads y el Objetivo de facturación vuelven a los valores semilla — sin
+   * error, sin aviso, y con el ROAS y el CAC del panel cambiando de golpe.
+   *
+   * Ojo además con el atajo de propiedad de `saveSettings`: ahí la clave del JSON sale del
+   * NOMBRE de la variable local, así que un rename "solo de variable" cambiaría el formato
+   * guardado igual. Si algún día hace falta, va con shim: `p.estadisticas ?? p.gerencia`.
+   */
   gerencia: GerenciaParams;
 }
 
 function loadPersisted(): Partial<PersistedSettings> {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    const datos = raw ? (JSON.parse(raw) as Partial<PersistedSettings>) : {};
+
+    /**
+     * Las sugerencias guardan el nombre de la pantalla desde la que se enviaron, y Ajustes
+     * filtra por igualdad exacta. Sin esto, las de antes del rename quedarían bajo "Gerencia"
+     * y las nuevas bajo "Estadísticas": dos filtros para la misma pantalla, cada uno con la
+     * mitad del historial. Se normaliza al leer y no con una migración escrita, porque el
+     * blob se reescribe entero en el próximo "Guardar Cambios".
+     */
+    // `Array.isArray` y no un `if` a secas: si el blob guardado estuviera corrupto, un `.map`
+    // sobre algo que no es array tiraría acá adentro y el `catch` devolvería `{}` — o sea que
+    // una sugerencia rota se llevaría puestas TODAS las comisiones y el catálogo.
+    if (Array.isArray(datos.sugerencias)) {
+      datos.sugerencias = datos.sugerencias.map((s) =>
+        s?.pantalla === "Gerencia" ? { ...s, pantalla: "Estadísticas" } : s,
+      );
+    }
+    return datos;
   } catch {
     return {};
   }

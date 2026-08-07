@@ -1,3 +1,17 @@
+/**
+ * Estadísticas — visión global del negocio y rendimiento del equipo.
+ *
+ * ── Por qué el store todavía se llama `gerenciaStore` (2026-08-07) ────
+ *
+ * El módulo se llamaba **Gerencia** y Fabio lo renombró a Estadísticas. Se renombró lo que se
+ * ve y el archivo de la vista; **no** el store ni la clave `gerencia` de los ajustes, y no es
+ * pereza: esa clave es una propiedad de nivel 1 del JSON que `settingsStore` guarda en
+ * localStorage. Renombrarla sin migración hace que la lectura no la encuentre, caiga al
+ * default y le borre a cada usuario su Inversión en Meta Ads y su Objetivo de facturación —
+ * en silencio, porque el fallback no falla, sustituye. Un nombre viejo en un archivo que nadie
+ * abre es más barato que eso.
+ */
+
 import { useEffect, useState, type MouseEvent } from "react";
 import {
   Activity,
@@ -608,12 +622,12 @@ function TendenciaSection() {
 /* Vista principal                                                     */
 /* ------------------------------------------------------------------ */
 
-export default function Gerencia({ role, onScreenChange }: { role: string; onScreenChange?: (label: string) => void }) {
+export default function Estadisticas({ role, onScreenChange }: { role: string; onScreenChange?: (label: string) => void }) {
   const [period, setPeriod] = useState<GerenciaPeriodKey>("este_mes");
   const metrics = useGerenciaMetrics(period);
 
   useEffect(() => {
-    onScreenChange?.("Gerencia");
+    onScreenChange?.("Estadísticas");
   }, [onScreenChange]);
 
   if (role !== "admin") {
@@ -625,7 +639,7 @@ export default function Gerencia({ role, onScreenChange }: { role: string; onScr
           </div>
           <h2 className="text-lg font-semibold">Acceso restringido</h2>
           <p className="text-sm text-muted-foreground">
-            Gerencia es una vista de nivel dueño/admin — no está disponible para roles operativos.
+            Estadísticas es una vista de nivel dueño/admin — no está disponible para roles operativos.
           </p>
         </div>
       </div>
@@ -637,7 +651,7 @@ export default function Gerencia({ role, onScreenChange }: { role: string; onScr
       <div className="p-10 max-w-[1200px] mx-auto space-y-10 pb-24">
         <div className="flex items-end justify-between flex-wrap gap-4 pr-14 lg:pr-0">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Gerencia</h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Estadísticas</h1>
             <p className="text-sm text-muted-foreground mt-1">Visión global del negocio y rendimiento del equipo</p>
           </div>
           <PeriodSelector period={period} onChange={setPeriod} />

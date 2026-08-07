@@ -1,8 +1,49 @@
-import { useState } from "react";
-import { CircleCheck, ChevronDown, Plus, Settings, X, Trash2, Save, Copy } from "lucide-react";
+/**
+ * Ajustes — todo lo que se configura, en un solo lugar (2026-08-07).
+ *
+ * ── Por qué esta vista tiene pestañas ─────────────────────────────────
+ *
+ * Hasta hoy había dos entradas en el sidebar, **Ajustes** y **Administración**, con el mismo
+ * gate de rol y llevando las dos a pantallas de configuración. Para saber dónde estaba cada
+ * cosa había que conocer de antemano el criterio con el que se habían repartido. Fabio pidió
+ * unificarlas y ahora son cinco pestañas de una vista sola.
+ *
+ * Las tres de administración viven en `Administracion.tsx` y se importan por nombre: no se
+ * fusionaron los archivos porque entre los dos hay 1700 líneas.
+ *
+ * ── Las pestañas se montan y se desmontan ─────────────────────────────
+ *
+ * Cada pestaña se renderiza solo cuando está abierta, y eso es deliberado por dos motivos: las
+ * de administración piden datos al montarse —tenerlas todas montadas dispararía cuatro
+ * requests al abrir Ajustes— y la contraseña temporal de un usuario nuevo no debe sobrevivir
+ * a la navegación.
+ *
+ * El costo es que cambiar de pestaña borra lo que esa pestaña tuviera a medias, y ahí entra
+ * `retencion`: una sección puede avisar que se está por perder algo y la barra pregunta antes
+ * de cambiar. Ver `Retencion` en `Administracion.tsx`.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import {
+  Building2,
+  CircleCheck,
+  ChevronDown,
+  Copy,
+  KeyRound,
+  Plus,
+  Save,
+  Settings,
+  SlidersHorizontal,
+  Trash2,
+  User,
+  Users,
+  X,
+} from "lucide-react";
 import { cn } from "../lib/utils";
+import { useAuth } from "../lib/authStore";
 import { useSettings, type CatalogLink, type Role, type SonidoVenta } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
+import { SeccionConfiguracion, SeccionEmpresas, SeccionUsuarios, type Retencion } from "./Administracion";
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
 
@@ -345,7 +386,30 @@ function SugerenciasCard() {
 /* Vista principal                                                     */
 /* ------------------------------------------------------------------ */
 
-export default function Ajustes({ role = "admin" }: { role?: string }) {
+/**
+ * Las pestañas. `soloSuper` es cosmética —la protección es el 403 de `/api/admin/empresas`—
+ * pero evita mostrar una pestaña que va a rebotar entera.
+ */
+const PESTANAS = [
+  { key: "cuenta", label: "Mi cuenta", icon: User },
+  { key: "operacion", label: "Operación", icon: SlidersHorizontal, soloAdmin: true },
+  { key: "usuarios", label: "Usuarios", icon: Users, soloAdmin: true },
+  { key: "credenciales", label: "Credenciales", icon: KeyRound, soloAdmin: true },
+  { key: "empresas", label: "Empresas", icon: Building2, soloAdmin: true, soloSuper: true },
+] as const;
+
+type Pestana = (typeof PESTANAS)[number]["key"];
+
+/** Las dos que editan el store de ajustes: son las únicas que usan el botón "Guardar Cambios". */
+const PESTANAS_DE_AJUSTES = new Set<Pestana>(["cuenta", "operacion"]);
+
+export default function Ajustes({
+  role = "admin",
+  onScreenChange,
+}: {
+  role?: string;
+  onScreenChange?: (label: string) => void;
+}) {
   const {
     miCuenta, setMiCuenta,
     comisiones, setComisionPct,
@@ -356,6 +420,71 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
     gerencia, setGerencia,
     hasUnsavedChanges, saveSettings,
   } = useSettings();
+
+  const { usuario } = useAuth();
+  const esSuper = Boolean(usuario?.esSuperAdmin);
+  /**
+   * Qué pestañas existen para quien está mirando.
+   *
+   * `soloAdmin` es redundante hoy —la entrada de Ajustes en `NAV` ya exige `admin`, así que
+   * nadie sin ese rol llega hasta acá— y se deja igual. El módulo de administración tenía su
+   * propio `if (!tieneRol("admin"))` antes de mudarse a esta vista, y perderlo en la mudanza
+   * habría dejado la protección colgando de una sola línea en otro archivo. Sigue siendo
+   * cosmética: la de verdad es el 403 de `api/admin/*`.
+   */
+  const pestanas = PESTANAS.filter(
+    (p) => (!("soloSuper" in p && p.soloSuper) || esSuper) && (!("soloAdmin" in p && p.soloAdmin) || role === "admin"),
+  );
+
+  const [pestana, setPestana] = useState<Pestana>("cuenta");
+
+  /**
+   * Qué pantalla es esta, para etiquetar una sugerencia de mejora.
+   *
+   * Va en un efecto y no adentro del `irA` de abajo, y la diferencia importa: `irA` solo corre
+   * al hacer clic en una pestaña, así que entrar a Ajustes y mandar una sugerencia sin tocar
+   * nada la archivaba bajo la pantalla ANTERIOR. Un admin sin más módulos que este —que entra
+   * directo acá y nunca cambia de pestaña— guardaba todas sus sugerencias etiquetadas "Inicio",
+   * una pantalla que ni siquiera puede abrir. El efecto cubre el montaje y el cambio de
+   * pestaña con una sola derivación, que es como lo hacen las otras cuatro vistas.
+   */
+  useEffect(() => {
+    onScreenChange?.(`Ajustes · ${PESTANAS.find((p) => p.key === pestana)?.label ?? ""}`);
+  }, [pestana, onScreenChange]);
+
+  /**
+   * Lo que la pestaña abierta pide preguntar antes de irse. Vive en un ref y no en estado
+   * porque cambia en cada render de la sección y no tiene que provocar uno nuevo acá: es un
+   * buzón que la barra de pestañas consulta al hacer clic, no algo que se renderice.
+   */
+  const retencion = useRef<() => string | null>(() => null);
+  const registrar: Retencion = (motivo) => {
+    retencion.current = motivo;
+  };
+
+  const irA = (destino: Pestana) => {
+    if (destino === pestana) return;
+
+    /**
+     * Dos retenciones distintas y las dos hacen falta.
+     *
+     * La primera es la de la sección abierta —una contraseña temporal, una credencial a medio
+     * escribir— y la segunda es la del store de ajustes: como la barra de "Guardar Cambios"
+     * solo se muestra en las pestañas que lo editan, irse a Usuarios con una comisión cambiada
+     * escondía el aviso Y el único botón para guardarla, sin decir nada.
+     */
+    const motivo =
+      retencion.current() ??
+      (hasUnsavedChanges && !PESTANAS_DE_AJUSTES.has(destino)
+        ? "Tenés cambios sin guardar en Ajustes y esta pestaña es la única que los guarda. ¿Cambiar igual?"
+        : null);
+    if (motivo && !confirm(motivo)) return;
+
+    // Se limpia acá y no en el desmontaje de la sección: el orden entre el clic y el efecto de
+    // limpieza no está garantizado, y una retención vieja bloquearía la pestaña siguiente.
+    retencion.current = () => null;
+    setPestana(destino);
+  };
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -421,8 +550,31 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin bg-background">
-      <div className="p-6 max-w-5xl mx-auto space-y-10 mt-4 pr-14 lg:pr-6">
+      <div className="p-6 max-w-5xl mx-auto space-y-8 mt-4 pr-14 lg:pr-6">
+        {/* Barra de pestañas — mismo lenguaje de píldoras que Closer AI y Setter. */}
+        <div className="flex items-center gap-1.5 bg-card border border-border/40 rounded-full p-1.5 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.05)] w-fit max-w-full overflow-x-auto">
+          {pestanas.map(({ key, label, icon: Icon }) => {
+            const activa = pestana === key;
+            return (
+              <button
+                key={key}
+                onClick={() => irA(key)}
+                className={cn(
+                  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full px-5 h-9 text-xs font-medium transition-all shrink-0",
+                  activa
+                    ? "bg-primary text-primary-foreground shadow-md"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                )}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* MI CUENTA */}
+        {pestana === "cuenta" && (
         <section className="space-y-4">
           <h2 className="text-sm font-bold tracking-[0.2em] text-muted-foreground uppercase">Mi Cuenta</h2>
           <div className="rounded-lg bg-card text-card-foreground border border-border/50 shadow-sm">
@@ -518,11 +670,17 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
             </div>
           </div>
         </section>
+        )}
 
-        {/* ADMINISTRACIÓN — solo rol admin */}
-        {role === "admin" && (
+        {/*
+          OPERACIÓN — lo que era la sección "Administración" de esta misma vista.
+          Se renombró porque el nombre ahora lo usa otra cosa (las tres pestañas de §7) y tener
+          dos "Administración" en la misma pantalla no ayudaba a nadie. Lo de acá es cómo opera
+          el equipo: enlaces de cobro, comisiones, parámetros del panel.
+        */}
+        {pestana === "operacion" && role === "admin" && (
           <section className="space-y-4">
-            <h2 className="text-sm font-bold tracking-[0.2em] text-muted-foreground uppercase">Administración</h2>
+            <h2 className="text-sm font-bold tracking-[0.2em] text-muted-foreground uppercase">Operación del equipo</h2>
             <div className="grid grid-cols-1 gap-6">
               {/* Catálogo de Enlaces */}
               <div className="rounded-lg bg-card text-card-foreground border border-border/50 shadow-sm">
@@ -657,11 +815,11 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                 </div>
               </div>
 
-              {/* § Gerencia (2026-07-13) — los 2 únicos parámetros que ese dashboard lee de Ajustes, además de las comisiones de arriba. */}
+              {/* § Estadísticas (2026-07-13, renombrado el 2026-08-07) — los 2 únicos parámetros que ese panel lee de Ajustes, además de las comisiones de arriba. */}
               <div className="rounded-lg bg-card text-card-foreground border border-border/50 shadow-sm">
                 <div className="flex flex-col space-y-1.5 p-6 pb-4 border-b border-border/50 bg-muted/10">
-                  <h3 className="font-semibold tracking-tight text-lg">Parámetros de Gerencia</h3>
-                  <p className="text-xs text-muted-foreground">Alimentan el ROAS, el CAC y la meta de facturación del dashboard de Gerencia.</p>
+                  <h3 className="font-semibold tracking-tight text-lg">Parámetros de Estadísticas</h3>
+                  <p className="text-xs text-muted-foreground">Alimentan el ROAS, el CAC y la meta de facturación del panel de Estadísticas.</p>
                 </div>
                 <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div className="space-y-2">
@@ -702,9 +860,22 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
             </div>
           </section>
         )}
+
+        {/* Las tres de §7. Viven en Administracion.tsx; acá solo se eligen. */}
+        {pestana === "usuarios" && role === "admin" && <SeccionUsuarios esSuper={esSuper} registrar={registrar} />}
+        {pestana === "credenciales" && role === "admin" && <SeccionConfiguracion registrar={registrar} />}
+        {/* Doble condición: la pestaña elegida y el rol. Si alguien fuerza el estado, igual no
+            se monta — y si se montara, el backend contesta 403 por partida doble. */}
+        {pestana === "empresas" && esSuper && <SeccionEmpresas />}
       </div>
 
-      {hasUnsavedChanges && (
+      {/*
+        La barra de guardado es del store de ajustes, así que solo aparece en las pestañas que
+        lo editan. En Credenciales habría dos botones de guardar con la misma pinta y semántica
+        distinta —uno escribe localStorage, el otro rota un secreto en la base— y esa confusión
+        se paga cara.
+      */}
+      {PESTANAS_DE_AJUSTES.has(pestana) && hasUnsavedChanges && (
         <div className="sticky bottom-0 z-20 border-t border-border bg-background/95 backdrop-blur-sm px-6 py-4">
           <div className="max-w-5xl mx-auto pr-14 lg:pr-6 flex items-center justify-between gap-4">
             <span className="flex items-center gap-2 text-sm text-muted-foreground">
