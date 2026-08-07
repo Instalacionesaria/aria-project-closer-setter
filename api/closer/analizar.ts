@@ -59,23 +59,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(401).json({ ok: false, error: "Secreto inválido." });
   }
 
+  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
+
   /**
-   * Camino de MÁQUINA: no hay sesión, así que las credenciales de la empresa se resuelven acá.
-   * Sin esto el auditor y la ingesta correrían con las variables globales — correcto hoy con
-   * una sola empresa, y una fuga el día que haya dos (§5.2).
+   * ── Qué empresa auditar (2026-08-07) ─────────────────────────────────
    *
-   * Se resuelve ANTES del `try` de la lógica para que un fallo de credenciales se vea como lo
-   * que es —configuración— y no como un error de la operación que iba a hacer.
+   * Camino de MÁQUINA: no hay sesión, así que la empresa la dice quien llama. Se pide en el
+   * cuerpo (`orgId`) y **el default es la principal**, que preserva el comportamiento de todos
+   * los `curl` que ya existen en las notas del equipo.
+   *
+   * Es la única forma de correr la pasada de recuperación sobre una empresa cliente: antes
+   * estaba clavado en `ORG_PRINCIPAL`, así que `analizarTerritorio` solo podía barrer ARIA.
+   *
+   * No se recorren todas de una: esta pasada le pide a GHL los contactos con tag de todo el
+   * territorio y puede gastar una inferencia por contacto. Multiplicar eso por cinco empresas
+   * en una sola invocación es la clase de botón que después nadie quiere apretar. Una por
+   * llamada, explícita.
    */
+  const orgPedida = String((cuerpo as Record<string, unknown>).orgId ?? "").trim() || ORG_PRINCIPAL;
+
   try {
-    activar(await resolverCredenciales(ORG_PRINCIPAL));
+    activar(await resolverCredenciales(orgPedida));
   } catch (e) {
     console.error(`[credenciales] ${(e as Error).message}`);
     return res.status(503).json({ ok: false, error: (e as Error).message });
   }
 
   try {
-    const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
     const { ghlContactId, zona, forzar, dryRun } = cuerpo as Record<string, unknown>;
     const opts = { forzar: forzar === true, dryRun: dryRun === true, disparo: "manual" as const };
 

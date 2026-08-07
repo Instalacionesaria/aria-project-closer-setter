@@ -6,8 +6,20 @@ De GHL a la pantalla. Este documento responde "¿por qué tarda X?" y "¿cuánto
 
 1. **Mensajes** — un reloj del servidor los trae de GHL cada 10 s, solo con la app abierta.
    El webhook, cuando existe, baja eso a ≤1 s.
-2. **Citas** — un cron a los :25 y :55 de cada hora. La cita es también el ALTA: todo contacto
-   nuevo llega con una, porque `zona_closer` se aplica *después* de agendar.
+2. **Citas** — un cron a los :25 y :55 de cada hora, **una pasada por empresa activa**. La cita
+   es también el ALTA: todo contacto nuevo llega con una, porque `zona_closer` se aplica
+   *después* de agendar.
+
+   > Desde el 2026-08-07 el cron recorre `organizacionesActivas()` en vez de atender solo a
+   > ARIA. Cada empresa va en su propio `try` —una con el token vencido no corta a las demás— y
+   > la que no tiene credenciales cargadas se saltea diciéndolo, en vez de heredar las de ARIA.
+   > La respuesta trae `porEmpresa` con el detalle, y devuelve **207** si alguna falló: no es un
+   > éxito, y tampoco un fracaso si las otras corrieron.
+   >
+   > `maxDuration` subió de 60 s a **300 s** por esto mismo. Los 60 estaban dimensionados para
+   > una pasada; el bucle es secuencial, así que con cinco empresas el techo viejo cortaba a la
+   > cuarta por timeout — y un cron que se corta a mitad no avisa, simplemente deja empresas sin
+   > sincronizar.
 3. **Todo lo demás** (etapas, notas, seguimientos, análisis) vive en Supabase y no necesita a
    GHL para pintarse.
 4. **El frontend nunca llama a GHL.** Habla con `/api/*`, que lee de la caché.

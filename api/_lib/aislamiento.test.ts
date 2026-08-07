@@ -107,10 +107,31 @@ function archivosTs(raiz: string): string[] {
   return salida;
 }
 
-const ARCHIVOS = archivosTs(API).map((ruta) => ({
-  rel: relative(API, ruta).split("\\").join("/"),
-  texto: readFileSync(ruta, "utf8"),
-}));
+/**
+ * El archivo sin comentarios.
+ *
+ * Hace falta porque este test se comió su propio anzuelo: la comprobación de `activar()` daba
+ * verde en `closer/citas-respaldo.ts` **por un comentario** —el que explica por qué ahí se usa
+ * `conCredenciales()` en su lugar—. Un test de aislamiento que pasa por una palabra dentro de
+ * una explicación es peor que no tenerlo: da la confianza sin dar la garantía.
+ *
+ * El borrado es ingenuo (no entiende un `//` dentro de un string) y alcanza: lo que se busca
+ * son llamadas a funciones, no URLs.
+ */
+function sinComentarios(fuente: string): string {
+  return fuente.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+const ARCHIVOS = archivosTs(API).map((ruta) => {
+  const texto = readFileSync(ruta, "utf8");
+  return {
+    rel: relative(API, ruta).split("\\").join("/"),
+    /** El fuente entero. Solo para los mensajes de error. */
+    texto,
+    /** Contra esto se comprueba TODO: un comentario no puede hacer pasar ni fallar una regla. */
+    codigo: sinComentarios(texto),
+  };
+});
 
 describe("capa 2 · nadie se saltea el helper de scoping", () => {
   it("hay archivos que auditar (el propio test no se rompió en silencio)", () => {
@@ -121,7 +142,7 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
 
   it("solo _lib/db.ts crea un cliente de Supabase", () => {
     const culpables = ARCHIVOS.filter(
-      (a) => a.rel !== DUENO_DEL_CLIENTE && /createClient\s*\(/.test(a.texto),
+      (a) => a.rel !== DUENO_DEL_CLIENTE && /createClient\s*\(/.test(a.codigo),
     ).map((a) => a.rel);
 
     expect(
@@ -133,7 +154,7 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
 
   it("nadie importa createClient de supabase-js salvo _lib/db.ts", () => {
     const culpables = ARCHIVOS.filter(
-      (a) => a.rel !== DUENO_DEL_CLIENTE && /import\s*\{[^}]*createClient[^}]*\}\s*from\s*["']@supabase\/supabase-js["']/.test(a.texto),
+      (a) => a.rel !== DUENO_DEL_CLIENTE && /import\s*\{[^}]*createClient[^}]*\}\s*from\s*["']@supabase\/supabase-js["']/.test(a.codigo),
     ).map((a) => a.rel);
 
     expect(culpables, `Importan createClient sin ser el dueño: ${culpables.join(", ")}`).toEqual([]);
@@ -145,9 +166,9 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
       // Los de la escotilla no tienen que importar `db`: su uso ya lo audita el test de
       // abajo, que es el que exige la justificación por escrito.
       if (ESCOTILLA_AUTORIZADA.has(a.rel)) return false;
-      if (!/\.from\(\s*["']closer_/.test(a.texto)) return false;
+      if (!/\.from\(\s*["']closer_/.test(a.codigo)) return false;
       // Tiene que traer `db` de repo.js (el atado a la organización) o de db.js.
-      return !/import\s*\{[^}]*\bdb\b[^}]*\}\s*from\s*["'][^"']*\/(repo|db)\.js["']/.test(a.texto);
+      return !/import\s*\{[^}]*\bdb\b[^}]*\}\s*from\s*["'][^"']*\/(repo|db)\.js["']/.test(a.codigo);
     }).map((a) => a.rel);
 
     expect(
@@ -158,7 +179,7 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
 
   it("la escotilla dbSinScope solo se usa donde está justificada", () => {
     const usos = ARCHIVOS.filter(
-      (a) => a.rel !== DUENO_DEL_CLIENTE && /\bdbSinScope\s*\(/.test(a.texto),
+      (a) => a.rel !== DUENO_DEL_CLIENTE && /\bdbSinScope\s*\(/.test(a.codigo),
     ).map((a) => a.rel);
 
     const noAutorizados = usos.filter((u) => !ESCOTILLA_AUTORIZADA.has(u));
@@ -186,9 +207,9 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
     ]);
 
     const culpables = ARCHIVOS.filter((a) => {
-      if (!/\bexigir\s*\(\s*req\s*,\s*res\s*,/.test(a.texto)) return false;
+      if (!/\bexigir\s*\(\s*req\s*,\s*res\s*,/.test(a.codigo)) return false;
       if (SIN_CREDENCIALES.has(a.rel)) return false;
-      return !/\bactivar\s*\(\s*ctx\.credenciales\s*\)/.test(a.texto);
+      return !/\bactivar\s*\(\s*ctx\.credenciales\s*\)/.test(a.codigo);
     }).map((a) => a.rel);
 
     expect(
@@ -216,13 +237,30 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
       "admin/bootstrap.ts",
       // Busca al usuario por email para dejarlo entrar. Antes del login no hay empresa.
       "auth/login.ts",
+      /**
+       * Solo toca tablas transversales con `dbSinScope`: `closer_usuarios` y `closer_sesiones`.
+       * Una sesión es de una persona, no de una empresa.
+       *
+       * Estaba pasando el test **por un comentario** que mencionaba `activar()`, igual que
+       * `citas-respaldo.ts`. Se descubrió al dejar de comparar contra el texto crudo. Ahora
+       * está exento a mano, que es lo que tenía que estar desde el principio.
+       */
+      "auth/sesion.ts",
     ]);
 
     const culpables = ARCHIVOS.filter((a) => {
       // Solo los handlers: `_lib` son piezas que corren dentro del contexto que abre un handler.
       if (a.rel.startsWith("_lib/")) return false;
       if (SIN_BASE_DE_NEGOCIO.has(a.rel)) return false;
-      return !/\bactivar\s*\(/.test(a.texto);
+      /**
+       * Las dos formas valen, y no son intercambiables:
+       *
+       *   - `activar()` usa `enterWith` y deja el contexto abierto para el resto del handler.
+       *     Es lo que corresponde a un endpoint que atiende a un usuario.
+       *   - `conCredenciales()` usa `run` y lo abre y CIERRA alrededor de una función. Es lo
+       *     que necesita un bucle por empresa para que dos iteraciones no se pisen.
+       */
+      return !/\b(activar|conCredenciales)\s*\(/.test(a.codigo);
     }).map((a) => a.rel);
 
     expect(
@@ -239,7 +277,7 @@ describe("capa 2 · nadie se saltea el helper de scoping", () => {
      * él. Una lista de excepciones que solo crece deja de ser una lista de excepciones.
      */
     const usanDeVerdad = new Set(
-      ARCHIVOS.filter((a) => /\bdbSinScope\s*\(/.test(a.texto)).map((a) => a.rel),
+      ARCHIVOS.filter((a) => /\bdbSinScope\s*\(/.test(a.codigo)).map((a) => a.rel),
     );
     const sobrantes = [...ESCOTILLA_AUTORIZADA].filter((p) => !usanDeVerdad.has(p));
     expect(sobrantes, `Ya no usan la escotilla y siguen autorizados: ${sobrantes.join(", ")}`).toEqual([]);
