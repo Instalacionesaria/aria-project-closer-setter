@@ -42,7 +42,7 @@ import { db } from "../_lib/repo.js";
 import { parsearLlamada, redactarSecretos, type PayloadLlamada } from "../../src/lib/assistable.js";
 import type { CallOrigin } from "../../src/lib/closerStore.js";
 import { activar } from "../_lib/credenciales.js";
-import { atribuirWebhook, guardarHuerfano } from "../_lib/ruteoWebhook.js";
+import { atribuirPorToken, guardarHuerfano } from "../_lib/ruteoWebhook.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   /**
@@ -60,9 +60,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   /**
-   * El cuerpo primero: el token es por empresa (`assistable_token`) y de qué empresa se trata
-   * lo dice el `location_id` del payload — que Assistable ya manda y que se persiste en
-   * `closer_llamadas.location_id` desde la `016`. Misma inversión que en el webhook de GHL.
+   * ── El token de la URL identifica la empresa (2026-08-07) ────────────
+   *
+   * Antes la empresa salía del `location_id` del payload y el token era solo una contraseña.
+   * Ahora es al revés, porque la URL que se le entrega al cliente **ya lleva su token adentro**:
+   * Assistable no deja configurar headers, así que la URL ES la credencial. Un payload sin
+   * `location_id` antes quedaba huérfano aunque el token dijera perfectamente de quién era.
+   *
+   * Y si el payload trae un `location_id` que contradice al token, no se procesa: eso es
+   * configuración cruzada o token reutilizado. Ver `atribuirPorToken`.
    */
   const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
   if (!cuerpo) return res.status(400).json({ ok: false, error: "Cuerpo JSON inválido." });
@@ -70,7 +76,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   /* ── Autenticación y atribución de empresa (§6.3) ────────────────────── */
   let atribucion;
   try {
-    atribucion = await atribuirWebhook(cuerpo, String(req.query.token ?? "") || undefined, process.env.LLAMADAS_TOKEN, "assistableToken");
+    atribucion = await atribuirPorToken(cuerpo, String(req.query.token ?? "") || undefined, process.env.LLAMADAS_TOKEN);
   } catch (e) {
     console.error(`[llamada] ${(e as Error).message}`);
     return res.status(503).json({ ok: false, error: (e as Error).message });

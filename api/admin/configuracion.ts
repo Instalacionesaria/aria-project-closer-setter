@@ -32,11 +32,20 @@ import { dbSinScope } from "../_lib/db.js";
  *
  * `cifrado: true` decide si el valor pasa por AES antes de guardarse. Ver el pie de
  * `cifrado.ts` para por qué los secretos compartidos van en claro.
+ *
+ * ── Los dos secretos de webhook se fueron de acá (2026-08-07) ──────────────
+ *
+ * `ghl_webhook_secret` y `assistable_token` estaban en esta lista, o sea que la UI se los **pedía
+ * al cliente** como si fueran credenciales suyas. El cliente no tiene de dónde sacarlos, y un
+ * campo que se puede dejar vacío se deja vacío — dejando la URL del webhook sin secreto, abierta
+ * a que cualquiera inyecte eventos y dispare gasto de API.
+ *
+ * Ahora los genera `api/admin/webhooks.ts` y el cliente los copia. Las columnas siguen siendo las
+ * mismas: lo que cambió es de qué lado nace el valor.
  */
 const CREDENCIALES = [
   { clave: "ghlPit", columna: "ghl_pit_cifrado", cifrado: true, etiqueta: "Private Integration Token de GHL" },
   { clave: "ghlLocationId", columna: "ghl_location_id", cifrado: false, etiqueta: "Location ID de GHL" },
-  { clave: "ghlWebhookSecret", columna: "ghl_webhook_secret", cifrado: false, etiqueta: "Secreto del webhook de GHL" },
   /**
    * El calendario del que el cron lee las citas. **Sin él la empresa no sincroniza agenda**, así
    * que es tan obligatorio como el PIT para un cliente que use citas — y el cron lo reporta por
@@ -44,7 +53,6 @@ const CREDENCIALES = [
    */
   { clave: "ghlCalendarioId", columna: "ghl_calendario_id", cifrado: false, etiqueta: "Calendario de GHL" },
   { clave: "anthropicKey", columna: "anthropic_key_cifrada", cifrado: true, etiqueta: "API key de Anthropic" },
-  { clave: "assistableToken", columna: "assistable_token", cifrado: false, etiqueta: "Token del webhook de Assistable" },
   { clave: "metaAdAccountId", columna: "meta_ad_account_id", cifrado: false, etiqueta: "Cuenta publicitaria de Meta" },
   { clave: "metaToken", columna: "meta_token_cifrado", cifrado: true, etiqueta: "Token de Meta" },
 ] as const;

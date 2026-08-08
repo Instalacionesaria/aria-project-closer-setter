@@ -30,11 +30,17 @@ import { dbSinScope } from "./db.js";
 
 /** Lo que puede pasar con un webhook antes de procesarlo. */
 export type Atribucion =
-  | { estado: "ok"; credenciales: Credenciales; locationId: string }
+  /**
+   * `locationId` es nullable incluso acá, y no es un descuido: por el camino de
+   * `atribuirPorToken` la empresa la identifica el token de la URL, así que un payload sin
+   * `location_id` se atribuye igual. Antes ese caso quedaba huérfano aunque el token dijera
+   * perfectamente de quién era.
+   */
+  | { estado: "ok"; credenciales: Credenciales; locationId: string | null }
   /** Llegó, se guardó crudo, y no se procesa. No es un error del que llama. */
   | { estado: "sin_empresa"; locationId: string | null; motivo: string }
   /** La empresa existe pero está desactivada: se guarda crudo y se corta. */
-  | { estado: "empresa_inactiva"; credenciales: Credenciales; locationId: string }
+  | { estado: "empresa_inactiva"; credenciales: Credenciales; locationId: string | null }
   | { estado: "secreto_invalido" }
   | { estado: "sin_secreto_configurado" };
 
@@ -131,6 +137,79 @@ export async function atribuirWebhook(
    * reactive, el historial de lo que pasó mientras tanto es lo único que hay. Descartarlo
    * sería perder datos por un estado administrativo.
    */
+  if (!credenciales.activa) return { estado: "empresa_inactiva", credenciales, locationId };
+
+  return { estado: "ok", credenciales, locationId };
+}
+
+/**
+ * Resuelve la empresa **por el token de la URL**, y después verifica que el payload no la
+ * contradiga. Es el camino de Assistable, y es al revés que el de GHL a propósito.
+ *
+ * ── Por qué acá manda el token y allá manda el payload ────────────────
+ *
+ * Assistable solo ofrece un campo de URL: no deja configurar headers. Así que la URL que se le
+ * entrega al cliente ya lleva su token adentro, y **ese token es lo que dice de quién es este
+ * evento**. Con `atribuirWebhook` la empresa salía del `location_id` del payload, y eso tenía dos
+ * agujeros: un payload sin `location_id` quedaba huérfano aunque el token dijera perfectamente de
+ * quién era, y el token pasaba a ser una contraseña más y no un identificador.
+ *
+ * ── La defensa cruzada (ESPEC-AUDITOR §3.2) ───────────────────────────
+ *
+ * Si el payload trae `location_id` y **no** coincide con el `ghl_location_id` de la empresa del
+ * token, no se procesa: se guarda crudo con `org_id = null`. Es o una configuración cruzada —el
+ * cliente pegó la URL de otra empresa— o un token reutilizado, y las dos merecen ruido en vez de
+ * silencio. Procesarlo escribiría llamadas de una empresa en la cuenta de otra.
+ *
+ * Un payload **sin** `location_id` sí se procesa: el token ya identificó la empresa y no hay nada
+ * que contradiga. Es lo que arregla el primero de los dos agujeros.
+ */
+export async function atribuirPorToken(
+  cuerpo: Record<string, unknown> | null,
+  tokenRecibido: string | undefined,
+  tokenGlobal: string | undefined,
+): Promise<Atribucion> {
+  const locationId = locationIdDe(cuerpo);
+
+  if (!tokenRecibido) return { estado: "secreto_invalido" };
+
+  // Sin scope: esto es averiguar de qué organización se trata. Es la escotilla que `db.ts`
+  // documenta, igual que en `atribuirWebhook`.
+  const { data, error } = await dbSinScope()
+    .from("closer_org_config")
+    .select("org_id")
+    .eq("assistable_token", tokenRecibido)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`No se pudo resolver la empresa del webhook de llamadas: ${error.message}`);
+  }
+
+  /**
+   * Sin empresa con ese token queda el global (`LLAMADAS_TOKEN`), que es como está configurada
+   * ARIA hoy: su fila todavía no tiene `assistable_token` propio. Cuando lo tenga, este camino
+   * deja de usarse solo.
+   */
+  if (!data) {
+    if (!tokenGlobal) return { estado: "sin_secreto_configurado" };
+    if (tokenRecibido !== tokenGlobal) return { estado: "secreto_invalido" };
+    // El token global no identifica a NADIE en particular, así que la empresa vuelve a salir del
+    // payload. Es el comportamiento viejo, y se conserva solo para este caso de transición.
+    return atribuirWebhook(cuerpo, tokenRecibido, tokenGlobal, "assistableToken");
+  }
+
+  const credenciales = await resolverCredenciales(data.org_id as string);
+
+  if (locationId && credenciales.ghlLocationId && locationId !== credenciales.ghlLocationId) {
+    return {
+      estado: "sin_empresa",
+      locationId,
+      motivo:
+        `el token es de "${credenciales.nombre}" (location ${credenciales.ghlLocationId}) pero el payload ` +
+        `dice ${locationId}: configuración cruzada o token reutilizado`,
+    };
+  }
+
   if (!credenciales.activa) return { estado: "empresa_inactiva", credenciales, locationId };
 
   return { estado: "ok", credenciales, locationId };

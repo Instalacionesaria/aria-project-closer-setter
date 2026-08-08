@@ -43,10 +43,13 @@ import {
   fetchConfiguracion,
   fetchEmpresas,
   fetchUsuariosAdmin,
+  fetchWebhooks,
   guardarConfiguracion,
   regenerarPassword,
+  rotarWebhook,
   type ConfiguracionResponse,
   type EmpresaAdmin,
+  type WebhookEntrada,
   type Rol,
   type UsuarioAdmin,
 } from "../lib/api";
@@ -739,6 +742,149 @@ function CartelPassword({
   );
 }
 
+/* ══════════════════════ Webhooks — se muestran (§3.2) ══════════════════════ */
+
+/**
+ * Las URLs de entrada. **Ninguno es un campo de texto**: nosotros generamos, el cliente copia.
+ *
+ * Antes la UI le pedía el secreto del webhook de GHL como si fuera una credencial suya. El cliente
+ * no tiene de dónde sacarlo, y un campo que se puede dejar vacío se deja vacío — dejando la URL
+ * abierta a que cualquiera inyecte eventos y dispare gasto de API. Lo que cambió es de qué lado
+ * nace el valor, no si existe: si la empresa no tenía secreto, el GET se lo genera.
+ */
+function SeccionWebhooks() {
+  const [webhooks, setWebhooks] = useState<WebhookEntrada[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [rotando, setRotando] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const cargar = useCallback(async () => {
+    setError(null);
+    const r = await fetchWebhooks();
+    if (!r.ok) {
+      setError(r.error ?? "No se pudieron cargar los webhooks.");
+      setWebhooks(null);
+      return;
+    }
+    setWebhooks(r.webhooks ?? []);
+  }, []);
+
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
+
+  const rotar = async (clave: string, titulo: string) => {
+    // Rotar corta la ingesta hasta que el cliente pegue el valor nuevo. Se pregunta.
+    if (!window.confirm(`Rotar el secreto de "${titulo}"?
+
+El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del cliente.`)) return;
+    setRotando(clave);
+    setAviso(null);
+    const r = await rotarWebhook(clave);
+    setRotando(null);
+    if (!r.ok) {
+      setError(r.error ?? "No se pudo rotar.");
+      return;
+    }
+    setAviso(r.aviso ?? "Rotado.");
+    await cargar();
+  };
+
+  if (error && webhooks === null) {
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm space-y-2">
+        <p>{error}</p>
+        <button onClick={() => void cargar()} className="text-xs font-medium text-primary hover:underline">
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+  if (webhooks === null) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+        <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
+      </div>
+    );
+  }
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-sm font-medium">Webhooks de entrada</h2>
+      <p className="text-xs text-muted-foreground -mt-1">
+        Los generamos nosotros. Copiá y pegá del lado del cliente — no hay nada que completar acá.
+      </p>
+
+      {aviso && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-900 dark:text-amber-200">{aviso}</p>
+        </div>
+      )}
+
+      {webhooks.map((w) => (
+        <div key={w.clave} className="rounded-lg border border-border/50 bg-card p-3 space-y-2.5">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs font-medium">{w.titulo}</span>
+            <button
+              onClick={() => void rotar(w.clave, w.titulo)}
+              disabled={rotando === w.clave}
+              className="text-[11px] font-medium text-muted-foreground hover:text-destructive inline-flex items-center gap-1 disabled:opacity-50"
+            >
+              {rotando === w.clave ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              Rotar
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">{w.donde}</p>
+          {/* El secreto compartido no está roto, pero no es lo mismo que uno propio: se dice. */}
+          {!w.propio && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+              Está usando el secreto compartido. Rotar le crea uno propio de esta empresa — y obliga a volver a
+              pegarlo del lado del cliente.
+            </p>
+          )}
+
+          <CampoCopiable etiqueta={w.secretoEnLaUrl ? "URL (con el token adentro)" : "URL"} valor={w.url} />
+          {/* Cuando el token va en la URL no hay un segundo valor: sería la misma cosa dos veces. */}
+          {w.secreto && <CampoCopiable etiqueta="Secreto (header x-webhook-secret)" valor={w.secreto} />}
+        </div>
+      ))}
+    </section>
+  );
+}
+
+/** Un valor de solo lectura con su botón de copiar. */
+function CampoCopiable({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+  const [copiado, setCopiado] = useState(false);
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(valor);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
+      // Sin permiso de portapapeles no se dice "copiado": el valor está a la vista igual.
+      setCopiado(false);
+    }
+  };
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] uppercase tracking-wider text-muted-foreground">{etiqueta}</label>
+      <div className="flex items-center gap-2">
+        <code className="flex-1 min-w-0 font-mono text-[11px] bg-muted/50 rounded px-2.5 py-1.5 select-all break-all">
+          {valor}
+        </code>
+        <button
+          onClick={() => void copiar()}
+          className="h-8 px-2.5 rounded-md border border-border text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 shrink-0"
+        >
+          {copiado ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copiado ? "Copiada" : "Copiar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ══════════════════════════ Configuración (§7.3) ══════════════════════════ */
 
 export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?: Retencion } = {}) {
@@ -871,6 +1017,10 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
         * Es una mudanza, no una copia: no quedó ni el textarea de lectura. Dos campos editando el
         * mismo dato es el patrón que este proyecto ya pagó caro.
         */}
+
+      {/* Va DEBAJO de las credenciales y con su propio estado: no comparte el formulario porque
+          no hay nada que guardar acá. Lo único que se hace es copiar y, si hace falta, rotar. */}
+      <SeccionWebhooks />
 
       <div className="flex items-center justify-end gap-3 sticky bottom-0 py-3 bg-background/90 backdrop-blur border-t border-border/40">
         {guardado && (

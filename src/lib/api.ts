@@ -1373,6 +1373,43 @@ export function guardarConfiguracion(body: Record<string, unknown>): Promise<Res
   return pedirAdmin<RespuestaAdmin>("/api/admin/configuracion", conJson(body));
 }
 
+/* ── §3.2 · Los webhooks se muestran, no se piden ── */
+
+export interface WebhookEntrada {
+  clave: string;
+  titulo: string;
+  /** Dónde hay que pegarlo, en una línea. */
+  donde: string;
+  url: string;
+  /** `null` cuando el secreto ya viaja dentro de la URL: no hay nada aparte que copiar. */
+  secreto: string | null;
+  secretoEnLaUrl: boolean;
+  /**
+   * `false` = esta empresa usa el secreto **global**, compartido con las demás. Rotarlo le crea
+   * uno propio, y eso obliga a volver a pegarlo del lado del cliente.
+   */
+  propio: boolean;
+}
+
+export interface WebhooksResponse {
+  ok: boolean;
+  webhooks?: WebhookEntrada[];
+  error?: string;
+}
+
+/**
+ * Trae las URLs de entrada. **El GET escribe**: si la empresa no tenía secreto, se lo genera y lo
+ * guarda ahí mismo. Es lo que hace que no exista el estado "webhook sin secreto".
+ */
+export function fetchWebhooks(): Promise<WebhooksResponse> {
+  return pedirAdmin<WebhooksResponse>("/api/admin/webhooks");
+}
+
+/** Rota uno. El valor anterior deja de funcionar **en el acto**. */
+export function rotarWebhook(clave: string): Promise<RespuestaAdmin & { aviso?: string }> {
+  return pedirAdmin<RespuestaAdmin & { aviso?: string }>("/api/admin/webhooks", conJson({ clave }));
+}
+
 /* ── §7.1 · El selector de empresa del super admin ── */
 
 /** `null` vuelve a la empresa propia. Queda registrado en auditoría. */
