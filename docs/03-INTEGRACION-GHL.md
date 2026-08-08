@@ -104,6 +104,10 @@ puede editar.
 cómo está configurada ARIA hoy. Sin ninguno de los dos, el endpoint se rechaza a sí mismo con 503.
 Abierto, cualquiera que descubra la URL puede inyectar eventos y generar gasto.
 
+**El secreto no se le pide al cliente: se lo damos.** Está en Ajustes › Credenciales › Webhooks,
+con botón de copiar y de rotar. Antes era un campo de texto que el cliente tenía que completar, y
+un campo que se puede dejar vacío se deja vacío. Ver [D31](09-DECISIONES.md).
+
 Con un secreto único compartido entre las cinco empresas, el workflow de cualquiera podía inyectar
 eventos a nombre de otra, y rotarlo obligaba a tocar los workflows de todos los clientes.
 
@@ -178,6 +182,51 @@ contacto y una lista `loQueFalta[]` redactada para reenviar.
 Dan velocidad, no funcionalidad: sin ellos la reconciliación cubre todo con ≤10 s de retraso
 en vez de ≤1 s. Cada uno es un workflow con acción Webhook apuntando a
 `/api/webhooks/ghl?evento=<el que sea>` con el header del secreto.
+
+---
+
+## La lista para entregarle a Kevin
+
+Lo que sigue es lo único que hace falta pasarle. **Los tags los definimos nosotros**: son literales
+que el código espera, y un nombre distinto no matchea nada.
+
+### 1. Los tres tags que sus workflows tienen que aplicar
+
+| Tag | Cuándo |
+|---|---|
+| `bot_activado` | Mientras el chatbot está atendiendo al contacto |
+| `zona_closer` | El contacto ya agendó (post-agenda) |
+| `zona_setter` | El contacto todavía no agendó (pre-agenda) |
+
+Exactamente así: minúsculas, guion bajo, sin acentos ni espacios. Sin `bot_activado` el auditor no
+mira a nadie; sin `zona_*` no sabe con qué rúbrica juzgarlo.
+
+**`bot_pausado_fallo` NO lo toca él.** Lo aplica el auditor al apagar un bot y lo quita
+`api/agentes/alertas.ts` al resolver la intervención. Si su workflow también lo escribiera, se
+pisan.
+
+### 2. El webhook
+
+Acción **Webhook** de GHL —la estándar, la gratis— apuntando a:
+
+```
+https://<dominio>/api/webhooks/ghl?evento=mensaje.entrante
+```
+
+Un workflow por evento, cambiando solo el query param. Header `x-webhook-secret` con el valor que
+sale de Ajustes › Credenciales › Webhooks.
+
+> **Kevin no compone ningún JSON**, y esto es fácil de equivocar. La acción Webhook estándar manda
+> el payload nativo de GHL y **no deja editar el cuerpo** — por eso el evento va en la URL. El
+> `contactId` lo saca el handler del payload nativo, probando `contactId`, `contact_id` y
+> `contact.id` en ese orden. El `evento` en el cuerpo también funciona (webhook premium, o pruebas
+> por curl) y la URL gana si vienen los dos.
+
+### 3. Lo que él nos manda a nosotros
+
+**Los prompts de los dos agentes de texto**, tal cual están en GHL: Appointment Flow AI
+(post-agenda) y Lead Flow AI (pre-agenda). Se pegan en Auditoría de Agentes › Prompts. No requiere
+deploy: el siguiente análisis los toma solo.
 
 ## Lo que GHL NO expone
 

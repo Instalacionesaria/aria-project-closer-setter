@@ -300,7 +300,7 @@ Desde el 2026-08-07 el auditor es por empresa en todo lo que importa:
 | Qué | De dónde sale | Si falta |
 |---|---|---|
 | API key de Anthropic | `closer_org_config.anthropic_key_cifrada` | **No audita**, y lo dice con el nombre de la empresa |
-| Modelo y esfuerzo | `anthropic_modelo` / `anthropic_thinking` | Default global: `claude-sonnet-5` / `high` |
+| Modelo y esfuerzo | **Ya no salen de la empresa.** Son constantes del código (`028`) | — |
 | El prompt del agente auditado | `prompt_appointment_texto` / `prompt_lead_texto` | Degrada limpio: corrección como instrucción autónoma |
 | El candado | `closer_auditor_claim(p_org_id, …)` | — |
 | La caché del prompt | Indexada por **empresa + agente** | — |

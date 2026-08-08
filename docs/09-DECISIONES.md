@@ -509,3 +509,33 @@ el día que se separen la pantalla diría "activo" mientras el cron no corre.
 Lo apagado es **el análisis**, no la ingesta. Las llamadas se siguen recibiendo, guardando y
 mostrando en el tab Llamada. El día que se desbloquee hay material real esperando, que es la mitad
 del punto de bloquearlo así.
+
+## D36 · Lo que se construye y no se ejercita, no está construido
+
+`api/admin/empresas.ts` nunca funcionó. `closer_org_config.org_id` es la PRIMARY KEY, es `not null`
+y no tiene default, y el INSERT no lo mandaba: **todo** intento de crear una empresa moría con
+`null value in column "org_id"`.
+
+Pasó desapercibido durante toda la fase 7 porque la única empresa que existe —ARIA— la sembró la
+migración `018` con el UUID escrito a mano. El panel se construyó, se documentó como terminado, y
+la primera vez que alguien apretó el botón fue Fabio, en producción.
+
+Es la **tercera** vez que este proyecto paga lo mismo: los `docs/prompts/*.md` que nunca existieron
+mientras el panel reportaba éxito, `closer_conexiones` como almacén de credenciales que nadie lee, y
+ahora esto. El patrón es idéntico —una escritura que se ve exitosa contra un camino que nunca se
+recorrió— y contradice la regla 2 de `CLAUDE.md` de la forma más incómoda: no es que se reporte un
+éxito falso, es que **nadie preguntó**.
+
+Dos consecuencias concretas:
+
+1. **El id se genera en Node, no con un `default gen_random_uuid()`.** Un default cerraría este bug
+   y abriría otro peor: cualquier INSERT que olvide el id crearía una empresa fantasma en silencio.
+   Una fila de esa tabla no es un registro más — es una EMPRESA, con once tablas apuntándole por FK.
+   Que siga siendo obligatorio explícito hace que el próximo olvido falle ruidoso.
+
+2. **El guard vive en `integracion.test.ts`, no en la suite offline.** Ningún test puro podía
+   cazarlo: `tsc` está contento —la columna no aparece en el tipo del insert— y la regla vive en el
+   esquema. Contra la base real es el único lugar donde *"¿este INSERT entra?"* es contestable.
+
+Lo que queda como deuda de proceso: **apretar cada botón del panel de administración una vez** antes
+del 15 de agosto. Un endpoint con tests unitarios y sin una sola ejecución real es una hipótesis.

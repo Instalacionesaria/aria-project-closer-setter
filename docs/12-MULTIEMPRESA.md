@@ -238,8 +238,17 @@ Cinco pestañas de **Ajustes** (no un módulo aparte del sidebar):
 | Mi cuenta | `admin` | Calendario, link personal, sonido de venta |
 | Operación | `admin` | Catálogo de enlaces, comisiones, parámetros del panel |
 | Usuarios | `admin` | Alta, roles, contraseñas temporales |
-| Credenciales | `admin` | Credenciales enmascaradas, prompts, modelo del auditor |
+| Credenciales | `admin` | Credenciales enmascaradas + **las URLs de webhook, que se copian** |
 | Empresas | `super_admin` | Alta, edición, baja lógica |
+
+> **Dos cosas salieron de Credenciales el 2026-08-07.** Los **prompts** se mudaron a Auditoría de
+> Agentes › Prompts, habilitados para `tecnico`: quien mantiene el prompt del agente es el técnico,
+> y pedirle `admin` para editar un texto obligaba a darle también el PIT de GHL y la key de
+> Anthropic. Y el **modelo del auditor** dejó de ser configurable (migración `028`): es constante
+> del código, `claude-sonnet-5`.
+>
+> Y algo entró: los **webhooks**, que antes se pedían como si fueran credenciales del cliente.
+> Ahora se generan de este lado y solo se copian. Ver [D31](09-DECISIONES.md).
 
 Un `admin` de una empresa cliente **no sabe que existen otras**: no ve la pestaña Empresas, no puede
 otorgar `admin` ni `super_admin`, y si pide un usuario de otra empresa recibe **404** — no 403,

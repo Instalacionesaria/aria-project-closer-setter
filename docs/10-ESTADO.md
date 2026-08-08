@@ -18,8 +18,8 @@ configuración en GHL.
 | Pieza | Estado |
 |---|---|
 | Frontend en Vercel | ✅ Producción, deploy por push a `main` |
-| Vercel Functions (`api/`) | ✅ 35+ endpoints, todos con portero de rol |
-| Supabase SOFIA | ✅ 30 migraciones aplicadas |
+| Vercel Functions (`api/`) | ✅ 40 endpoints, todos con portero de rol |
+| Supabase SOFIA | ✅ 31 migraciones aplicadas |
 | Multi-empresa | ✅ ARIA + hasta 4 clientes. Aislamiento en 3 capas, con tests que lo hacen cumplir |
 | Autenticación | ✅ Sesiones con cookie `httpOnly`, scrypt, 6 roles, bloqueo por intentos, auditoría |
 | Credenciales por empresa | ✅ AES-256-GCM. Ningún secreto en claro en Supabase ni en el browser |
@@ -149,7 +149,8 @@ de cada uno en `sinDato` para que la vista lo diga al pie:
 
 > **La autenticación real existe desde el 2026-08-06** y salió de esta lista: sesiones con
 > cookie `httpOnly`, contraseñas con scrypt, 6 roles, bloqueo por intentos fallidos y auditoría
-> de accesos. Ver [11-MULTIEMPRESA](11-MULTIEMPRESA.md) cuando exista; hasta entonces, las
+> de accesos. Ver [12-MULTIEMPRESA](12-MULTIEMPRESA.md) — la espec pedía el `11`, que ya estaba
+> ocupado por Voz y llamadas; hasta entonces, las
 > migraciones `018`–`024` y `api/_lib/auth.ts`.
 
 ## Parches vivos y deuda con fecha
