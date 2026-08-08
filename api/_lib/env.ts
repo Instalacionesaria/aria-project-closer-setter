@@ -218,8 +218,12 @@ export const env = {
    */
   auditorDiasArranque: (): number => Number(process.env.AUDITOR_DIAS_ARRANQUE ?? 14),
 
-  /** Esfuerzo de razonamiento del auditor. Se deja configurable para poder barrerlo sin deploy. */
-  auditorEsfuerzo: (): string => process.env.AUDITOR_EFFORT ?? "medium",
+  /**
+   * `auditorEsfuerzo` se BORRÓ el 2026-08-08. Leía `AUDITOR_EFFORT` y ya no la llamaba nadie
+   * —el esfuerzo es `ESFUERZO_AUDITOR`, constante del código, desde la `028`—, pero dejarla es
+   * exactamente el modo de fallar que la `028` documenta: un lector de variable de entorno que
+   * sobrevive a su escritor es una perilla esperando que alguien la vuelva a enchufar.
+   */
 
   /**
    * Agentes de voz nuevos sin esperar un deploy: `{"cmXXXX":"lead_flow_voz"}`.

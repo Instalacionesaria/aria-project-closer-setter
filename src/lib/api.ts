@@ -215,6 +215,11 @@ export interface AgenteTextoMetricas {
   history: { week: string; tasa: number | null; sentimientoPositivo: number }[];
   /** Cuántos análisis sostienen estos números. 0 = todavía no se midió nada. */
   analisis: number;
+  /**
+   * Cuántos salieron **verdes** — el agente trabajó bien, medido. `null` = ninguno tiene nivel
+   * todavía (todos anteriores a la `031`), que no es lo mismo que cero verdes de doce análisis.
+   */
+  verdes: number | null;
 }
 
 export interface AgentesTextoResponse {
@@ -944,7 +949,7 @@ export function fetchPerfil(ghlContactId: string): Promise<PerfilResponse> {
 /* Conexiones (Ajustes > credenciales)                                 */
 /* ================================================================== */
 
-export type ConexionCampo = "anthropicApiKey" | "ghlPit" | "ghlLocationId" | "ghlCalendarId" | "claudeModel";
+export type ConexionCampo = "anthropicApiKey" | "ghlPit" | "ghlLocationId" | "ghlCalendarId";
 
 /**
  * De dónde sale hoy la credencial.
@@ -981,22 +986,15 @@ export interface EstadoSecreto {
  * identificador público y la UI necesita mostrar cuál está puesto, así que este sí trae `valor`
  * entero — y por lo mismo el servidor rechaza que le peguen una key ahí.
  */
-export interface EstadoModelo {
-  configurada: boolean;
-  valor: string | null;
-  origen: OrigenCredencial;
-}
-
 /**
- * Campo por campo y no `Record<ConexionCampo, ...>`: es lo que permite que los cuatro secretos
- * y el modelo tengan tipos distintos, que es toda la razón de la separación de arriba.
+ * `claudeModel: EstadoModelo` se fue el 2026-08-08, junto con el tipo. El modelo del auditor es
+ * constante del código desde la `028` y este panel prometía configurarlo por empresa.
  */
 export interface Credenciales {
   anthropicApiKey: EstadoSecreto;
   ghlPit: EstadoSecreto;
   ghlLocationId: EstadoSecreto;
   ghlCalendarId: EstadoSecreto;
-  claudeModel: EstadoModelo;
 }
 
 export interface ConexionesResponse {

@@ -40,6 +40,8 @@ import {
 
 export type { AgentId, AlertCategoria, AlertSeveridad, CasoAlerta, CasoEstado, PatronAlerta, AjusteAplicado };
 
+import { auditorHabilitado, MOTIVO_VOZ_BLOQUEADO } from "./auditores";
+
 export type AgentKind = "text" | "voz";
 
 export const CATEGORY_LABEL: Record<AlertCategoria, string> = {
@@ -145,6 +147,16 @@ export const AGENTS_CATALOGO: AgentCatalogo[] = [
 /** Un agente ya combinado: el catálogo + lo que se midió (o `null` donde no se midió nada). */
 export interface AgentInfo extends AgentCatalogo {
   tieneAuditor: boolean;
+  /**
+   * `true` = el auditor de este agente **existe en el diseño pero está apagado a propósito**.
+   *
+   * Es un estado distinto de `tieneAuditor: false`, y la diferencia es lo que ve el cliente: uno
+   * dice "esto todavía no lo construimos", el otro "esto está listo y decidimos no encenderlo".
+   * Mostrarlos igual convierte una decisión en lo que parece un bug.
+   */
+  bloqueado: boolean;
+  /** Verdes medidos en la ventana. `null` = todavía no hay análisis con nivel. */
+  verdes: number | null;
   /** Cuántos análisis sostienen los números. 0 = el auditor no corrió sobre este agente. */
   analisis: number;
   metric: string | null;
@@ -169,9 +181,16 @@ export function componerAgentes(
 ): AgentInfo[] {
   return catalogo.map((base) => {
     const m = medidos.find((x) => x.id === (base.id as AgenteTextoMetricas["id"]));
+    const bloqueado = !auditorHabilitado(base.id);
     return {
       ...base,
-      tieneAuditor: conAuditor.includes(base.id),
+      bloqueado,
+      /**
+       * Un agente bloqueado NO tiene auditor activo, por más que el backend lo liste. Se resuelve
+       * acá y no en la vista para que no haya dos criterios de "esta tarjeta se puede abrir".
+       */
+      tieneAuditor: conAuditor.includes(base.id) && !bloqueado,
+      verdes: m?.verdes ?? null,
       analisis: m?.analisis ?? 0,
       metric: m?.metric ?? null,
       delta: m?.delta ?? null,

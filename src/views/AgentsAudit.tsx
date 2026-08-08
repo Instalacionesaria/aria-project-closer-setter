@@ -14,6 +14,7 @@ import {
   ArrowDown,
   RefreshCw,
   AlertTriangle,
+  Lock,
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
@@ -31,6 +32,7 @@ import {
   type AlertSeveridad,
   type GrupoAlerta,
 } from "../lib/agentAuditStore";
+import { MOTIVO_VOZ_BLOQUEADO } from "../lib/auditores";
 
 type Filter = "todos" | "text" | "voz";
 
@@ -143,8 +145,27 @@ function AgentCard({
             <span className="text-[10px] font-bold text-muted-foreground">SIN DATOS</span>
           </div>
         ) : abiertos.length === 0 ? (
-          <div className="flex gap-1.5 items-center bg-muted/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-border/50 shadow-sm">
-            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">✓ AL DÍA</span>
+          /**
+           * ── "Verde medido" vs "sin datos" ────────────────────────────
+           *
+           * Los dos casos terminaban en un chip que decía "no hay alertas", y son hechos muy
+           * distintos: uno auditó 40 conversaciones y no encontró nada, el otro no auditó ninguna.
+           * Lo que los separa es **el número**, no el color: una afirmación de salud viaja con su
+           * base (§4.9), igual que cualquier otra tasa del producto.
+           *
+           * `verdes === null` es un tercer caso real: hay análisis, pero todos anteriores a la
+           * `031` y sin nivel. Ahí se dice "sin fallas" sin contar verdes, porque contarlos sería
+           * inventar la parte que no se midió.
+           */
+          <div className="flex gap-1.5 items-center bg-emerald-500/10 backdrop-blur-md px-3 py-1.5 rounded-full border border-emerald-500/25 shadow-sm">
+            <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+              {agent.verdes !== null && agent.verdes > 0
+                ? `✓ ${agent.verdes} ${agent.verdes === 1 ? "VERDE" : "VERDES"}`
+                : "✓ SIN FALLAS"}
+            </span>
+            <span className="text-[10px] font-medium text-emerald-700/60 dark:text-emerald-400/60">
+              de {agent.analisis}
+            </span>
           </div>
         ) : (
           <div className="flex gap-1.5 items-center bg-muted/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-border/50 shadow-sm hover:shadow transition-all hover:border-border">
@@ -180,7 +201,23 @@ function AgentCard({
       </div>
 
       <div className="px-8 pb-8 flex flex-col gap-8">
-        {!agent.tieneAuditor ? (
+        {agent.bloqueado ? (
+          /**
+           * Bloqueado ≠ sin auditor, y por eso el panel es otro.
+           *
+           * **No atenuado**: el spec lo pide con todas las letras, y tiene razón — una tarjeta
+           * gris se lee como deshabilitada por un bug. Esta se ve completa, con su borde ámbar y
+           * su motivo, porque la decisión de tenerla apagada es del producto y hay que poder
+           * defenderla delante del cliente. Tampoco hay un número: no se midió nada.
+           */
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-xs leading-relaxed text-muted-foreground">
+            <div className="font-semibold text-amber-700 dark:text-amber-400 mb-1.5 flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5" />
+              Auditor apagado a propósito
+            </div>
+            {MOTIVO_VOZ_BLOQUEADO}
+          </div>
+        ) : !agent.tieneAuditor ? (
           <div className={PANEL_VACIO}>
             <div className="font-semibold text-foreground mb-1.5">Sin auditor conectado</div>
             {agent.porQueNoHayAuditor}

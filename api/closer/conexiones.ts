@@ -55,7 +55,7 @@ import { exigir } from "../_lib/auth.js";
 /* Catálogo de campos                                                  */
 /* ================================================================== */
 
-type CampoKey = "anthropicApiKey" | "ghlPit" | "ghlLocationId" | "ghlCalendarId" | "claudeModel";
+type CampoKey = "anthropicApiKey" | "ghlPit" | "ghlLocationId" | "ghlCalendarId";
 
 interface Definicion {
   columna: string;
@@ -131,18 +131,12 @@ const CAMPOS: Record<CampoKey, Definicion> = {
         : null,
   },
 
-  claudeModel: {
-    columna: "claude_model",
-    // Sin espejo: no es un secreto y se devuelve entero.
-    columnaUltimos4: null,
-    envs: ["CLAUDE_MODEL"],
-    valida: (v) =>
-      /^(sk-|pit-)/i.test(v)
-        ? "Eso es una credencial, no un modelo. Este campo se devuelve completo a la pantalla de Ajustes, así que pegar una key acá la expondría — se rechaza a propósito."
-        : !FORMA_MODELO.test(v)
-          ? 'El modelo es un identificador como "claude-opus-5": minúsculas, dígitos, puntos y guiones.'
-          : null,
-  },
+  /**
+   * `claudeModel` se borró el 2026-08-08. Este panel ofrecía configurar el modelo por empresa y
+   * anunciaba `CLAUDE_MODEL` como su variable — las dos cosas dejaron de existir en la `028`, que
+   * fijó `claude-sonnet-5` como constante del código justamente para que no hubiera forma de
+   * cambiarlo por config. Un campo que promete algo que ya no hace es peor que no tenerlo.
+   */
 };
 
 const CLAVES = Object.keys(CAMPOS) as CampoKey[];

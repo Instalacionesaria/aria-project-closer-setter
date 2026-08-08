@@ -351,6 +351,90 @@ sola con **una** lectura por hora.
 Palancas que existen y no están aplicadas: ventana deslizante o resumen acumulado en vez de
 re-mandar el transcript entero, y auditar solo en el saliente.
 
+## El veredicto de tres niveles
+
+Todo análisis auditable termina en **uno** de tres. No es opcional y no hay un cuarto.
+
+| Nivel | Qué significa | Qué produce |
+|---|---|---|
+| 🟢 `verde` | El agente trabajó bien | `destacado` + `evidencia`: qué hizo bien, con su cita. Sin corrección |
+| 🟡 `amarillo` | Sin fallo, pero mejorable | Hallazgos de severidad amarilla. **Sin** corrección de prompt |
+| 🔴 `rojo` | Fallo crítico | Diagnóstico + corrección de prompt citada contra el prompt de esa empresa |
+
+### El verde se registra, y por eso hay que sostenerlo
+
+Un verde **medido** no es lo mismo que ausencia de análisis, y esa diferencia es toda la razón del
+cambio: hasta la `031` una tarjeta sin fallas y una tarjeta sin auditar se veían igual.
+
+Por eso el verde viene con `destacado` (qué hizo bien, concreto) y `evidencia` (la línea
+`AGENTE IA` literal que lo prueba). **Van juntos o no van**: un mérito afirmado sin la línea que lo
+respalda es la misma clase de dato que un hallazgo sin cita — y es peor, porque nadie audita un
+elogio. Si la conversación salió limpia pero no hay nada concreto que señalar, los dos quedan
+vacíos y el nivel sigue siendo verde: no encontrar un elogio no es encontrar una falla.
+
+### `nivel` manda; `fallo` es su proyección
+
+`fallo boolean` no se fue —lo leen Urgentes, `setter/urgentes.ts` y el panel de sentimiento— pero
+dejó de ser un dato independiente. La invariante la hace cumplir **Postgres**, no la disciplina de
+quien escriba el próximo INSERT:
+
+```sql
+check ((nivel = 'rojo') = fallo)
+```
+
+Y por eso `derivarNivel()` **no le cree al modelo**: si devolviera `"amarillo"` junto a
+`requiere_intervencion: true`, el CHECK tumbaría el INSERT *después* de haber gastado la
+inferencia. Derivar del hecho convierte un error del modelo en una fila correcta. Hay un test que
+barre las 48 combinaciones y verifica que `rojo` equivalga siempre a pedir intervención.
+
+`nivel` es **nullable**, y `null` no es un cuarto nivel: es la ausencia de veredicto — una
+conversación no auditable, una siembra de línea base, o un análisis anterior a la `031`. Las filas
+viejas con `fallo = false` se quedaron en `null` a propósito: el modelo de antes no distinguía
+"salió limpio" de "tenía observaciones", y rellenarlas como verdes habría fabricado salud medida.
+
+### La única diferencia entre chat y voz está en el rojo
+
+| | Rojo en **chat** | Rojo en **voz** |
+|---|---|---|
+| Apaga el agente | **Sí** — aplica `bot_pausado_fallo` | **No puede**: la llamada ya terminó |
+| Cola de Intervenciones Urgentes | **Sí** | No |
+| Nota `[IA] …` en el contacto | Sí | Sí |
+| Corrección de prompt | **Sí** | **Sí** |
+
+Lo decide `elRojoApagaElBot()`. En voz no es una limitación que se resigna: aplicar el tag por una
+llamada mala **pausaría el agente de chat de ese contacto**, que es otro agente y puede estar
+trabajando bien. Apagar al inocente por el error del otro.
+
+Si no hay prompt cargado, la corrección degrada limpio: sale como **instrucción autónoma**
+(`fragmento_prompt: null`, `correccion_tipo: "agregado"`) en vez de un reemplazo citado. Sin
+inventar un fragmento que no existe.
+
+---
+
+## Los auditores de voz están BLOQUEADOS
+
+**Decisión de Fabio, 2026-08-08**: los agentes de llamadas todavía no están en funcionamiento, así
+que su auditor está apagado.
+
+Desbloquear es **cambiar un valor**: `AUDITOR_VOZ_HABILITADO` en `src/lib/auditores.ts`. No hay que
+tocar la UI, ni el catálogo, ni el analizador.
+
+Vive en `src/lib/` y no en `api/` porque lo leen los dos lados: el backend para no gastar una
+llamada al modelo, la vista para explicar por qué la tarjeta está bloqueada. Dos constantes, una
+por lado, se separan — y ese día la pantalla diría "activo" mientras el cron no corre.
+
+Es una constante del código y **no** una variable de entorno, por el mismo motivo que el modelo en
+la `028`: encender un auditor que gasta plata tiene que aparecer en un diff que alguien mire.
+
+> **Lo único apagado es el análisis.** El webhook de Assistable sigue recibiendo y guardando en
+> `closer_webhook_inbox` y `closer_llamadas`, `redactarSecretos()` sigue corriendo antes del
+> INSERT, y el tab **Llamada** de la ficha sigue mostrando transcripción, resumen, sentimiento,
+> duración y grabación. El día que se desbloquee hay material real esperando.
+
+En la tarjeta, "bloqueado" y "sin auditor" se ven **distinto**: el primero lleva panel ámbar con
+candado y su motivo, el segundo el panel gris de siempre. Y no está atenuado — una tarjeta gris se
+lee como deshabilitada por un bug, y esto es una decisión que hay que poder defender.
+
 ## Los cuatro auditores
 
 | Auditor | Estado | Su tarjeta |

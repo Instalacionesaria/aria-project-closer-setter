@@ -102,6 +102,7 @@ describe("componerAgentes", () => {
     ops: [{ label: "Conversaciones", value: "86" }],
     history: [],
     analisis: 12,
+    verdes: 9,
   };
 
   /**

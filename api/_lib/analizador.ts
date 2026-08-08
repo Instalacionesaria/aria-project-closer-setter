@@ -65,6 +65,7 @@ import { ghl } from "./ghl/index.js";
 import { cargarPromptAgente, type PromptAgente } from "./promptAgente.js";
 import { credencialesActivas } from "./credenciales.js";
 import { alarmasDe, type Alarma } from "./auditor/heuristicas.js";
+import { auditorHabilitado, elRojoApagaElBot, type NivelVeredicto } from "../../src/lib/auditores.js";
 import { db, orgActiva } from "./repo.js";
 import {
   contactosConTag,
@@ -362,6 +363,36 @@ titulo es ese mismo patrón en lenguaje humano, 6 palabras o menos.
 Reportá como máximo ${MAX_HALLAZGOS} hallazgos, los más importantes.
 
 ──────────────────────────────────────────────────────────────────────
+EL NIVEL DEL VEREDICTO — verde, amarillo o rojo
+──────────────────────────────────────────────────────────────────────
+
+Todo análisis auditable termina en UNO de estos tres. No es opcional y no hay un cuarto.
+
+  verde ...... el agente trabajó bien. Ningún criterio se cumplió.
+  amarillo ... ningún fallo crítico, pero hay algo observable. Hallazgos de severidad
+               amarilla, sin corrección de prompt.
+  rojo ....... al menos un criterio se cumplió con la gravedad suficiente para pedir que un
+               humano intervenga. Lleva "requiere_intervencion=true".
+
+La coherencia es OBLIGATORIA y la verifica el código: rojo ⟺ "requiere_intervencion=true".
+Un veredicto verde con hallazgos, o un rojo sin intervención, se rechaza.
+
+EL VERDE NO ES "NO ENCONTRÉ NADA". Es una afirmación medida, y por eso hay que sostenerla:
+
+  · "destacado": en una línea, QUÉ hizo bien el agente. Concreto, no elogio genérico.
+    Sí: "reconoció la objeción de precio y la respondió con el desglose de pagos".
+    No: "buena atención", "respondió correctamente", "todo bien".
+  · "evidencia": la línea "AGENTE IA" EXACTA Y LITERAL que lo demuestra, copiada del
+    transcript. Sin ella el destacado no se guarda.
+
+Si la conversación salió limpia pero no podés señalar nada concreto que el agente haya hecho
+BIEN, dejá "destacado" y "evidencia" vacíos. El nivel sigue siendo verde: no encontrar un
+elogio no es lo mismo que encontrar una falla. Lo que NO se hace es inventar un mérito.
+
+En amarillo, "destacado" dice qué se puede mejorar y "evidencia" la línea que lo muestra.
+En rojo los dos van vacíos: para eso están el diagnóstico y la corrección de cada hallazgo.
+
+──────────────────────────────────────────────────────────────────────
 SENTIMIENTO DEL CONTACTO
 ──────────────────────────────────────────────────────────────────────
 
@@ -404,6 +435,9 @@ const ESQUEMA_VEREDICTO = {
       type: "string",
       enum: ["", "sin_mensajes_del_agente", "mayormente_audio", "conversacion_muy_corta"],
     },
+    nivel: { type: "string", enum: ["verde", "amarillo", "rojo"] },
+    destacado: { type: "string" },
+    evidencia: { type: "string" },
     requiere_intervencion: { type: "boolean" },
     motivo_intervencion: { type: "string" },
     criterio_principal: { type: "string", enum: [...CRITERIOS] },
@@ -450,6 +484,9 @@ const ESQUEMA_VEREDICTO = {
   required: [
     "auditable",
     "motivo_no_auditable",
+    "nivel",
+    "destacado",
+    "evidencia",
     "requiere_intervencion",
     "motivo_intervencion",
     "criterio_principal",
@@ -482,6 +519,22 @@ export interface Hallazgo {
 export interface Veredicto {
   auditable: boolean;
   motivoNoAuditable: string;
+  /**
+   * El nivel del veredicto, o `null` si **no se juzgó nada** — una conversación no auditable o
+   * una siembra de línea base.
+   *
+   * `null` no es un cuarto nivel: es la ausencia de veredicto, y por eso la `031` lo permite. Que
+   * un verde y un "no lo miré" sean distinguibles es toda la razón de este cambio; colapsarlos en
+   * `verde` acá arruinaría el dato en el mismo commit que lo crea.
+   *
+   * `rojo` ⟺ `requiereIntervencion`, y la coherencia se fuerza al normalizar: el modelo puede
+   * equivocarse y el CHECK de la `031` no perdona.
+   */
+  nivel: NivelVeredicto | null;
+  /** Qué estuvo bien (verde) o qué mejorar (amarillo). Vacío si no se pudo señalar nada. */
+  destacado: string;
+  /** La línea del transcript que sostiene el `destacado`. Sin ella el destacado no se guarda. */
+  evidencia: string;
   requiereIntervencion: boolean;
   motivoIntervencion: string;
   criterioPrincipal: string;
@@ -795,19 +848,90 @@ ${opts.patrones}
         .slice(0, MAX_HALLAZGOS)
     : [];
 
+  // Una conversación no auditable no puede pedir intervención: no se juzgó nada.
+  const requiereIntervencion = auditable && Boolean(crudo.requiere_intervencion);
+
+  /**
+   * ── El nivel se DERIVA, no se cree ────────────────────────────────────
+   *
+   * El modelo devuelve `nivel`, pero acá manda `requiereIntervencion`, y no es desconfianza
+   * gratuita: la `031` tiene un CHECK `(nivel = 'rojo') = fallo`, así que un modelo que devuelva
+   * "amarillo" junto a `requiere_intervencion=true` **tumbaría el INSERT entero** y el análisis se
+   * perdería. Forzar la coherencia acá convierte un error del modelo en una fila correcta.
+   *
+   * Con intervención es rojo, sin discusión. Sin intervención, la frontera verde/amarillo la
+   * decide si hay hallazgos: un veredicto que reportó algo observable no es verde por más que el
+   * modelo lo haya etiquetado así.
+   */
+  const nivel: NivelVeredicto | null = !auditable
+    ? null
+    : requiereIntervencion
+    ? "rojo"
+    : hallazgos.length > 0
+      ? "amarillo"
+      : crudo.nivel === "amarillo"
+        ? "amarillo"
+        : "verde";
+
+  /**
+   * `destacado` y `evidencia` viajan juntos o no viajan. Un mérito afirmado sin la línea que lo
+   * prueba es la misma clase de dato que un hallazgo sin cita textual — y en el verde es peor,
+   * porque nadie audita un elogio. En rojo se descartan los dos: ahí hablan los hallazgos.
+   */
+  const destacadoCrudo = String(crudo.destacado ?? "").trim();
+  const evidenciaCruda = String(crudo.evidencia ?? "").trim();
+  const conRespaldo = nivel !== "rojo" && destacadoCrudo !== "" && evidenciaCruda !== "";
+
   return {
     ok: true,
     veredicto: {
       auditable,
       motivoNoAuditable: String(crudo.motivo_no_auditable ?? ""),
-      // Una conversación no auditable no puede pedir intervención: no se juzgó nada.
-      requiereIntervencion: auditable && Boolean(crudo.requiere_intervencion),
+      nivel,
+      destacado: conRespaldo ? destacadoCrudo.slice(0, 240) : "",
+      evidencia: conRespaldo ? evidenciaCruda.slice(0, 400) : "",
+      requiereIntervencion,
       motivoIntervencion: String(crudo.motivo_intervencion ?? ""),
       criterioPrincipal: CRITERIOS.includes(crudo.criterio_principal) ? crudo.criterio_principal : "ninguno",
       sentimiento: sentimientos.includes(crudo.sentimiento) ? crudo.sentimiento : "neutral",
       hallazgos,
     },
   };
+}
+
+/**
+ * El nivel del veredicto, derivado de los hechos y **no** de lo que dijo el modelo.
+ *
+ * ── Por qué no se le cree al modelo ───────────────────────────────────
+ *
+ * No es desconfianza gratuita. La `031` tiene un CHECK `(nivel = 'rojo') = fallo`, así que un
+ * modelo que devuelva `"amarillo"` junto a `requiere_intervencion: true` **tumbaría el INSERT
+ * entero** y el análisis se perdería — el peor final posible, porque la inferencia ya se gastó.
+ * Derivar acá convierte un error del modelo en una fila correcta.
+ *
+ * Las reglas, en orden:
+ *
+ *   1. Sin auditar no hay nivel. `null`, que no es un cuarto nivel sino la ausencia de veredicto.
+ *   2. Con intervención es rojo, sin discusión. Es la definición de rojo.
+ *   3. Con hallazgos es amarillo aunque el modelo diga verde: reportar algo observable y llamarlo
+ *      verde es contradecirse, y gana lo que reportó.
+ *   4. Sin hallazgos, el modelo puede pedir amarillo (vio algo que no llegó a hallazgo). Cualquier
+ *      otra cosa —incluido un valor que no reconocemos— cae en verde, que es lo que los hechos
+ *      dicen: se auditó, no se encontró nada, nadie pidió intervenir.
+ *
+ * Exportada para poder probarla: es una tabla de verdad cuyo error no se ve hasta que Postgres
+ * rechaza una escritura en producción.
+ */
+export function derivarNivel(e: {
+  auditable: boolean;
+  requiereIntervencion: boolean;
+  hallazgos: number;
+  nivelDelModelo?: unknown;
+}): NivelVeredicto | null {
+  if (!e.auditable) return null;
+  if (e.requiereIntervencion) return "rojo";
+  if (e.hallazgos > 0) return "amarillo";
+  return e.nivelDelModelo === "amarillo" ? "amarillo" : "verde";
 }
 
 /* ================================================================== */
@@ -836,6 +960,18 @@ async function guardarAnalisis(e: {
         // `fallo` es lo que enciende la cola roja, así que espeja la INTERVENCIÓN, no los
         // hallazgos. Un hallazgo rojo no le apaga el bot a nadie.
         fallo: e.veredicto.requiereIntervencion,
+        /**
+         * El nivel, y con él el verde. La `031` tiene un CHECK `(nivel = 'rojo') = fallo`, así que
+         * estas dos líneas no pueden contradecirse ni por error de tipeo: Postgres rechaza la fila.
+         *
+         * `fallo` no se fue: lo leen la cola de Urgentes, `setter/urgentes.ts` y el panel de
+         * sentimiento. Pasa a ser la **proyección booleana** de `nivel`, no un dato paralelo.
+         */
+        nivel: e.veredicto.nivel,
+        // Van juntos o no van. Ver `evaluarConversacion`: un mérito sin la línea que lo prueba no
+        // se guarda, porque nadie audita un elogio.
+        destacado: e.veredicto.destacado || null,
+        evidencia: e.veredicto.evidencia || null,
         criterio: e.veredicto.criterioPrincipal,
         motivo: e.veredicto.motivoIntervencion || null,
         sentimiento: e.veredicto.sentimiento,
@@ -1244,6 +1380,10 @@ export async function analizarYMarcar(
           veredicto: {
             auditable: false,
             motivoNoAuditable: "conversacion_muy_corta",
+            // Sin juicio no hay nivel. Ver el comentario de `Veredicto.nivel`.
+            nivel: null,
+            destacado: "",
+            evidencia: "",
             requiereIntervencion: false,
             motivoIntervencion: "",
             criterioPrincipal: "ninguno",
@@ -1300,6 +1440,28 @@ export async function analizarYMarcar(
     }
 
     const agenteId = TERRITORIOS[territorio].agenteId;
+
+    /**
+     * ── El portón del auditor apagado ─────────────────────────────────
+     *
+     * Justo ANTES de `evaluarConversacion`, que es la línea que gasta plata. Hoy solo puede
+     * frenar a los agentes de voz (`AUDITOR_VOZ_HABILITADO = false`), y ellos no llegan acá
+     * porque `TERRITORIOS` mapea a los de texto — pero el guard va igual, y no es defensivo por
+     * costumbre: es el único punto por el que pasa toda llamada al modelo del carril rojo. El día
+     * que exista el analizador de voz, "encender el flag" tiene que ser lo único que haga falta.
+     *
+     * Ver `AUDITORES_ACTIVOS` para el otro portón, que es el de "este auditor no existe todavía".
+     * Son dos cosas distintas: no existe ≠ está apagado a propósito.
+     */
+    if (!auditorHabilitado(agenteId)) {
+      return {
+        analizado: false,
+        motivo: `el auditor de ${agenteId} está bloqueado: no analiza ni gasta llamadas al modelo`,
+        territorio,
+        debounce,
+      };
+    }
+
     const prompt = cargarPromptAgente(agenteId);
 
     const evaluacion = await evaluarConversacion({
@@ -1381,6 +1543,21 @@ export async function analizarYMarcar(
       cuerpo: `${PREFIJO_NOTA} ${veredicto.motivoIntervencion}`,
       idempotencyKey: `${idempotencyKey}:nota`,
     });
+
+    /**
+     * ── La única diferencia entre chat y voz está acá ─────────────────
+     *
+     * En chat el rojo apaga el bot y el contacto entra a Urgentes. En **voz no puede**: la llamada
+     * ya terminó, no hay bot hablando que interrumpir ni conversación que pausar. Aplicar
+     * `bot_pausado_fallo` por una llamada mala pausaría el agente de CHAT de ese contacto, que es
+     * otro agente y puede estar trabajando bien — apagar al inocente por el error del otro.
+     *
+     * Lo que sí pasa en los dos casos: la nota `[IA] …` de arriba y la corrección de prompt del
+     * hallazgo. Ese es el objetivo de fondo — que el agente no repita el error.
+     */
+    if (!elRojoApagaElBot(agenteId)) {
+      return { ...base, fallo: true, tagAplicado: false };
+    }
 
     const aplicacion = await ghl().aplicarTags({
       ghlContactId,

@@ -456,3 +456,56 @@ nombre de alguien es atribuirle algo que no hizo, y contradice la regla 5 de `CL
 
 El endpoint de notas acepta `autor` en el cuerpo pero **no lo obedece si hay sesión**: un cliente
 que mande otro nombre estaría firmando con la identidad de otro.
+
+## D33 · El verde se mide; `null` no es un verde barato
+
+`fallo boolean` metía dos hechos en la misma casilla: "el agente trabajó bien" y "no se pudo decir
+nada". Con eso, una tarjeta sin fallas y una tarjeta sin auditar se veían igual — y afirmar salud
+que nadie midió es justo lo que D3 prohíbe.
+
+Los tres niveles lo separan, pero la tentación era llenar el hueco: hacer el backfill de las filas
+viejas con `fallo = false` como `verde`. **No se hizo.** El modelo de antes no distinguía "salió
+limpio" de "tenía observaciones sin gravedad", y esa diferencia la decidía el modelo mirando la
+conversación. Rellenarlas habría fabricado salud medida sobre análisis que nunca la afirmaron —
+el mismo error de siempre, esta vez con el sello de "verificado".
+
+Así que `nivel` es nullable y esas filas quedaron en `null`. Mismo criterio que
+`closer_avances.autor_usuario_id` en la `025`: nullable y sin backfill inventado.
+
+En la UI la distinción es **el número, no el color**: el chip verde dice "✓ 9 VERDES · de 12". Una
+afirmación de salud viaja con su base, igual que cualquier otra tasa del producto (§4.9). "Sin
+datos" no tiene número que mostrar, y por eso no se pueden confundir.
+
+## D34 · `fallo` sobrevive como proyección, y lo hace cumplir Postgres
+
+`fallo` no se dropeó: lo leen Urgentes, `setter/urgentes.ts` y el panel de sentimiento, y sacarlo
+en el mismo commit que introduce `nivel` sería el contract sin el expand.
+
+Pero dos columnas que responden lo mismo divergen — regla 3. La invariante no queda en manos de
+quien escriba el próximo INSERT: la fuerza un CHECK, `(nivel = 'rojo') = fallo`. Una fila
+incoherente no se puede escribir ni a mano.
+
+Eso tiene una consecuencia en el código que es la parte importante: `derivarNivel()` **no le cree
+al modelo**. Si devolviera `"amarillo"` junto a `requiere_intervencion: true`, el CHECK tumbaría el
+INSERT *después* de haber gastado la inferencia — el peor final posible, porque el análisis se
+pierde entero y en el log solo queda un `23514`. Derivar el nivel de los hechos convierte un error
+del modelo en una fila correcta.
+
+## D35 · Bloqueado ≠ no existe, y se ve distinto
+
+Los auditores de voz están apagados por decisión, no por falta de construcción. Son dos estados
+diferentes y mostrarlos igual convierte una decisión de producto en lo que parece un bug.
+
+`tieneAuditor: false` dice "esto todavía no lo construimos" — panel gris. `bloqueado: true` dice
+"esto está listo y decidimos no encenderlo" — panel ámbar con candado y su motivo. Y **no
+atenuado**: una tarjeta gris se lee como deshabilitada por un error, y esta decisión hay que poder
+defenderla delante del cliente.
+
+El flag es una constante del código (`AUDITOR_VOZ_HABILITADO`) y no una variable de entorno, por el
+mismo motivo que el modelo en la `028`: encender un auditor que gasta plata tiene que aparecer en un
+diff que alguien mire. Vive en `src/lib/` porque lo leen los dos lados — si fueran dos constantes,
+el día que se separen la pantalla diría "activo" mientras el cron no corre.
+
+Lo apagado es **el análisis**, no la ingesta. Las llamadas se siguen recibiendo, guardando y
+mostrando en el tab Llamada. El día que se desbloquee hay material real esperando, que es la mitad
+del punto de bloquearlo así.

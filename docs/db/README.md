@@ -17,7 +17,7 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-Van de la `001` a la **`030`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
+Van de la `001` a la **`031`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
 esquema base (`001`–`005`, aplicadas el 2026-07-25); de la `006` en adelante **el encabezado de
 cada archivo explica por qué existe** —esa es la fuente— y el tema al que pertenecen está
 documentado en el `docs/` correspondiente:
@@ -48,6 +48,7 @@ depende de la anterior. Las `028`–`030` son del auditor de dos carriles:
 | `028` | **DROP** de `anthropic_modelo` y `anthropic_thinking`. El modelo del auditor pasa a ser constante del código: una perilla de config podía dejar a una empresa auditando con otro modelo sin aparecer en ningún diff |
 | `029` | `closer_analisis_agente.alarmas text[]` — qué señal del nivel 0 adelantó el análisis. Sin default: `null` = salió por el debounce normal, y no es lo mismo que `{}` |
 | `030` | `acompanamiento` entra al CHECK de `criterio`. Es la dimensión de **calidad** del carril amarillo, no un octavo criterio de fallo |
+| `031` | `nivel`, `destacado` y `evidencia` en `closer_analisis_agente` — el veredicto de tres niveles. `fallo` queda como proyección de `nivel`, y un CHECK impide que se contradigan. Backfill parcial: solo las de `fallo = true` son rojas sin ambigüedad |
 
 | Archivo | Qué hace | Por qué existe |
 |---|---|---|

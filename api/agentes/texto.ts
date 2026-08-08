@@ -58,6 +58,17 @@ export interface AgenteTextoMetricas {
   history: { week: string; tasa: number | null; sentimientoPositivo: number }[];
   /** Cuántos análisis sostienen estos números. 0 = todavía no se midió nada. */
   analisis: number;
+  /**
+   * Cuántos de esos análisis salieron **verdes** — el agente trabajó bien, medido.
+   *
+   * Es lo que separa "sin datos" de "salud verificada". Antes la tarjeta solo podía decir "no hay
+   * fallas abiertas", que es cierto tanto si se auditaron 40 conversaciones sin encontrar nada
+   * como si no se auditó ninguna. Con este número la afirmación viene con su base (§4.9).
+   *
+   * `null` = la empresa todavía no tiene ningún análisis con nivel (todos anteriores a la `031`).
+   * No es cero: cero verdes de 12 análisis es un dato feo pero medido, y hay que poder decirlo.
+   */
+  verdes: number | null;
 }
 
 const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0);
@@ -85,6 +96,28 @@ async function citasEnVentana(desdeDias: number, hastaDias: number) {
     desdeMs: ahora - desdeDias * 86_400_000,
     hastaMs: ahora - hastaDias * 86_400_000,
   });
+}
+
+/**
+ * Cuántos análisis con nivel salieron verdes, en la misma ventana que el resto.
+ *
+ * Se cuenta sobre los que TIENEN nivel: los anteriores a la `031` lo tienen en `null` porque no se
+ * puede saber si eran verdes o amarillos, y contarlos como verdes sería fabricar salud medida
+ * sobre análisis que nunca la afirmaron. Si no hay ninguno con nivel, devuelve `null` — que la
+ * vista lee como "todavía no hay nada que contar", distinto de "conté y dieron cero".
+ */
+async function verdesDe(agenteId: AgenteTextoId): Promise<number | null> {
+  const desde = new Date(Date.now() - DIAS_VENTANA * 86_400_000).toISOString();
+
+  const { data, error } = await db()
+    .from("closer_analisis_agente")
+    .select("nivel")
+    .eq("agente_id", agenteId)
+    .not("nivel", "is", null)
+    .gte("analizado_el", desde);
+
+  if (error || !data || data.length === 0) return null;
+  return (data as { nivel: string }[]).filter((a) => a.nivel === "verde").length;
 }
 
 /** Sentimiento y volumen de un agente, de la vista que agrega los últimos 30 días. */
@@ -235,6 +268,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ],
         history: await historialDe(id),
         analisis: agregado?.analisis ?? 0,
+        verdes: await verdesDe(id),
       });
     }
 
