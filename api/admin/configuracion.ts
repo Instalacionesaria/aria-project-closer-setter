@@ -1,5 +1,8 @@
 /**
- * `GET/POST /api/admin/configuracion` — credenciales y prompts de una empresa (ESPEC §7.3).
+ * `GET/POST /api/admin/configuracion` — las credenciales de una empresa (ESPEC §7.3).
+ *
+ * Los prompts de los agentes **ya no están acá**: se mudaron a `api/agentes/prompts.ts` el
+ * 2026-08-07, con rol `tecnico` en vez de `admin`. Ver el comentario más abajo.
  *
  * ── La regla que gobierna este archivo ────────────────────────────────
  *
@@ -18,7 +21,6 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { createHash } from "node:crypto";
 import { auditar, exigir, type Contexto } from "../_lib/auth.js";
 import { cifrar, descifrar, enmascarar, hayClaveMaestra } from "../_lib/cifrado.js";
 import { activar, olvidarCredenciales } from "../_lib/credenciales.js";
@@ -48,17 +50,18 @@ const CREDENCIALES = [
 ] as const;
 
 /**
- * Los cuatro prompts de §7.3. Reemplazaron a `docs/prompts/<agente>.md` el 2026-08-07, cuando
- * `api/_lib/promptAgente.ts` pasó a leer de estas columnas. Antes de esa fecha esto los guardaba
- * y nadie los leía.
+ * ── Los prompts se fueron de acá (2026-08-07) ──────────────────────────────
+ *
+ * Los cuatro campos `prompt_*` se editaban en este endpoint, con el mismo `admin` que las claves
+ * de API. Se **mudaron** a `api/agentes/prompts.ts`, que habilita `tecnico`: quien mantiene el
+ * prompt del agente es el técnico, y pedirle `admin` para eso obligaba a darle también acceso al
+ * PIT de GHL, a la key de Anthropic y al token de Meta.
+ *
+ * Es una mudanza y no una copia: acá no quedó ni la lectura. Dos campos editando el mismo dato es
+ * el patrón que este proyecto ya pagó caro.
+ *
+ * Las columnas NO se movieron: siguen en `closer_org_config.prompt_*`, por empresa.
  */
-const PROMPTS = [
-  { clave: "promptAppointmentTexto", columna: "prompt_appointment_texto", agente: "Appointment Flow — chat (closer)" },
-  { clave: "promptLeadTexto", columna: "prompt_lead_texto", agente: "Lead Flow — chat (setter)" },
-  { clave: "promptAppointmentVoz", columna: "prompt_appointment_voz", agente: "Appointment Flow — voz" },
-  { clave: "promptLeadVoz", columna: "prompt_lead_voz", agente: "Lead Flow — voz" },
-] as const;
-
 /** El `ghl_location_id` no es secreto pero tampoco hace falta mostrarlo entero. */
 const CLARAS_VISIBLES = new Set(["ghlLocationId", "ghlCalendarioId", "metaAdAccountId"]);
 
@@ -100,7 +103,6 @@ async function leer(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
     "activa",
     "zona_horaria",
     ...CREDENCIALES.map((c) => c.columna),
-    ...PROMPTS.map((p) => p.columna),
   ].join(", ");
 
   const { data, error } = await dbSinScope().from("closer_org_config").select(columnas).eq("org_id", orgId).maybeSingle();
@@ -132,19 +134,6 @@ async function leer(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
     return { clave: c.clave, etiqueta: c.etiqueta, cifrado: c.cifrado, valor: estado, cargada: Boolean(crudo) };
   });
 
-  const prompts = PROMPTS.map((p) => {
-    const texto = fila[p.columna];
-    return {
-      clave: p.clave,
-      agente: p.agente,
-      // El texto del prompt SÍ viaja entero: no es un secreto, es lo que el cliente pegó y
-      // tiene que poder editarlo. Lo que no viaja es ninguna credencial.
-      texto: texto ?? "",
-      hash: texto ? hashDe(texto) : null,
-      lineas: texto ? texto.split("\n").length : 0,
-    };
-  });
-
   return res.status(200).json({
     ok: true,
     empresa: {
@@ -156,7 +145,6 @@ async function leer(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
       zonaHoraria: fila.zona_horaria,
     },
     credenciales,
-    prompts,
     /**
      * Sin clave maestra no se puede guardar nada cifrado. Se dice acá para que la UI
      * deshabilite el formulario con el motivo, en vez de dejar intentar y fallar al guardar.
@@ -194,19 +182,6 @@ async function guardar(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
     }
     parche[c.columna] = c.cifrado ? cifrar(limpio) : limpio;
     tocadas.push(c.clave);
-  }
-
-  /* ── Prompts ── */
-  for (const p of PROMPTS) {
-    const valor = cuerpo?.[p.clave];
-    if (typeof valor !== "string") continue;
-    // Acá el vacío SÍ significa borrar: un prompt vacío es un estado válido —el agente todavía
-    // no tiene uno cargado— y el auditor degrada limpio (§7.3). Es lo contrario que arriba, y
-    // la diferencia es que un prompt no es un secreto que se pueda perder por accidente.
-    const texto = valor.trim() || null;
-    parche[p.columna] = texto;
-    parche[`${p.columna}_hash`] = texto ? hashDe(texto) : null;
-    tocadas.push(p.clave);
   }
 
   /* ── Borrado explícito ── */
@@ -251,17 +226,6 @@ async function guardar(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
 }
 
 /* ─────────────────────────────── Piezas ─────────────────────────────── */
-
-/**
- * El hash del prompt (§7.3). Se guarda junto al texto para poder avisar *"el prompt cambió
- * desde que se detectó este hallazgo"*.
- *
- * Se recorta a 12 caracteres: es un identificador de versión para mostrar, no una firma
- * criptográfica. Mismo criterio que el hash que hoy usa `promptAgente.ts`.
- */
-function hashDe(texto: string): string {
-  return createHash("sha256").update(texto).digest("hex").slice(0, 12);
-}
 
 function leerCuerpo(req: VercelRequest): Record<string, unknown> | null {
   if (typeof req.body === "string") {

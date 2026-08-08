@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
+import PromptsAgentes from "./PromptsAgentes";
+import { useAuth } from "../lib/authStore";
 import { useClosurer } from "../lib/closerStore";
 import { useSetter } from "../lib/setterStore";
 import {
@@ -31,6 +33,15 @@ import {
 } from "../lib/agentAuditStore";
 
 type Filter = "todos" | "text" | "voz";
+
+/**
+ * Las dos pestañas de esta vista.
+ *
+ * `prompts` llegó el 2026-08-07 desde Ajustes › Credenciales. Ver `PromptsAgentes.tsx`: el motivo
+ * de la mudanza es de permisos, no de acomodo — el técnico tiene que poder editar un prompt sin
+ * que eso le abra las claves de API de la empresa.
+ */
+type Pestana = "salud" | "prompts";
 
 const SENTIMENT_ROW =
   "flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40 text-left shadow-sm";
@@ -1046,6 +1057,14 @@ export default function AgentsAudit() {
     void cargarSiHaceFalta();
   }, [cargarSiHaceFalta]);
 
+  const [pestana, setPestana] = useState<Pestana>("salud");
+  const { tieneRol } = useAuth();
+  /**
+   * Cosmética, no protección: el permiso lo verifica `api/agentes/prompts.ts`. Acá solo se evita
+   * mostrarle una pestaña a quien va a recibir un 403 al abrirla.
+   */
+  const puedeVerPrompts = tieneRol("tecnico", "admin");
+
   const [filter, setFilter] = useState<Filter>("todos");
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
   const [openGroupKey, setOpenGroupKey] = useState<{ agentId: AgentId; errorCode: string } | null>(null);
@@ -1089,7 +1108,34 @@ export default function AgentsAudit() {
   return (
     <div className="flex-1 bg-[#fcfcfd] dark:bg-background overflow-y-scroll">
       <div className="p-10 max-w-[1200px] mx-auto space-y-8 pb-24">
-        {selectedAgent ? (
+        {/* Las pestañas se ocultan dentro del detalle de un agente: ahí manda su botón Volver. */}
+        {puedeVerPrompts && !selectedAgent && (
+          <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-xl border border-border/50 w-fit">
+            {(
+              [
+                ["salud", "Salud de los agentes"],
+                ["prompts", "Prompts"],
+              ] as const
+            ).map(([clave, etiqueta]) => (
+              <button
+                key={clave}
+                onClick={() => setPestana(clave)}
+                className={cn(
+                  "px-5 py-1.5 rounded-lg text-sm font-semibold transition-all duration-300",
+                  pestana === clave
+                    ? "bg-card text-foreground shadow-sm border border-border/50"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                )}
+              >
+                {etiqueta}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {pestana === "prompts" && puedeVerPrompts && !selectedAgent ? (
+          <PromptsAgentes />
+        ) : selectedAgent ? (
           <AgentDetailView
             agent={selectedAgent}
             grupos={grupos}

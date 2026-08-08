@@ -1319,15 +1319,41 @@ export interface PromptAdmin {
   clave: string;
   agente: string;
   texto: string;
+  /** Recalculado sobre el texto en cada lectura, no leído de la columna `*_hash`. */
   hash: string | null;
   lineas: number;
+  /**
+   * `true` = hay un auditor consumiendo este prompt HOY.
+   *
+   * Los tres que faltan no están rotos: su auditor todavía no existe, y la vista lo dice con esas
+   * palabras en vez de atenuarlos. Un campo gris que nadie explica se lee como "está roto".
+   */
+  auditado: boolean;
+}
+
+export interface PromptsResponse {
+  ok: boolean;
+  empresa?: { id: string; nombre: string | null };
+  prompts?: PromptAdmin[];
+  error?: string;
+}
+
+/**
+ * Los prompts de los agentes. **No están en `/api/admin/configuracion`**: se mudaron el
+ * 2026-08-07 a su propio endpoint, que habilita `tecnico` sin darle acceso a las credenciales.
+ */
+export function fetchPrompts(): Promise<PromptsResponse> {
+  return pedirAdmin<PromptsResponse>("/api/agentes/prompts");
+}
+
+export function guardarPrompts(body: Record<string, string>): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>("/api/agentes/prompts", conJson(body));
 }
 
 export interface ConfiguracionResponse {
   ok: boolean;
   empresa?: { id: string; nombre: string; slug: string; esPrincipal: boolean; activa: boolean; zonaHoraria: string };
   credenciales?: CredencialAdmin[];
-  prompts?: PromptAdmin[];
   /** Sin clave maestra en el servidor no se puede guardar nada cifrado. */
   puedeGuardarCifrado?: boolean;
   error?: string;

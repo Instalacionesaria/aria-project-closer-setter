@@ -861,31 +861,16 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
         </div>
       </section>
 
-      {/* ── Prompts ── */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium">Prompts de los agentes</h2>
-        <p className="text-xs text-muted-foreground -mt-1">
-          Lo que el auditor usa como referencia de cómo debería comportarse cada agente. Vacío es un estado válido: el
-          auditor lo reporta como no cargado en vez de inventar uno.
-        </p>
-        {(datos.prompts ?? []).map((p) => (
-          <div key={p.clave} className="rounded-lg border border-border/50 bg-card p-3 space-y-2">
-            <div className="flex items-center justify-between gap-3">
-              <label className="text-xs font-medium">{p.agente}</label>
-              <span className="text-[11px] text-muted-foreground">
-                {p.hash ? `${p.lineas} ${p.lineas === 1 ? "línea" : "líneas"} · ${p.hash}` : "sin cargar"}
-              </span>
-            </div>
-            <textarea
-              value={cambios[p.clave] ?? p.texto}
-              onChange={(e) => editar(p.clave, e.target.value)}
-              rows={5}
-              placeholder="Pegá acá el prompt del agente…"
-              className="w-full rounded-md border border-input bg-background dark:bg-secondary px-3 py-2 text-xs font-mono resize-y"
-            />
-          </div>
-        ))}
-      </section>
+      {/* ── Los prompts se fueron de acá (2026-08-07) ──────────────────────
+        *
+        * Estaban en esta misma pantalla, debajo de las credenciales. Se **mudaron** a Auditoría
+        * de Agentes › Prompts, que habilita `tecnico`: quien mantiene el prompt del agente es el
+        * técnico, y tenerlos acá obligaba a darle `admin` —o sea, acceso al PIT de GHL, a la key
+        * de Anthropic y al token de Meta— a alguien que solo necesita editar un texto.
+        *
+        * Es una mudanza, no una copia: no quedó ni el textarea de lectura. Dos campos editando el
+        * mismo dato es el patrón que este proyecto ya pagó caro.
+        */}
 
       <div className="flex items-center justify-end gap-3 sticky bottom-0 py-3 bg-background/90 backdrop-blur border-t border-border/40">
         {guardado && (
