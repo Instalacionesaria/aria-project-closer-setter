@@ -253,3 +253,63 @@ describeSi("integración — lectura de GHL real", () => {
     expect(conexion.customFields).toContain("contact.nivel_de_inters_seguimiento");
   });
 });
+
+/**
+ * ── Crear una empresa, de punta a punta ────────────────────────────────
+ *
+ * Este endpoint **nunca había funcionado**. `closer_org_config.org_id` es la PRIMARY KEY, es
+ * `not null` y no tiene default, y el INSERT no lo mandaba: todo intento moría con
+ * `null value in column "org_id" ... violates not-null constraint`. No se notó durante toda la
+ * fase 7 porque la única empresa que existe —ARIA— la sembró la migración `018` con el UUID
+ * escrito a mano. El panel se construyó, se documentó y jamás se ejercitó creando una de verdad.
+ *
+ * Ningún test offline podía cazarlo: `tsc` está contento (la columna no aparece en el tipo del
+ * insert) y la regla vive en el esquema, no en el código. Por eso el guard va acá, contra la base
+ * real — es el único lugar donde "¿este INSERT entra?" es una pregunta que se pueda responder.
+ *
+ * Va bajo la doble compuerta porque escribe. Se limpia solo, y `es_principal: false` garantiza que
+ * el trigger `closer_org_config_protegida` no lo bloquee al borrar.
+ */
+describeEscritura("integración — crear empresa (escribe en SOFIA)", () => {
+  it("el INSERT de /api/admin/empresas entra y el slug repetido da 23505", async () => {
+    const { randomUUID } = await import("node:crypto");
+    const { dbSinScope } = await import("./db");
+
+    const slug = `zz-test-${Date.now().toString(36)}`;
+    const orgId = randomUUID();
+
+    const { data, error } = await dbSinScope()
+      .from("closer_org_config")
+      .insert({
+        // La línea que faltaba. Sin ella todo lo de abajo es inalcanzable.
+        org_id: orgId,
+        nombre: "ZZ TEST — borrar",
+        slug,
+        zona_horaria: "America/Bogota",
+        canales_sin_seguimiento_automatico: ["instagram"],
+        activa: true,
+        es_principal: false,
+      })
+      .select("org_id, slug, activa, es_principal")
+      .single();
+
+    expect(error?.message ?? null).toBeNull();
+    expect(data).toMatchObject({ org_id: orgId, slug, activa: true, es_principal: false });
+
+    /**
+     * El endpoint traduce `23505` a un 409 "ya existe una empresa con ese identificador". Se
+     * verifica que el código sea ese y no otro: si el índice único desapareciera, el handler
+     * seguiría compilando y dos empresas podrían compartir slug — que es la clave por la que el
+     * login resuelve a quién pertenece un usuario.
+     */
+    const dup = await dbSinScope()
+      .from("closer_org_config")
+      .insert({ org_id: randomUUID(), nombre: "ZZ DUP", slug, activa: true, es_principal: false })
+      .select("org_id")
+      .single();
+    expect(dup.error?.code).toBe("23505");
+
+    const { error: errBorrar } = await dbSinScope().from("closer_org_config").delete().eq("org_id", orgId);
+    expect(errBorrar?.message ?? null).toBeNull();
+  }, 30_000);
+});

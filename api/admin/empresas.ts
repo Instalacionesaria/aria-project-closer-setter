@@ -13,6 +13,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { randomUUID } from "node:crypto";
 import { activar, olvidarCredenciales } from "../_lib/credenciales.js";
 import { auditar, exigir } from "../_lib/auth.js";
 import { dbSinScope } from "../_lib/db.js";
@@ -120,6 +121,22 @@ async function crear(req: VercelRequest, res: VercelResponse, ctx: { usuarioId: 
   const { data, error } = await dbSinScope()
     .from("closer_org_config")
     .insert({
+      /**
+       * ── El id se genera ACÁ, y por eso este endpoint nunca había funcionado ──────
+       *
+       * `org_id` es la PRIMARY KEY de `closer_org_config` y es `not null` **sin default**, así que
+       * este INSERT venía fallando desde siempre con `null value in column "org_id" ... violates
+       * not-null constraint`. No se había notado porque la única empresa que existe —ARIA— la
+       * sembró la migración `018` con el UUID escrito a mano: el panel se construyó y nunca se
+       * ejercitó creando una de verdad.
+       *
+       * Se genera en Node y no con un `default gen_random_uuid()` en la columna a propósito. Un
+       * default haría que **cualquier** INSERT que olvide el id cree una empresa fantasma en
+       * silencio, y una fila de esta tabla no es un registro más: es una EMPRESA, con once tablas
+       * apuntándole por FK. Que siga siendo obligatorio explícito es lo que hace que un olvido
+       * futuro falle ruidoso en vez de ensuciar la base.
+       */
+      org_id: randomUUID(),
       nombre,
       slug,
       zona_horaria: zonaHoraria,

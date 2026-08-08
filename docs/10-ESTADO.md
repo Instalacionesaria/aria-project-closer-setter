@@ -208,6 +208,25 @@ vivas, sin usarse:
   por navegador y por usuario. Dos admins pueden ver porcentajes distintos del mismo closer. Hay
   que mudarlo a `closer_org_config` — es la deuda más concreta que dejó el Bloque F.
 
+### Lo que se construyó y nunca se ejercitó (y lo que eso costó)
+
+**Crear una empresa nunca funcionó** hasta el 2026-08-08. `closer_org_config.org_id` es la PRIMARY
+KEY, es `not null` y no tiene default, y el INSERT de `api/admin/empresas.ts` no lo mandaba: todo
+intento moría con `null value in column "org_id" ... violates not-null constraint`.
+
+No se notó en toda la fase 7 porque la única empresa que existe —ARIA— la sembró la migración `018`
+con el UUID escrito a mano. El panel se construyó, se documentó como terminado y jamás se probó
+creando una de verdad. Lo encontró Fabio apretando el botón.
+
+> Ningún test offline podía cazarlo: `tsc` está contento —la columna no aparece en el tipo del
+> insert— y la regla vive en el esquema, no en el código. Por eso el guard quedó en
+> `integracion.test.ts`, contra la base real: es el único lugar donde *"¿este INSERT entra?"* es una
+> pregunta que se pueda responder.
+
+Se barrieron las demás PK del esquema buscando el mismo modo de fallo. `closer_mensajes.id` es la
+única otra sin default, y ahí es correcto: es el id del mensaje de GHL, una clave natural que el
+código pone a propósito. El resto son `identity`.
+
 ### Lo que hay que verificar la primera vez que corra
 
 - **La sincronización de Meta nunca se ejecutó.** El mapeo de `api/_lib/meta/real.ts` está escrito
