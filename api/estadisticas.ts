@@ -155,6 +155,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     );
     const ocurridas = pasadas.filter((c) => !noShowPorDia.has(`${c.ghl_contact_id}:${diaOrg(c.fecha_hora)}`)).length;
 
+    /* ── Gasto en pauta, de Meta ─────────────────────────────────────────── */
+    /**
+     * ── Dejó de ser un campo manual (2026-08-07) ──────────────────────
+     *
+     * Hasta hoy el gasto era un número que alguien escribía en Ajustes › Operación (semilla:
+     * 3000), y los cuatro indicadores que dependen de él viajaban `null` con el motivo *"sin
+     * integración con Meta (fase 7)"*. La fase 7 existe: `closer_meta_metricas` se llena sola con
+     * el cron diario, por empresa.
+     *
+     * `nivel = 'cuenta'` y no la suma de campañas: las filas de campaña, conjunto y anuncio son
+     * el mismo gasto desagregado, y sumarlas todas lo contaría hasta cuatro veces.
+     *
+     * Si no hay filas —una empresa sin Meta conectado— el gasto es `null`, **no cero**. Un ROAS
+     * calculado sobre cero es división por cero; uno calculado sobre "no sé" es una mentira con
+     * cara de número. Los cuatro siguen viajando `null` y la vista no los renderiza.
+     */
+    const { data: filasMeta, error: errMeta } = await db()
+      .from("closer_meta_metricas")
+      .select("gasto, leads")
+      .eq("nivel", "cuenta")
+      .gte("fecha", desde.slice(0, 10))
+      .lte("fecha", hasta.slice(0, 10));
+    if (errMeta) throw new Error(`closer_meta_metricas: ${errMeta.message}`);
+
+    const diasConMeta = filasMeta ?? [];
+    const gastoEnPauta =
+      diasConMeta.length > 0 ? diasConMeta.reduce((s, f) => s + Number(f.gasto ?? 0), 0) : null;
+    const leadsDeMeta = diasConMeta.reduce((s, f) => s + Number(f.leads ?? 0), 0);
+
+    /** Solo si hay gasto Y una base > 0. `null` = no se puede afirmar, y eso no se redondea. */
+    const porGasto = (base: number): number | null =>
+      gastoEnPauta !== null && base > 0 ? Math.round((gastoEnPauta / base) * 100) / 100 : null;
+
     /* ── Contactos: el embudo y la fuente ────────────────────────────────── */
     const { data: contactos, error: errContactos } = await db()
       .from("closer_contactos")
@@ -228,14 +261,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ticketPromedio,
         sobreLaMesa,
         /**
-         * Los cuatro que dependen del gasto en pauta viajan `null` y no en cero. Un ROAS de 0
-         * afirma que no hubo retorno; `null` dice que no sabemos cuánto se gastó — que es la
-         * verdad hasta que exista la fase 7.
+         * Los cuatro dependen del gasto en pauta. `null` cuando la empresa no tiene Meta
+         * conectado: un ROAS de 0 afirma que no hubo retorno, y `null` dice que no sabemos cuánto
+         * se gastó. No son lo mismo y la vista los trata distinto.
          */
-        roas: null,
-        cac: null,
-        cpl: null,
-        cpa: null,
+        gastoEnPauta,
+        // Cuántas veces volvió lo invertido. Este va al revés que los otros tres: revenue/gasto.
+        roas: gastoEnPauta !== null && gastoEnPauta > 0 ? Math.round((revenue / gastoEnPauta) * 100) / 100 : null,
+        cac: porGasto(ventas.length),
+        /**
+         * El CPL usa los leads que **reporta Meta**, no los contactos de la base: son cosas
+         * distintas —un lead de Meta puede no haber llegado nunca a GHL— y dividir el gasto de
+         * Meta por los contactos de GHL mezcla dos universos.
+         */
+        cpl: porGasto(leadsDeMeta),
+        cpa: porGasto(agendadas.length),
       },
 
       fuentes: porFuente,
@@ -265,7 +305,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         cortesHighLowTicket: "Ninguna marca sobre una venta distingue high-ticket de low-ticket.",
         metricasSetter: "`api/setter/` no escribe nada todavía: ninguna acción de un setter llega a la base.",
         metricasVideo: "`contact._video_precall` llega de GHL pero no se persiste.",
-        gastoEnPauta: "Sin integración con Meta (fase 7). Hoy es un campo manual en Ajustes.",
+        // `gastoEnPauta` ya NO está acá: se mide desde `closer_meta_metricas` (2026-08-07). Si una
+        // empresa no tiene Meta conectado, los cuatro indicadores viajan `null` por su cuenta.
       },
     });
   } catch (e) {

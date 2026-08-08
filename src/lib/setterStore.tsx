@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useState, useMemo } from "react";
 import { type Grade, type BotEstado, type HistorialItem, type NotaItem, type CallRecord, type PerfilField } from "./closerStore";
 import { useSettings } from "./settingsStore";
+import { useAuth } from "./authStore";
 
 /**
  * Single source of truth para el módulo Setter (§4.4 de CLAUDE.md), espejo de closerStore.tsx.
@@ -357,7 +358,10 @@ interface SetterCockpitBase {
   oportunidadesLTBase: number;
 }
 
-const CURRENT_SETTER_NAME = "Jorge Q.";
+/**
+ * El nombre del setter salía de una constante: `"Jorge Q."`. Con dos setters, el segundo veía la
+ * comisión del primero. Ahora sale de la sesión — ver `cockpit`, más abajo.
+ */
 
 const SETTER_COCKPIT_BASE: SetterCockpitBase = {
   ltBruto: 500,
@@ -407,6 +411,7 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const [deltas, setDeltas] = useState<SetterSessionDeltas>(ZERO_SETTER_DELTAS);
   const { comisionesSetterLT, comisionesSetterDiferida } = useSettings();
+  const { usuario } = useAuth();
 
   const advance = useCallback((name: string, input: SetterAdvanceInput) => {
     setContacts((prev) => {
@@ -523,8 +528,10 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const cockpit: SetterCockpit = useMemo(() => {
-    const ltPct = (comisionesSetterLT[CURRENT_SETTER_NAME] ?? 20) / 100;
-    const diferidaPct = (comisionesSetterDiferida[CURRENT_SETTER_NAME] ?? 10) / 100;
+    // Sin porcentaje cargado en Ajustes, 0: no hay comisión que mostrar hasta que alguien la fije.
+    const yo = usuario?.nombre ?? "";
+    const ltPct = (comisionesSetterLT[yo] ?? 0) / 100;
+    const diferidaPct = (comisionesSetterDiferida[yo] ?? 0) / 100;
     const ltBruto = SETTER_COCKPIT_BASE.ltBruto + deltas.ltMonto;
     const diferidaBruto = SETTER_COCKPIT_BASE.diferidaBruto;
     const comisionLT = Math.round(ltBruto * ltPct);

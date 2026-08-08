@@ -24,7 +24,11 @@ export interface MiCuenta {
 
 /** § Gerencia (2026-07-13) — únicos 2 parámetros que ese dashboard lee de Ajustes (además de las comisiones ya existentes): inversión de pauta (ROAS/CAC) y objetivo de facturación mensual. Admin-level, no por-usuario. */
 export interface GerenciaParams {
-  inversionMetaAds: number;
+  /**
+   * `inversionMetaAds` se fue el 2026-08-07. Era manual, con semilla 3000, y **nadie la leía**:
+   * Estadísticas mandaba ROAS/CAC/CPL/CPA en `null`. Hoy el gasto sale de `closer_meta_metricas`,
+   * que llena el cron diario de Meta por empresa. Dos fuentes para el mismo hecho divergen.
+   */
   objetivoFacturacion: number;
 }
 
@@ -40,37 +44,60 @@ export interface CatalogLink {
   scope: Role[];
 }
 
+/**
+ * ── Las semillas se vaciaron (2026-08-07, patrón D4) ──────────────────
+ *
+ * `linkPersonal` traía `https://cal.example.com/jorge-q`: un dominio de ejemplo con el nombre de
+ * una persona real. Se copiaba a cualquier empresa nueva y se mostraba como si fuera su link.
+ * Vacío es un estado válido y honesto — la UI lo pide en vez de mostrar uno falso.
+ *
+ * `metaComision` y `calendarConectado` NO son semillas: son el valor inicial de una preferencia
+ * personal y el estado de una integración. Se dejan.
+ */
 const DEFAULT_MI_CUENTA: MiCuenta = {
   metaComision: 3000,
   calendarConectado: true,
-  linkPersonal: "https://cal.example.com/jorge-q",
+  linkPersonal: "",
   sonidoVenta: "caja",
 };
 
-const SEED_COMISIONES: Record<string, number> = {
-  "Jorge Q.": 10,
-  "Ariel C.": 12,
-};
+/**
+ * ── Vacío a propósito (2026-08-07) ────────────────────────────────────
+ *
+ * Traía `{"Jorge Q.": 10, "Ariel C.": 12}`. "Ariel C." no es ni fue nunca un usuario: era un
+ * ejemplo hardcodeado que se veía igual que un dato real, en la tabla desde la que se calculan
+ * comisiones. "Jorge Q." sí existe, pero su fila ahora sale de la base como la de cualquiera.
+ *
+ * **Las filas de la tabla las ponen los usuarios de la empresa con rol `closer`**, no este mapa.
+ * Acá solo vive el porcentaje que alguien fijó, indexado por nombre. Una empresa nueva arranca
+ * con sus closers y sin porcentaje — que es lo que hay que completar, no un 10% inventado.
+ */
+const SEED_COMISIONES: Record<string, number> = {};
 
 /** § correcciones dashboards (2026-07-11) — comisión del Setter tiene 2 tramos (§ doc de Francisco): directa (LT que vende él) y diferida (HT que cierra el closer sobre un lead que el setter originó/rescató). */
-const SEED_COMISIONES_SETTER_LT: Record<string, number> = {
-  "Jorge Q.": 20,
-};
-const SEED_COMISIONES_SETTER_DIFERIDA: Record<string, number> = {
-  "Jorge Q.": 10,
-};
+const SEED_COMISIONES_SETTER_LT: Record<string, number> = {};
+const SEED_COMISIONES_SETTER_DIFERIDA: Record<string, number> = {};
 
+/**
+ * El objetivo de facturación **no** es una semilla que haya que vaciar: no hay ninguna otra fuente
+ * de la que pueda salir —es una decisión del negocio— y arrancar en 0 haría que el panel mostrara
+ * "0% de la meta" el primer día, que es peor que un valor de arranque editable.
+ */
 const DEFAULT_GERENCIA: GerenciaParams = {
-  inversionMetaAds: 3000,
   objetivoFacturacion: 46000,
 };
 
 const SEED_CATEGORIAS = ["Enlaces de pago", "Low-ticket", "Recursos"];
 
-const SEED_CATALOG: CatalogLink[] = [
-  { id: "seed-cat-1", etiqueta: "Plan Anual", categoria: "Enlaces de pago", url: "https://pay.example.com/plan-anual", procesador: "Stripe", monto: 3000, scope: ["closer"] },
-  { id: "seed-cat-2", etiqueta: "Sesión 1 a 1", categoria: "Low-ticket", url: "https://pay.example.com/sesion-1a1", procesador: "Stripe", monto: 500, scope: ["closer", "setter"] },
-];
+/**
+ * Vacío (2026-08-07, patrón D4). Eran dos enlaces a `pay.example.com` que el closer veía en el
+ * menú del chat junto a los reales: un link de cobro falso que se puede mandar por accidente es
+ * peor que la ausencia del menú. El catálogo lo carga cada empresa.
+ *
+ * Las CATEGORÍAS sí se dejan: son etiquetas de organización, no datos que se puedan confundir con
+ * algo cobrable, y sin ninguna el formulario de alta arranca sin dónde clasificar.
+ */
+const SEED_CATALOG: CatalogLink[] = [];
 
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++idCounter}`;

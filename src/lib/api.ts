@@ -1462,7 +1462,12 @@ export interface EstadisticasResponse {
     /** `null` sin ventas: no hay ticket promedio de cero ventas. */
     ticketPromedio: number | null;
     sobreLaMesa: number;
-    /** Los cuatro dependen del gasto en pauta. `null` hasta que exista la integración con Meta. */
+    /**
+     * Lo gastado en pauta según Meta (`closer_meta_metricas`, nivel cuenta). `null` = esa empresa
+     * no tiene Meta conectado. Dejó de ser un campo manual de Ajustes el 2026-08-07.
+     */
+    gastoEnPauta: number | null;
+    /** Los cuatro dependen del gasto. `null` cuando la empresa no tiene Meta conectado. */
     roas: number | null;
     cac: number | null;
     cpl: number | null;

@@ -108,7 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (resultado === "seguimiento") {
-      return await registrarSalidaSeguimiento({ res, campos, texto, ghlContactId, idempotencyKey, nota, def });
+      return await registrarSalidaSeguimiento({ res, campos, texto, ghlContactId, idempotencyKey, nota, def, autor: ctx.nombre });
     }
     return await registrarOtraSalida({
       res,
@@ -119,6 +119,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nota,
       resultado: resultado as ResultadoSinSeguimiento,
       def,
+      autor: ctx.nombre,
     });
   } catch (e) {
     if (e instanceof SeguimientoInvalidoError) return malo(res, e.message, e.codigo);
@@ -138,8 +139,10 @@ async function registrarSalidaSeguimiento(args: {
   idempotencyKey: string;
   nota?: string;
   def: ResultadoDef;
+  /** Quién lo registra: `ctx.nombre`. Explícito, para no volver a firmar con una constante. */
+  autor: string;
 }) {
-  const { res, texto, ghlContactId, idempotencyKey, nota, def } = args;
+  const { res, texto, ghlContactId, idempotencyKey, nota, def, autor } = args;
 
   const situacion = texto("situacion");
   const modo = texto("modo");
@@ -174,6 +177,8 @@ async function registrarSalidaSeguimiento(args: {
   }
 
   const r = await registrarSeguimiento({
+    // Quien lo registra es quien tiene la sesión, no un nombre fijo del código.
+    autor,
     ghlContactId,
     situacion: situacion as SituacionSeguimiento,
     modo: modo as ModoSeguimiento,
@@ -214,8 +219,9 @@ async function registrarOtraSalida(args: {
   nota?: string;
   resultado: ResultadoSinSeguimiento;
   def: ResultadoDef;
+  autor: string;
 }) {
-  const { res, campos, texto, ghlContactId, idempotencyKey, nota, resultado, def } = args;
+  const { res, campos, texto, ghlContactId, idempotencyKey, nota, resultado, def, autor } = args;
 
   /* ── Monto ── */
   let monto: number | undefined;
@@ -266,6 +272,7 @@ async function registrarOtraSalida(args: {
   const { textoEvento, toast } = narrar(resultado, subcategoria, monto);
 
   const r = await registrarResultadoAvanzar({
+    autor,
     ghlContactId,
     resultado,
     subcategoria,

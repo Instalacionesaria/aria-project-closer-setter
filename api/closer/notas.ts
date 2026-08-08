@@ -40,7 +40,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   activar(ctx.credenciales);
 
   if (req.method === "GET") return listar(req, res);
-  if (req.method === "POST") return crear(req, res);
+  if (req.method === "POST") return crear(req, res, ctx.nombre);
   if (req.method === "DELETE") return eliminar(req, res);
 
   res.setHeader("Allow", "GET, POST, DELETE");
@@ -71,7 +71,7 @@ async function listar(req: VercelRequest, res: VercelResponse) {
 
 /* ── POST ────────────────────────────────────────────────────────────── */
 
-async function crear(req: VercelRequest, res: VercelResponse) {
+async function crear(req: VercelRequest, res: VercelResponse, autorSesion: string) {
   const cuerpo = typeof req.body === "string" ? safeJson(req.body) : req.body;
   if (!cuerpo || typeof cuerpo !== "object") return malo(res, "Cuerpo JSON inválido.", "cuerpo_invalido");
 
@@ -101,7 +101,11 @@ async function crear(req: VercelRequest, res: VercelResponse) {
     const nota = await crearNota({
       ghlContactId: ghlContactId.trim(),
       texto,
-      autor,
+      /**
+       * El `autor` del cuerpo se acepta pero **no manda**: si hay sesión, firma la sesión. Un
+       * cliente que mande otro nombre estaría firmando una nota con la identidad de otro.
+       */
+      autor: autorSesion || autor,
       contexto,
     });
 

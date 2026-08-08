@@ -53,6 +53,7 @@ import {
   type StageKey,
 } from "../lib/closerStore";
 import { useSettings } from "../lib/settingsStore";
+import { useAuth } from "../lib/authStore";
 import { useAgentAudit } from "../lib/agentAuditStore";
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
@@ -409,7 +410,13 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
   const ventas = inicio?.ventas ?? 0;
   /** Comisión = cash real × el % del closer en Ajustes > Operación (§30). */
   const { comisiones } = useSettings();
-  const pct = (comisiones["Jorge Q."] ?? 10) / 100;
+  const { usuario } = useAuth();
+  /**
+   * El % de QUIEN ESTÁ MIRANDO. Decía `comisiones["Jorge Q."] ?? 10`: un nombre escrito en el
+   * código y un 10% de respaldo, sobre el que después se paga plata. Sin porcentaje cargado en
+   * Ajustes › Operación es 0, y lo que falta es cargarlo.
+   */
+  const pct = (usuario ? (comisiones[usuario.nombre] ?? 0) : 0) / 100;
   const comisionReal = Math.round(cashCollected * pct);
 
   /** Tasa de Cierre = ventas ÷ llamadas ocurridas (§6.A), con su base (§4.9). */

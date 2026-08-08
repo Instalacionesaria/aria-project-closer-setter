@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useSettings } from "./settingsStore";
+import { useAuth } from "./authStore";
 import {
   filaAContacto,
   registrarResultadoRemoto,
@@ -49,8 +50,15 @@ import { CADENCIA, registrarReloj } from "./polling";
  */
 const GRACIA_MS = 20_000;
 
-/** Quién firma lo que se escribe desde la app. Sin auth real, es el closer del demo (§50.7). */
-const AUTOR_ACTIVO = "Jorge Q.";
+/**
+ * Quién firma lo que se escribe desde la app.
+ *
+ * Era la constante `"Jorge Q."`, de cuando no había sesión (§50.7). Ahora la hay. Igual **no es
+ * esto lo que decide la firma**: el backend ignora el `autor` del cuerpo y usa `ctx.nombre` (ver
+ * `api/closer/notas.ts`). Sirve para pintar la nota en la lista sin esperar la respuesta, y si
+ * difiriera del servidor el próximo GET lo corrige.
+ */
+const AUTOR_OPTIMISTA = "Vos";
 
 /** Fecha corta para la ficha ("3 ago, 17:41") — el servidor manda ISO crudo (CONTRATO §0). */
 const fechaCorta = (iso: string) =>
@@ -505,8 +513,6 @@ function buildSeedContacts(): Record<string, ClosurerContact> {
    contacto y el dinero real sale de las oportunidades de GHL (`/api/closer/cockpit`), así que
    no queda ningún número del cockpit sin un dato detrás. */
 
-/** Closer activo del demo (sin auth real) — su % vive en Ajustes > Operación > Comisiones. */
-const CURRENT_CLOSER_NAME = "Jorge Q.";
 
 /**
  * El efecto de un Avanzar sobre UN contacto, como función pura.
@@ -689,7 +695,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    */
   const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
   const { comisiones } = useSettings();
-  const comisionPct = (comisiones[CURRENT_CLOSER_NAME] ?? 10) / 100;
+  const { usuario } = useAuth();
+  /**
+   * El % del closer QUE ESTÁ MIRANDO, de Ajustes › Operación.
+   *
+   * Decía `comisiones["Jorge Q."] ?? 10`: el nombre de una persona escrito en el código, y un 10%
+   * de respaldo. Con dos closers, el segundo veía la comisión del primero; con la semilla vacía,
+   * todos verían un 10% que nadie fijó. Sin porcentaje cargado ahora es 0, y lo que hay que
+   * cargarlo es Ajustes.
+   */
+  const comisionPct = (usuario ? (comisiones[usuario.nombre] ?? 0) : 0) / 100;
 
   /**
    * `ghlContactId` → cuándo se registró un Avanzar sobre él, en esta pestaña.
@@ -1127,14 +1142,14 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         [name]: {
           ...c,
-          notas: [{ id: Date.now(), contexto: null, texto, autor: AUTOR_ACTIVO, fecha: "Hoy" }, ...c.notas],
+          notas: [{ id: Date.now(), contexto: null, texto, autor: AUTOR_OPTIMISTA, fecha: "Hoy" }, ...c.notas],
         },
       };
     });
 
     if (!ghlContactId) return; // semilla/demo: se queda en memoria, como siempre
 
-    crearNota({ ghlContactId, texto, autor: AUTOR_ACTIVO })
+    crearNota({ ghlContactId, texto })
       .then((r) => {
         // Se reemplaza la nota optimista por la fila REAL de la base (id y fecha de verdad).
         setContacts((prev) => {

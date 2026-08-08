@@ -23,7 +23,7 @@
  * de cambiar. Ver `Retencion` en `Administracion.tsx`.
  */
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Building2,
   CircleCheck,
@@ -44,6 +44,7 @@ import { useAuth } from "../lib/authStore";
 import { useSettings, type CatalogLink, type Role, type SonidoVenta } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
 import { SeccionConfiguracion, SeccionEmpresas, SeccionUsuarios, type Retencion } from "./Administracion";
+import { fetchUsuariosAdmin, type Rol, type UsuarioAdmin } from "../lib/api";
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
 
@@ -369,8 +370,37 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [metaInput, setMetaInput] = useState(String(miCuenta.metaComision));
-  const [inversionInput, setInversionInput] = useState(String(gerencia.inversionMetaAds));
   const [objetivoInput, setObjetivoInput] = useState(String(gerencia.objetivoFacturacion));
+
+  /**
+   * ── Las filas de comisiones salen de los USUARIOS (2026-08-07) ────────
+   *
+   * Antes salían de un mapa semilla del store: `{"Jorge Q.": 10, "Ariel C.": 12}`. "Ariel C." no
+   * fue nunca un usuario —era un ejemplo hardcodeado— y se veía exactamente igual que un dato
+   * real, en la tabla desde la que se calculan comisiones. Y una empresa nueva heredaba las dos.
+   *
+   * Ahora la tabla la arman los usuarios activos de ESTA empresa con rol `closer` (o `setter`), y
+   * el mapa del store guarda solo el porcentaje que alguien fijó. Sin porcentaje, el campo va
+   * vacío: un 10% de arranque es un número inventado sobre el que después se paga plata.
+   *
+   * `fetchUsuariosAdmin` alcanza porque esta pestaña ya es admin-only — la pide `soloAdmin` arriba
+   * y la refuerza el 403 de `api/admin/*`.
+   */
+  const [equipo, setEquipo] = useState<UsuarioAdmin[] | null>(null);
+  useEffect(() => {
+    if (pestana !== "operacion") return;
+    let vivo = true;
+    void fetchUsuariosAdmin().then((r) => {
+      if (vivo) setEquipo(r.ok ? (r.usuarios ?? []) : []);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [pestana]);
+
+  const conRol = (rol: Rol) => (equipo ?? []).filter((u) => u.activo && u.roles.includes(rol)).map((u) => u.nombre);
+  const closers = conRol("closer");
+  const setters = conRol("setter");
   const [savedToast, setSavedToast] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -388,12 +418,6 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
     const n = Number(metaInput);
     if (Number.isFinite(n) && n > 0) setMiCuenta({ metaComision: n });
     else setMetaInput(String(miCuenta.metaComision));
-  };
-
-  const commitInversion = () => {
-    const n = Number(inversionInput);
-    if (Number.isFinite(n) && n >= 0) setGerencia({ inversionMetaAds: n });
-    else setInversionInput(String(gerencia.inversionMetaAds));
   };
 
   const commitObjetivo = () => {
@@ -617,7 +641,15 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                         </tr>
                       </thead>
                       <tbody className="[&_tr:last-child]:border-0">
-                        {Object.entries(comisiones).map(([closer, pct]) => (
+                        {closers.length === 0 && (
+                          <tr>
+                            <td colSpan={2} className="p-4 text-sm text-muted-foreground">
+                              {/* Los tres estados se distinguen: cargando, cargado y vacío, error. */}
+                              {equipo === null ? "Cargando el equipo…" : "Esta empresa no tiene ningún usuario con rol Closer."}
+                            </td>
+                          </tr>
+                        )}
+                        {closers.map((closer) => (
                           <tr key={closer} className="border-b transition-colors hover:bg-muted/50">
                             <td className="p-4 align-middle font-medium">{closer}</td>
                             <td className="p-4 align-middle">
@@ -626,7 +658,9 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                                   type="number"
                                   min={0}
                                   max={100}
-                                  value={pct}
+                                  /* Sin porcentaje fijado va VACÍO, no en 0: un 0% afirma que no cobra comisión. */
+                                  value={comisiones[closer] ?? ""}
+                                  placeholder="—"
                                   onChange={(e) => setComisionPct(closer, Number(e.target.value))}
                                   className="flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-8 bg-background dark:bg-secondary"
                                 />
@@ -658,7 +692,14 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                         </tr>
                       </thead>
                       <tbody className="[&_tr:last-child]:border-0">
-                        {Object.keys(comisionesSetterLT).map((setter) => (
+                        {setters.length === 0 && (
+                          <tr>
+                            <td colSpan={3} className="p-4 text-sm text-muted-foreground">
+                              {equipo === null ? "Cargando el equipo…" : "Esta empresa no tiene ningún usuario con rol Setter."}
+                            </td>
+                          </tr>
+                        )}
+                        {setters.map((setter) => (
                           <tr key={setter} className="border-b transition-colors hover:bg-muted/50">
                             <td className="p-4 align-middle font-medium">{setter}</td>
                             <td className="p-4 align-middle">
@@ -667,7 +708,8 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                                   type="number"
                                   min={0}
                                   max={100}
-                                  value={comisionesSetterLT[setter] ?? 0}
+                                  value={comisionesSetterLT[setter] ?? ""}
+                                  placeholder="—"
                                   onChange={(e) => setComisionSetterLTPct(setter, Number(e.target.value))}
                                   className="flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-8 bg-background dark:bg-secondary"
                                 />
@@ -680,7 +722,8 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                                   type="number"
                                   min={0}
                                   max={100}
-                                  value={comisionesSetterDiferida[setter] ?? 0}
+                                  value={comisionesSetterDiferida[setter] ?? ""}
+                                  placeholder="—"
                                   onChange={(e) => setComisionSetterDiferidaPct(setter, Number(e.target.value))}
                                   className="flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-8 bg-background dark:bg-secondary"
                                 />
@@ -699,25 +742,19 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
               <div className="rounded-lg bg-card text-card-foreground border border-border/50 shadow-sm">
                 <div className="flex flex-col space-y-1.5 p-6 pb-4 border-b border-border/50 bg-muted/10">
                   <h3 className="font-semibold tracking-tight text-lg">Parámetros de Estadísticas</h3>
-                  <p className="text-xs text-muted-foreground">Alimentan el ROAS, el CAC y la meta de facturación del panel de Estadísticas.</p>
+                  <p className="text-xs text-muted-foreground">La meta de facturación del panel de Estadísticas.</p>
                 </div>
+                {/*
+                  "Inversión Meta Ads" se fue de acá el 2026-08-07.
+                  Era un campo manual con semilla 3000 que **nadie leía**: Estadísticas mandaba el
+                  ROAS, el CAC, el CPL y el CPA en `null` con el motivo "sin integración con Meta".
+                  Ahora el gasto sale de `closer_meta_metricas`, que llena el cron diario por
+                  empresa. Dejar el campo habría sido dejar una perilla que no mueve nada — y peor,
+                  una segunda fuente para el mismo hecho, que es la regla 3 de CLAUDE.md.
+                  Si una empresa no tiene Meta conectado, los cuatro indicadores siguen viajando
+                  `null` y el panel no los renderiza. No hay número inventado en ninguna punta.
+                */}
                 <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium leading-none">Inversión Meta Ads (mensual)</label>
-                    <div className="relative max-w-xs">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                      <input
-                        type="number"
-                        min={0}
-                        value={inversionInput}
-                        onChange={(e) => setInversionInput(e.target.value)}
-                        onBlur={commitInversion}
-                        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                        className="flex h-10 w-full rounded-md border border-input px-3 py-2 pl-7 text-sm bg-background dark:bg-secondary"
-                      />
-                    </div>
-                    <p className="text-[10px] text-muted-foreground">Manual por ahora — pendiente definir si se jala por API de Meta.</p>
-                  </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium leading-none">Objetivo de facturación (mensual)</label>
                     <div className="relative max-w-xs">

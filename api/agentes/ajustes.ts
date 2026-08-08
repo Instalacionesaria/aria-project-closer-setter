@@ -19,7 +19,7 @@
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import type { AgenteTextoId } from "../_lib/analizador.js";
-import { AUTOR_POR_DEFECTO, db } from "../_lib/repo.js";
+import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -69,7 +69,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (req.method === "GET") return await listar(req, res);
-    if (req.method === "POST") return await registrar(req, res);
+    if (req.method === "POST") return await registrar(req, res, ctx.nombre);
     res.setHeader("Allow", "GET, POST");
     return res.status(405).json({ ok: false, error: "Solo GET o POST." });
   } catch (e) {
@@ -94,7 +94,7 @@ async function listar(req: VercelRequest, res: VercelResponse) {
   return res.status(200).json({ ok: true, count: ajustes.length, ajustes });
 }
 
-async function registrar(req: VercelRequest, res: VercelResponse) {
+async function registrar(req: VercelRequest, res: VercelResponse, autor: string) {
   const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
   const { agenteId, errorCode, casosIds } = cuerpo as Record<string, unknown>;
 
@@ -135,7 +135,7 @@ async function registrar(req: VercelRequest, res: VercelResponse) {
     .update({
       estado: "parcheado",
       resuelto_el: new Date().toISOString(),
-      resuelto_por: AUTOR_POR_DEFECTO,
+      resuelto_por: autor,
     })
     .eq("agente_id", agenteId)
     .eq("error_code", errorCode)
@@ -159,12 +159,13 @@ async function registrar(req: VercelRequest, res: VercelResponse) {
       correccion: (fuente as { correccion: string | null }).correccion,
       prompt_hash: (fuente as { prompt_hash: string | null }).prompt_hash,
       /**
-       * Lo firma el servidor. Nota pendiente para Fabio: `AUTOR_POR_DEFECTO` es "Jorge Q.",
-       * que es el CLOSER — y quien aplica un ajuste al prompt es el técnico. Es un dato
-       * falso, solo que menos visible que un cero inventado. Se arregla cuando haya auth, o
-       * antes si Fabio prefiere una constante aparte.
+       * Lo firma quien tiene la sesión, que acá es siempre un `tecnico` — el endpoint lo exige.
+       *
+       * Hasta el 2026-08-07 esto era `AUTOR_POR_DEFECTO`, o sea `"Jorge Q."`, que es el CLOSER; el
+       * comentario de entonces lo admitía: *"es un dato falso, solo que menos visible que un cero
+       * inventado"*. Quien aplica un ajuste al prompt es el técnico, y ahora queda su nombre.
        */
-      autor: AUTOR_POR_DEFECTO,
+      autor,
     })
     .select(COLUMNAS)
     .single();

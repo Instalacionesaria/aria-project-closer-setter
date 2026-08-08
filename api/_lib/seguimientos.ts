@@ -49,7 +49,16 @@ import { db, hoyOrg, orgActiva } from "./repo.js";
 
 const CLOSER_POR_DEFECTO = "00000000-0000-0000-0000-0000000000c1";
 /** Un solo closer mientras `zona_closer` sea territorio y no asignación (§50.7). */
-const AUTOR_POR_DEFECTO = "Jorge Q.";
+/**
+ * Con quién se firma lo que escribe un camino de MÁQUINA.
+ *
+ * Era `"Jorge Q."`, de cuando no había sesión y el closer era uno solo. Ahora la hay, así que el
+ * autor real llega por `input.autor` desde el endpoint (`ctx.nombre`) y esto quedó para lo único
+ * que no tiene autor humano: un cron o un webhook. Firmar eso con el nombre de una persona es
+ * atribuirle a alguien algo que no hizo — y contradice la regla 5 de CLAUDE.md, que dice que los
+ * eventos automáticos se registran con autor `Sistema`.
+ */
+const AUTOR_SISTEMA = "Sistema";
 
 /** Toda salida que NO es Seguimiento — no crea fila, solo cierra la que hubiera. */
 export type ResultadoSinSeguimiento = Exclude<ResultadoAvanzar, "seguimiento">;
@@ -433,6 +442,8 @@ export interface RegistrarSeguimientoInput {
   nota?: string;
   idempotencyKey: string;
   closerId?: string;
+  /** Quién lo registra. Del endpoint sale `ctx.nombre`; sin él se firma como `Sistema`. */
+  autor?: string;
 }
 
 export interface ResultadoRegistro {
@@ -470,7 +481,7 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
     p_serie_toques: esAutomatico ? SERIE_RECUPERO.toques : null,
     p_serie_dias: esAutomatico ? SERIE_RECUPERO.dias : null,
     p_texto_evento: textoEvento,
-    p_autor_nombre: AUTOR_POR_DEFECTO,
+    p_autor_nombre: input.autor?.trim() || AUTOR_SISTEMA,
     p_org_id: orgActiva(),
   });
 
@@ -525,6 +536,8 @@ export interface RegistrarResultadoInput {
   textoEvento: string;
   idempotencyKey: string;
   closerId?: string;
+  /** Quién lo registra. Del endpoint sale `ctx.nombre`; sin él se firma como `Sistema`. */
+  autor?: string;
 }
 
 export interface ResultadoRegistroAvanzar {
@@ -599,7 +612,7 @@ export async function registrarResultadoAvanzar(
     ghlContactId: input.ghlContactId,
     tipo: "avanzar_registrado",
     texto: input.textoEvento,
-    autor: { tipo: "usuario", nombre: AUTOR_POR_DEFECTO, usuarioId: closerId },
+    autor: { tipo: "usuario", nombre: input.autor?.trim() || AUTOR_SISTEMA, usuarioId: closerId },
     payload: {
       resultado: input.resultado,
       subcategoria: input.subcategoria ?? null,
@@ -615,7 +628,7 @@ export async function registrarResultadoAvanzar(
       ghl_contact_id: input.ghlContactId,
       texto: nota,
       contexto: input.pildora,
-      autor_nombre: AUTOR_POR_DEFECTO,
+      autor_nombre: input.autor?.trim() || AUTOR_SISTEMA,
       autor_usuario_id: closerId,
     });
     if (error) advertencias.push(`La nota no se guardó: ${error.message}`);

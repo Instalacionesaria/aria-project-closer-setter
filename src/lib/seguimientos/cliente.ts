@@ -165,7 +165,13 @@ export function filaAContacto(f: FilaApi): ClosurerContact {
     historial: [],
     // La nota del Avanzar viaja al tab Notas con su contexto (§3).
     notas: f.seguimiento.nota
-      ? [{ id: 1, contexto: armarPildora({ stage: "seguimiento", subcategoria: situacionLabel }), texto: f.seguimiento.nota, autor: "Jorge Q.", fecha: "—" }]
+      /**
+       * `autor: ""` y no `"Jorge Q."`. Esta es la nota que el endpoint devuelve dentro de la fila
+       * de Mi Día, y **no trae autor**: el nombre estaba escrito acá. Con un solo closer coincidía
+       * por casualidad; con dos, le atribuía a uno la nota del otro. Vacío es honesto — la ficha
+       * lo omite, y el tab Notas trae el autor real cuando se abre.
+       */
+      ? [{ id: 1, contexto: armarPildora({ stage: "seguimiento", subcategoria: situacionLabel }), texto: f.seguimiento.nota, autor: "", fecha: "—" }]
       : [],
   };
 }

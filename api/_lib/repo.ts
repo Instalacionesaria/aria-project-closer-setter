@@ -141,19 +141,21 @@ export interface Nota {
 export interface CrearNotaInput {
   ghlContactId: string;
   texto: string;
-  /** Nombre visible. Sin él se atribuye al closer por defecto — ver `AUTOR_POR_DEFECTO`. */
+  /** Nombre visible. Sin él se firma como `Sistema` — ver `AUTOR_SISTEMA`. */
   autor?: string;
   contexto?: string;
   orgId?: string;
 }
 
 /**
- * Mientras haya un solo closer y ninguna sesión, el autor de una nota escrita a mano es él.
- * Duplica el `"Jorge Q."` que `seguimientos.ts` le pasa a `closer_registrar_seguimiento`: son
- * dos casos de uso distintos y unificarlos ahora sería inventar un módulo de identidad para
- * un usuario único. Cuando haya auth, los dos leen de ahí.
+ * Con quién se firma una nota que llega **sin autor**.
+ *
+ * Era `"Jorge Q."`, de cuando no había sesión y el closer era uno solo. Ya la hay: el endpoint de
+ * notas pasa `ctx.nombre`, así que llegar sin autor significa que no hubo sesión — un cron, un
+ * webhook. Firmar eso con el nombre de una persona es atribuirle a alguien algo que no hizo, y
+ * contradice la regla 5 de CLAUDE.md: los eventos automáticos se registran con autor `Sistema`.
  */
-export const AUTOR_POR_DEFECTO = "Jorge Q.";
+export const AUTOR_SISTEMA = "Sistema";
 
 /** Fila cruda de `closer_notas`. Vive acá para que el mapeo snake→camel esté en un solo lado. */
 interface FilaNota {
@@ -215,7 +217,7 @@ export async function crearNota(input: CrearNotaInput): Promise<Nota> {
       ghl_contact_id: input.ghlContactId,
       texto: input.texto.trim(),
       contexto: input.contexto?.trim() || null,
-      autor_nombre: input.autor?.trim() || AUTOR_POR_DEFECTO,
+      autor_nombre: input.autor?.trim() || AUTOR_SISTEMA,
       // Sin sesión no hay a quién apuntar, y poner el closer por defecto acá sería firmar en
       // nombre de alguien que quizá no la escribió.
       autor_usuario_id: null,
