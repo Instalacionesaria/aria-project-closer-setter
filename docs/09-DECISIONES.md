@@ -396,3 +396,63 @@ El stub de GHL simula efectos y anota la intención en el outbox. El de Meta dev
 La diferencia es qué pasa si alguien confunde el stub con el real. Un tag que no se aplicó se nota
 enseguida; un gasto en pauta simulado se usa para decidir dónde poner plata. Inventar una cifra ahí
 sería el peor dato falso del producto.
+
+## D29 · El nivel 0 adelanta el análisis, pero exige un mensaje nuevo del agente
+
+El debounce de 5 mensajes tenía un agujero documentado como consecuencia matemática de la regla:
+*una conversación donde la IA manda 4 mensajes y el contacto se va enojado nunca se audita*. Cinco
+heurísticas de costo cero sobre `closer_mensajes` lo cierran — el análisis dispara con `delta ≥ 5`
+**o** con una alarma.
+
+Pero la alarma exige además `delta ≥ 1`, y ese piso es la mitad de la decisión. **Una alarma no se
+consume**: la queja sigue en los 3 mensajes recientes del contacto después de que el análisis
+corrió. Sin el piso, la conversación alarmada se re-analizaría en cada mensaje entrante hasta que
+la queja envejeciera — y el debounce ya no la frena, porque la alarma es justo lo que lo saltea.
+
+El criterio del piso sale de qué audita esto: **al agente**. Si el agente no dijo nada nuevo desde
+el último veredicto, no hay nada nuevo que juzgar. El peor caso de una conversación alarmada pasa a
+ser un análisis por mensaje del agente en vez de uno cada cinco, y solo mientras esté alarmada.
+
+Cada análisis guarda en `closer_analisis_agente.alarmas` cuál señal lo adelantó. No es telemetría
+decorativa: es lo único que va a permitir **borrar** las señales que disparen seguido y nunca
+terminen en veredicto rojo.
+
+## D30 · El carril amarillo tiene su propia dimensión, no un umbral flojo
+
+Los siete criterios de la rúbrica son de **fallo**. Para que el auditor pueda decir "esto se podía
+hacer mejor" sin acusar a nadie, la salida obvia era aflojarle el umbral a los siete. No se hizo.
+
+Un criterio con umbral flojo produce ruido, y el ruido le enseña al técnico a ignorar la pestaña —
+que es perder la herramienta entera, no degradarla. `acompanamiento` es una dimensión aparte, con
+su propia escala de tres niveles y sus propios descartes.
+
+Y de esa escala **solo el peldaño más bajo se reporta**. `respondio` —correcto pero plano— se mide
+y se descarta a propósito: casi toda conversación tiene algo que se podía decir mejor, así que
+reportarlo sería un amarillo diario garantizado sin señal adentro. Se le pide igual al modelo, para
+que tenga dónde poner lo tibio en vez de empujarlo hacia `desacompaso`.
+
+## D31 · Los webhooks se muestran; el secreto lo generamos nosotros
+
+La UI le pedía al cliente el secreto del webhook de GHL y el token de Assistable, como si fueran
+credenciales suyas. El cliente no tiene de dónde sacarlos, y **un campo que se puede dejar vacío se
+deja vacío** — dejando la URL abierta a que cualquiera inyecte eventos y dispare gasto de API.
+
+Lo que cambió es de qué lado nace el valor, no si existe. Pero el GET muestra el secreto
+**efectivo**, no la columna, y esa distinción evita romper producción: hoy ARIA tiene las dos
+columnas en `null` y anda con los globales, que Francisco ya pegó en GHL y en Assistable. Como la
+resolución es `propio ?? global`, generar uno propio **cambia el secreto que el endpoint espera** —
+o sea que abrir la pantalla de Ajustes habría cortado la ingesta sin que nadie pidiera nada. Un GET
+no puede tener esa consecuencia. Se genera solo cuando no hay ninguno.
+
+## D32 · El autor de lo automático es `Sistema`, no una persona
+
+`AUTOR_POR_DEFECTO = "Jorge Q."` estaba en tres archivos, de cuando no había sesión y el closer era
+uno solo. En `agentes/ajustes.ts` el comentario ya lo admitía: *"es un dato falso, solo que menos
+visible que un cero inventado"* — quien aplica un ajuste al prompt es el técnico, no el closer.
+
+Ahora el autor sale de `ctx.nombre`. Y lo que llega sin autor —un cron, un webhook— se firma
+`Sistema`, no con el nombre de la persona más probable. Firmar una escritura automática con el
+nombre de alguien es atribuirle algo que no hizo, y contradice la regla 5 de `CLAUDE.md`.
+
+El endpoint de notas acepta `autor` en el cuerpo pero **no lo obedece si hay sesión**: un cliente
+que mande otro nombre estaría firmando con la identidad de otro.

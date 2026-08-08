@@ -256,7 +256,7 @@ Para que el veredicto no diga solo *"prometió un financiamiento que no existe"*
 línea del prompt lo permite, reemplazala por esta otra"*.
 
 Vive en **la configuración de la empresa**: las columnas `prompt_*` de `closer_org_config`, que
-se editan en Ajustes › Credenciales › Prompts de los agentes. Sin prompt cargado todo degrada
+se editan en **Auditoría de Agentes › Prompts**. Sin prompt cargado todo degrada
 limpio: `fragmento_prompt` queda `null` y la corrección se emite como instrucción autónoma para
 agregar. Cargarlo **no requiere deploy**: el siguiente análisis lo toma solo.
 
@@ -270,6 +270,15 @@ agregar. Cargarlo **no requiere deploy**: el siguiente análisis lo toma solo.
 > prompt de referencia. Peor: desde la fase 4 el panel ya los guardaba en la base con su hash y
 > los mostraba confirmados en pantalla — la escritura andaba y la lectura miraba otro lado. Un
 > éxito reportado sin efecto, que es lo que §4.2 prohíbe.
+
+> **Y se mudaron de pantalla el 2026-08-07.** Estaban en Ajustes › Credenciales, que exige `admin`.
+> Quien mantiene el prompt del agente en GHL es el **técnico**, y pedirle `admin` para editar un
+> texto obligaba a darle también el PIT de GHL, la key de Anthropic y el token de Meta. Ahora
+> viven en Auditoría de Agentes › Prompts, con `exigir(["tecnico","admin","super_admin"])`
+> verificado en el backend — esconder la pestaña no es un permiso.
+>
+> Es una **mudanza, no una copia**: de Ajustes no quedó ni la lectura. Dos campos editando el
+> mismo dato es el patrón que este proyecto ya pagó caro.
 
 Dos cosas que importan:
 
@@ -307,17 +316,40 @@ con la cuenta de un tercero es peor que no auditar.
 
 | | |
 |---|---|
-| Modelo | `claude-opus-5` (`CLAUDE_MODEL` lo sobreescribe) |
+| Modelo | `claude-sonnet-5`, **constante del código** (`MODELO_AUDITOR`) |
+| Esfuerzo | `high`, ídem (`ESFUERZO_AUDITOR`) |
 | Por análisis | **~US$0,01–0,02** |
-| Esfuerzo | `medium` (`AUDITOR_EFFORT`) — dejó de ser una clasificación y ahora exige citar el prompt y redactar un reemplazo |
+| Techo | `max_tokens: 8000` — cubre pensamiento **más** texto |
 
-**El transcript se re-manda entero cada vez**, así que el costo de una conversación crecía con
-el **cuadrado** de su longitud. El debounce es, en la práctica, el control de gasto de este
-agente.
+> **Dejó de ser configurable el 2026-08-07, y es a propósito.** Era `CLAUDE_MODEL` /
+> `AUDITOR_EFFORT`, más dos columnas por empresa. El motivo sale de este mismo repo:
+> `AUDITOR_SIN_PORTON_TAGS` demostró que un comportamiento gobernado por una variable de entorno
+> **se vuelve a encender solo** en cualquier entorno donde la variable no esté — un preview, un
+> clon local. Con el modelo pasaba al revés: una empresa podía quedar auditando con otro modelo
+> sin que nadie lo hubiera decidido y sin que apareciera en ningún diff. Cambiarlo ahora es un
+> cambio de código, que es más incómodo y ésa es la idea. Las columnas se dropearon en la `028`.
 
-Palancas que existen y no están aplicadas: bajar de modelo (es una clasificación contra
-criterios explícitos con esquema fijo — el caso típico donde un modelo más chico rinde igual),
-y auditar solo en el saliente.
+**El transcript se re-manda entero cada vez**, así que el costo de una conversación crece con el
+**cuadrado** de su longitud. El debounce es, en la práctica, el control de gasto de este agente.
+
+### El caché del prompt
+
+El bloque estable del `system` —contexto + prompt del agente + rúbrica— va con
+`cache_control: { type: "ephemeral", ttl: "1h" }`. Escritura 2x el input, lectura 0,1x: se paga
+sola con **una** lectura por hora.
+
+> **El breakpoint estaba mal puesto hasta el 2026-08-07.** `cache_control` cachea todo el prefijo
+> **hasta ese bloque inclusive**, y estaba en `<patrones_conocidos>`, que es el último. Los
+> patrones salen de `closer_hallazgo_agente` y cambian solos, así que cada hallazgo nuevo
+> invalidaba el caché entero: se pagaba la escritura una y otra vez sin cobrar una sola lectura.
+> Ahora el breakpoint está en la rúbrica y los patrones quedan afuera.
+>
+> El **carril amarillo no cachea**, y también es deliberado: hace una llamada por empresa y por
+> día, así que la corrida de mañana nunca encuentra la de hoy. Un caché que jamás acierta no es
+> una optimización, es un recargo.
+
+Palancas que existen y no están aplicadas: ventana deslizante o resumen acumulado en vez de
+re-mandar el transcript entero, y auditar solo en el saliente.
 
 ## Los cuatro auditores
 

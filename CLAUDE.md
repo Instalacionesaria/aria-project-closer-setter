@@ -26,7 +26,8 @@ leo esto".
 | [04-DATOS-Y-RELOJES](docs/04-DATOS-Y-RELOJES.md) | Ingesta, el tick, caché, presupuesto de llamadas |
 | [05-CLOSER](docs/05-CLOSER.md) | Mi Día, Pipeline, Avanzar, la ficha, iconografía |
 | [06-SETTER](docs/06-SETTER.md) | Su espejo en pre-agenda |
-| [07-AUDITOR-IA](docs/07-AUDITOR-IA.md) | Portones, rúbrica, debounce, costo, los 4 agentes |
+| [07-AUDITOR-IA](docs/07-AUDITOR-IA.md) | Portones, rúbrica, debounce, los dos carriles, costo, los 4 agentes |
+| [13-LEXICO-AUDITOR](docs/13-LEXICO-AUDITOR.md) | Las palabras que disparan una alarma, y cómo agregar una |
 | [08-MENSAJERIA](docs/08-MENSAJERIA.md) | Chat, ventana de 24 h, estados de entrega |
 | [11-VOZ-Y-LLAMADAS](docs/11-VOZ-Y-LLAMADAS.md) | Llamadas de los agentes de voz: Assistable, el tab Llamada |
 | [12-MULTIEMPRESA](docs/12-MULTIEMPRESA.md) | Aislamiento entre empresas, autenticación, roles, credenciales |

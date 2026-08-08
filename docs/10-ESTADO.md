@@ -1,6 +1,6 @@
 # Estado del proyecto
 
-**Actualizado: 2026-08-07.** Qué está construido, qué está a medias y qué no existe.
+**Actualizado: 2026-08-08.** Qué está construido, qué está a medias y qué no existe.
 
 > Este es el documento que más rápido queda viejo. Si la fecha de arriba tiene más de dos
 > semanas, verificá antes de confiar.
@@ -19,7 +19,7 @@ configuración en GHL.
 |---|---|
 | Frontend en Vercel | ✅ Producción, deploy por push a `main` |
 | Vercel Functions (`api/`) | ✅ 35+ endpoints, todos con portero de rol |
-| Supabase SOFIA | ✅ 26 migraciones aplicadas |
+| Supabase SOFIA | ✅ 30 migraciones aplicadas |
 | Multi-empresa | ✅ ARIA + hasta 4 clientes. Aislamiento en 3 capas, con tests que lo hacen cumplir |
 | Autenticación | ✅ Sesiones con cookie `httpOnly`, scrypt, 6 roles, bloqueo por intentos, auditoría |
 | Credenciales por empresa | ✅ AES-256-GCM. Ningún secreto en claro en Supabase ni en el browser |
@@ -65,11 +65,14 @@ marcados — requiere que el contacto del closer sepa qué setter lo originó.
 | Qué | Estado |
 |---|---|
 | Las 4 tarjetas | ✅ Sin semillas. 1 con auditor, 3 con su motivo explícito |
-| Endpoints (`texto`, `alertas`, `ajustes`, `auditor-estado`) | ✅ Todos en producción |
+| Endpoints (`texto`, `alertas`, `ajustes`, `auditor-estado`, `prompts`) | ✅ Todos en producción |
 | Alertas agrupadas por patrón | ✅ Con evidencia, diagnóstico y bloque de corrección |
-| Historial de ajustes | ✅ Persistido, con fecha y autor reales |
-| Bloque DICE AHORA → DEBERÍA DECIR | ✅ Se activa cuando exista el archivo de prompt |
-| Datos | ⏸ **Cero análisis** — ver abajo |
+| Historial de ajustes | ✅ Persistido, con fecha y **autor de la sesión** (ya no "Jorge Q.") |
+| Bloque DICE AHORA → DEBERÍA DECIR | ✅ Se activa cuando el prompt esté cargado |
+| **Pestaña Prompts** | ✅ Nueva (2026-08-07). Habilitada para `tecnico`, verificado en el backend |
+| **Carril rojo · nivel 0** | ✅ 5 heurísticas de costo cero. Cierra el agujero del debounce de 4 mensajes |
+| **Carril amarillo** | ✅ Cron diario 16:00 Lima, 1 mejora por empresa/agente/día. **Sin correr todavía** |
+| Datos | ⏸ **Casi cero análisis** — ver abajo |
 
 ## Lo que bloquea, en orden de impacto
 
@@ -83,7 +86,7 @@ pestaña de Auditoría queda en su estado vacío.
 
 ### 2. El prompt del Appointment Flow AI
 
-Pegarlo en **Ajustes › Credenciales › Prompts de los agentes**. Queda guardado en la
+Pegarlo en **Auditoría de Agentes › Prompts** (habilitada para `tecnico`). Queda guardado en la
 configuración de la empresa (`closer_org_config`), con su hash, y el siguiente análisis lo toma
 solo. **No requiere código ni deploy.**
 
@@ -129,7 +132,7 @@ real**. Es lo que falta para arrancar los auditores de voz.
 
 ### Los 33 números que Estadísticas NO puede mostrar
 
-El panel tenía 61 y ahora muestra **28**. El resto se reparte así, y el endpoint devuelve el motivo
+El panel tenía 61 y ahora muestra **32**. El resto se reparte así, y el endpoint devuelve el motivo
 de cada uno en `sinDato` para que la vista lo diga al pie:
 
 | Qué falta | Cuántos | Por qué |
@@ -138,11 +141,11 @@ de cada uno en `sinDato` para que la vista lo diga al pie:
 | **Los cuatro de automatización** | 4 | `ClosurerContact.atribucionSetter` se **declara y nunca se asigna**: no hay señal de intervención manual que contrastar |
 | **El corte high-ticket / low-ticket** | ~5 | Ninguna marca sobre una venta lo distingue. `closer_avances.salida` tiene las 6 salidas, no el tipo de ticket |
 | **Las cuatro del setter** | 4 | `api/setter/` tiene **un solo archivo** (`urgentes.ts`): ninguna acción de un setter llega a Supabase |
-| **ROAS, CAC, CPL, CPA y la serie de ROAS** | 5 | Dependen del gasto en pauta. Se destraban con la primera sincronización de Meta |
+| ~~ROAS, CAC, CPL, CPA~~ | ~~4~~ | ✅ **Resueltos el 2026-08-07**: salen de `closer_meta_metricas`. Siguen en `null` para una empresa sin Meta conectado, que es lo correcto |
 | **Métricas de video** | ~4 | `contact._video_precall` llega de GHL y **no se persiste** |
 | **La tendencia de 6 meses** | ~6 | No hay historial anterior a este sistema y no se puede fabricar |
 | **Fecha de entrada del lead** | 1 | El `dateAdded` de GHL no se captura. `closer_contactos.creado_el` es la fecha del CACHÉ, no del negocio |
-| **Comisión por persona** | 2 | Vive en `settingsStore`, que es localStorage, no en la base |
+| **Comisión por persona** | 2 | El porcentaje vive en `settingsStore` (localStorage), no en la base. Las **filas** sí salen ya de los usuarios reales con rol closer/setter |
 
 > **La autenticación real existe desde el 2026-08-06** y salió de esta lista: sesiones con
 > cookie `httpOnly`, contraseñas con scrypt, 6 roles, bloqueo por intentos fallidos y auditoría
@@ -174,7 +177,11 @@ vivas, sin usarse:
 |---|---|---|
 | **`ZONA_HORARIA_ORG`** hardcodeada en `src/lib/fechas.ts` | `env.zonaHoraria()` ya resuelve por empresa; faltan los consumidores | Media: hoy todas las empresas están en Lima |
 | **Las seis perillas del auditor** (`AUDITOR_UMBRAL_IA`, `AUDITOR_FUENTES_IA`, `AUDITOR_CLAIM_S`…) | Están calibradas contra una cuenta. Un cliente con otro volumen hereda el umbral de ARIA | Baja |
-| **`CLOSER_POR_DEFECTO` y `AUTOR_POR_DEFECTO`** | La firma de un ajuste al prompt dice "el closer" cuando quien lo aplica es el técnico. Ya hay `ctx.nombre` para arreglarlo | Baja, pero es un dato falso |
+| **`CLOSER_POR_DEFECTO`** | Sigue apuntando a un usuario fijo cuando el endpoint no manda `closerId` | Baja |
+
+> **`AUTOR_POR_DEFECTO` salió de esta lista el 2026-08-07.** Era `"Jorge Q."` en tres archivos. El
+> autor ahora sale de `ctx.nombre`, y lo que no tiene autor humano —un cron, un webhook— se firma
+> `Sistema`. Ver [D32](09-DECISIONES.md).
 
 ### Parches de UI
 
@@ -190,8 +197,16 @@ vivas, sin usarse:
   credenciales de verdad viven en `closer_org_config` y se editan en Ajustes › Credenciales — ese
   panel y esa tabla habría que borrarlos.
 - **`gerencia` en `settingsStore`** conserva el nombre viejo del módulo. **No renombrar**: es una
-  clave de nivel 1 del JSON guardado, y renombrarla sin shim borra la inversión en Meta Ads y el
-  objetivo de facturación de cada usuario — en silencio, porque el fallback no falla, sustituye.
+  clave de nivel 1 del JSON guardado, y renombrarla sin shim borra el objetivo de facturación de
+  cada usuario — en silencio, porque el fallback no falla, sustituye.
+- **Las semillas de Ajustes › Operación se vaciaron** (2026-08-07, patrón D4): el catálogo de
+  enlaces, los mapas de comisiones y el `linkPersonal` de ejemplo. Las funciones que las producen
+  siguen ahí, vacías. Lo que queda en el localStorage de quien ya usó la app **no se limpia solo**:
+  si alguien ve todavía "Ariel C." o un link a `pay.example.com`, es su blob viejo.
+- **El porcentaje de comisión sigue en localStorage.** Las **filas** ya salen de los usuarios reales
+  de la empresa con rol closer/setter, pero el `%` que se les asigna vive en `settingsStore`, o sea
+  por navegador y por usuario. Dos admins pueden ver porcentajes distintos del mismo closer. Hay
+  que mudarlo a `closer_org_config` — es la deuda más concreta que dejó el Bloque F.
 
 ### Lo que hay que verificar la primera vez que corra
 
@@ -199,6 +214,12 @@ vivas, sin usarse:
   desde la documentación de Meta, no desde una respuesta observada. La primera corrida es una
   verificación: abrir `closer_meta_crudo` y comparar contra lo que quedó en
   `closer_meta_metricas`. Por eso existe la tabla de crudos (D15).
+- **El carril amarillo nunca corrió.** El cron está registrado (`0 21 * * *`) y la lógica se probó
+  contra datos reales de producción en `dryRun`, pero **la llamada al modelo y la escritura del
+  hallazgo no se ejecutaron nunca**. La primera corrida es una verificación: mirar que el hallazgo
+  quede con `criterio = 'acompanamiento'`, `severidad = 'amarillo'` y su análisis con
+  `fallo = false` — si saliera con `fallo = true`, le apagaría el bot a alguien, que es justo lo
+  que este carril no hace.
 - **`closer_avances.autor_usuario_id`** empieza a llenarse desde el 2026-08-07. Las filas anteriores
   quedan en `null` **a propósito** — probable no es medido. El panel las cuenta en los totales y las
   excluye del desglose por persona, diciéndolo en pantalla.

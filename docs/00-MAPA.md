@@ -27,6 +27,11 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Qué ve un `media_buyer`? | [01-PRODUCTO](01-PRODUCTO.md) § Navegación |
 | ¿Cómo se aísla una empresa de otra? ¿Qué pasa si dos comparten un contacto? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) |
 | ¿Cómo entra alguien? ¿Qué ve cada rol? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Autenticación |
+| ¿Por qué se auditó esta conversación si el agente mandó solo 4 mensajes? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El nivel 0 |
+| ¿Qué palabras disparan una alarma? ¿Cómo agrego una? | [13-LEXICO-AUDITOR](13-LEXICO-AUDITOR.md) |
+| ¿Qué es un hallazgo amarillo y por qué no genera tarea? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El carril amarillo |
+| ¿Dónde se edita el prompt de un agente? ¿Quién puede? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El prompt del agente auditado |
+| ¿Qué URL le paso al cliente para sus webhooks? ¿Cómo la roto? | Ajustes › Credenciales § Webhooks, y [09-DECISIONES](09-DECISIONES.md) D31 |
 | ¿Dónde están las credenciales de un cliente? ¿Cómo se rotan? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Credenciales |
 | Agregué un endpoint y explota con "sin empresa activa" | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Capa 1 |
 | ¿De qué empresa es este webhook? ¿Por qué hay filas con `org_id` nulo? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Webhooks |

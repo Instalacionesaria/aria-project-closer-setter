@@ -17,7 +17,7 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-Van de la `001` a la **`027`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
+Van de la `001` a la **`030`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
 esquema base (`001`–`005`, aplicadas el 2026-07-25); de la `006` en adelante **el encabezado de
 cada archivo explica por qué existe** —esa es la fuente— y el tema al que pertenecen está
 documentado en el `docs/` correspondiente:
@@ -31,7 +31,7 @@ documentado en el `docs/` correspondiente:
 | `017` | `closer_plantillas` — plantillas de WhatsApp aprobadas | [08-MENSAJERIA](../08-MENSAJERIA.md) § Plantillas |
 
 Las `018`–`027` son la **capa multi-empresa**, y conviene leerlas en orden porque cada una
-depende de la anterior:
+depende de la anterior. Las `028`–`030` son del auditor de dos carriles:
 
 | Migración | Qué agrega |
 |---|---|
@@ -45,6 +45,9 @@ depende de la anterior:
 | `025` | `closer_avances.autor_usuario_id` — quién registró cada Avanzar. Nullable y **sin backfill**: las filas viejas no tienen autor y no se inventó uno |
 | `026` | `closer_meta_metricas` y `closer_meta_crudo` — la pauta de Meta, una fila por objeto y por día |
 | `027` | `closer_org_config.ghl_calendario_id` — el calendario por empresa. Era una variable de entorno global, y el último bloqueante para dar de alta un cliente con agenda |
+| `028` | **DROP** de `anthropic_modelo` y `anthropic_thinking`. El modelo del auditor pasa a ser constante del código: una perilla de config podía dejar a una empresa auditando con otro modelo sin aparecer en ningún diff |
+| `029` | `closer_analisis_agente.alarmas text[]` — qué señal del nivel 0 adelantó el análisis. Sin default: `null` = salió por el debounce normal, y no es lo mismo que `{}` |
+| `030` | `acompanamiento` entra al CHECK de `criterio`. Es la dimensión de **calidad** del carril amarillo, no un octavo criterio de fallo |
 
 | Archivo | Qué hace | Por qué existe |
 |---|---|---|
