@@ -178,13 +178,17 @@ export async function buscarMejora(opts: {
           type: "text" as const,
           text: `<prompt_del_agente>\n${opts.prompt}\n</prompt_del_agente>`,
         },
-        {
-          type: "text" as const,
-          text: DIMENSION,
-          // El system no cambia entre corridas de la misma empresa. Es el bloque grande —la
-          // dimensión más el prompt del agente— y cachearlo cuesta una línea.
-          cache_control: { type: "ephemeral" as const },
-        },
+        /**
+         * ── Sin `cache_control`, a propósito ──────────────────────────
+         *
+         * Lo tenía, y era copiar el patrón del carril rojo sin mirar la cadencia: este carril hace
+         * **una sola llamada por empresa y por día**. El caché más largo dura una hora, así que la
+         * corrida de mañana nunca encuentra la de hoy — cada llamada sería una escritura (1,25x el
+         * input) sin una sola lectura que la amortice.
+         *
+         * Un caché que nunca acierta no es una optimización: es un recargo.
+         */
+        { type: "text" as const, text: DIMENSION },
       ],
       output_config: {
         effort: ESFUERZO_AUDITOR,

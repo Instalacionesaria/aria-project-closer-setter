@@ -716,14 +716,35 @@ export async function evaluarConversacion(opts: {
           ? `<prompt_del_agente version="${opts.prompt.hash}" archivo="${opts.prompt.ruta}">\n${opts.prompt.texto}\n</prompt_del_agente>`
           : sinPrompt,
       },
-      { type: "text" as const, text: RUBRICA },
       {
         type: "text" as const,
-        text: `<patrones_conocidos>\n${opts.patrones}\n</patrones_conocidos>`,
-        // El system es idéntico entre análisis del mismo agente. Con el prompt adentro son
-        // varios miles de tokens: cachearlo cuesta una línea y el día que suba el volumen
-        // se paga solo.
-        cache_control: { type: "ephemeral" as const },
+        text: RUBRICA,
+        /**
+         * ── El breakpoint va ACÁ, no al final (2026-08-07) ─────────────
+         *
+         * `cache_control` cachea **todo el prefijo hasta ese bloque inclusive** (verificado contra
+         * la documentación vigente, no de memoria). Estaba en `<patrones_conocidos>`, que es el
+         * último — o sea que el prefijo cacheado incluía los patrones, y **los patrones cambian
+         * solos**: salen de `closer_hallazgo_agente`, así que cada hallazgo nuevo invalidaba el
+         * caché entero de esa empresa. Se pagaba el 1,25x de escritura una y otra vez sin llegar
+         * a cobrar una sola lectura.
+         *
+         * Movido a la rúbrica, el prefijo estable es contexto + prompt del agente + rúbrica, que
+         * es exactamente lo que el spec describe como "grande y no cambia entre análisis de la
+         * misma empresa". Los patrones quedan afuera y ya no invalidan nada.
+         *
+         * `ttl: "1h"` y no el default de 5 minutos: con el debounce de 5 mensajes, dos análisis
+         * de la misma empresa separados por menos de 5 minutos son la excepción, así que el
+         * default casi nunca llegaba a cobrarse. La escritura sube de 1,25x a 2x y la lectura
+         * sigue en 0,1x — se paga sola con una sola lectura por hora.
+         */
+        cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
+      },
+      {
+        type: "text" as const,
+        text: `<patrones_conocidos>
+${opts.patrones}
+</patrones_conocidos>`,
       },
     ],
     output_config: {
