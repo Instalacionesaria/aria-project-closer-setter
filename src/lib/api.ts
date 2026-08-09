@@ -188,6 +188,55 @@ export function fetchUrgentesSetter(): Promise<{ count: number; urgentes: Urgent
   return pedir(`/api/setter/urgentes`);
 }
 
+/**
+ * Las seis colas del setter, derivadas por query en el servidor.
+ *
+ * Reemplaza a las banderas booleanas del store: hasta el 2026-08-08 un contacto entraba a una
+ * cola porque alguien había escrito `urgente: true` en un objeto semilla.
+ */
+export interface ColaSetterContacto {
+  contactId: string;
+  name: string;
+  phone: string | null;
+  fuente: string | null;
+  stage: string | null;
+  congelado: boolean;
+  /** Solo en Buzón. */
+  ultimoEntranteEl?: string | null;
+  texto?: string | null;
+  /** Solo en Seguimientos. */
+  seguimientoId?: string;
+  situacion?: string;
+  modo?: string;
+  fechaObjetivo?: string;
+  fijada?: boolean;
+  caso?: string;
+  fila?: { microtext: string; vencido?: boolean };
+}
+
+export interface MiDiaSetterResponse {
+  ok: boolean;
+  hoy?: string;
+  urgentes?: ColaSetterContacto[];
+  estancadas?: ColaSetterContacto[];
+  oportunidades?: ColaSetterContacto[];
+  buzon?: ColaSetterContacto[];
+  seguimientos?: ColaSetterContacto[];
+  completadas?: { contactId: string; name: string; motivo: string; pildora: string | null; cuando: string }[];
+  resumen?: Record<string, number>;
+  total?: number;
+  error?: string;
+}
+
+export function fetchMiDiaSetter(): Promise<MiDiaSetterResponse> {
+  return pedir<MiDiaSetterResponse>(`/api/setter/mi-dia`);
+}
+
+/** Registra una de las cinco salidas del Avanzar del setter. */
+export function avanzarSetter(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  return pedir<Record<string, unknown>>(`/api/setter/avanzar`, conJson(body));
+}
+
 /* ================================================================== */
 /* Auditoría de Agentes                                                */
 /* ================================================================== */

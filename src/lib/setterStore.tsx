@@ -1,6 +1,7 @@
-import { createContext, useCallback, useContext, useState, useMemo } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, useMemo } from "react";
 import { type Grade, type BotEstado, type HistorialItem, type NotaItem, type CallRecord, type PerfilField } from "./closerStore";
 import { useSettings } from "./settingsStore";
+import { fetchMiDiaSetter, type ColaSetterContacto, type MiDiaSetterResponse } from "./api";
 import { useAuth } from "./authStore";
 
 /**
@@ -117,178 +118,85 @@ const seedHist = (): HistorialItem[] => [
   { fecha: "27 Jun", texto: "Entró por Meta Ads", autor: "Sistema" },
 ];
 
-const SEED: Omit<SetterContact, "historial" | "notas">[] = [
-  // Intervenciones urgentes
-  {
-    name: "EJEMPLO CARLA MENDOZA", phone: "34 600 111 222", grade: "B", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "EN CALIFICACIÓN", situacionTone: "cyan",
-    subtitle: "Fallo en webhook de Zapier al validar email", botPrefix: true,
-    botEstado: "pausado_fallo", urgente: { detail: "Fallo en webhook de Zapier al validar email. Requiere revisión manual." },
-    perfil: [
-      { label: "Fuente", value: "Meta Ads", group: "origen" },
-      { label: "Etapa del negocio", value: "Facturando, sin sistema de ventas", group: "calificacion", formulario: "meta", procedencia: "vía Meta Ads" },
-      { label: "Objetivo de facturación", value: "$5,000 - $8,000 USD", group: "calificacion", formulario: "meta", procedencia: "vía Meta Ads" },
-    ],
-  },
-  // Conversaciones estancadas
-  {
-    name: "EJEMPLO JORGE RUIZ", phone: "57 300 999 8888", fuente: "VSL opt-in", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "EN CALIFICACIÓN", situacionTone: "cyan",
-    subtitle: "se apagó hace 11h · preguntó precio · se apagó hace 6h",
-    botEstado: "apagado_manual",
-    estancada: { microtext: "se apagó hace 11h · preguntó precio · se apagó hace 6h" },
-    // apagado_manual = un humano ya lo apagó a mano (a diferencia de pausado_fallo/derivado_lt, que son estados que dispara el SISTEMA) — el latch de atribución ya está encendido.
-    atribucionSetter: true,
-  },
-  // Oportunidades low-ticket
-  {
-    name: "EJEMPLO PEDRO SANCHEZ", phone: "54 911 1234 5678", grade: "C", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "low_ticket_ofrecido", situacion: "DERIVADO A LT", situacionTone: "violet",
-    subtitle: "sin capital para el programa · interesado en arrancar · hace 7h", botPrefix: true,
-    botEstado: "derivado_lt",
-    oportunidadLt: { microtext: "sin capital para el programa · interesado en arrancar · hace 7h" },
-    perfil: [
-      { label: "Fuente", value: "Meta Ads", group: "origen" },
-      { label: "Etapa del negocio", value: "Recién arrancando", group: "calificacion", formulario: "meta" },
-      { label: "Inversión $4-8k", value: "Sin capital disponible actualmente", group: "calificacion", formulario: "vsl", procedencia: "vía agente IA" },
-      { label: "Mayor obstáculo", value: "Interesado en arrancar pero sin capital para el programa high-ticket.", group: "calificacion", formulario: "vsl", procedencia: "vía agente IA" },
-    ],
-  },
-  // Buzón general
-  {
-    name: "EJEMPLO DIEGO SALAZAR", phone: "54 911 2222 3333", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "nurture", situacion: "NURTURE", situacionTone: "violet",
-    subtitle: "mensaje sin responder hace 20 min", botPrefix: true,
-    botEstado: "apagado_manual",
-    respondido: { microtext: "mensaje sin responder hace 20 min" },
-  },
-  {
-    name: "EJEMPLO SOFIA NUÑEZ", phone: "54 911 4444 5555", grade: "B", fuente: "VSL opt-in", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "EN CALIFICACIÓN", situacionTone: "cyan",
-    subtitle: "mensaje sin responder hace 35 min", botPrefix: true,
-    botEstado: "pausa_temporal",
-    respondido: { microtext: "mensaje sin responder hace 35 min" },
-    llamadas: [
-      {
-        id: "sn-1", origin: "lead_flow_voz", fecha: "Hoy", duracion: "03:12", contestada: true,
-        resultado: "Contestó · calificó parcial", sentimiento: "neutral",
-        resumenIA: "Contestó pero cortó a mitad de la calificación. Mencionó que iba a revisar precios con su pareja antes de decidir.",
-        audioUrl: "https://example.com/audio/lead-flow-sn-1.mp3",
-      },
-      {
-        id: "sn-2", origin: "lead_flow_voz", fecha: "Ayer", duracion: "00:00", contestada: false,
-        resultado: "No contestó",
-      },
-    ],
-    perfil: [
-      { label: "Fuente", value: "VSL opt-in", group: "origen" },
-      { label: "Inversión $4-8k", value: "$4,000 USD", group: "calificacion", formulario: "vsl", procedencia: "vía VSL opt-in" },
-      { label: "Mayor obstáculo", value: "Quiere revisar precios con su pareja antes de decidir.", group: "calificacion", formulario: "vsl", procedencia: "vía agente IA" },
-    ],
-  },
-  {
-    name: "EJEMPLO MARTINA OYOLA", phone: "54 911 6666 7777", grade: "C", fuente: "📷 IG Profile", canal: "instagram",
-    stage: "nurture", situacion: "NURTURE", situacionTone: "violet",
-    subtitle: "mensaje sin responder hace 12 min",
-    respondido: { microtext: "mensaje sin responder hace 12 min" },
-  },
-  {
-    name: "EJEMPLO IGNACIO PRADA", phone: "54 911 8888 9999", grade: "A", fuente: "📷 IG Profile", canal: "instagram",
-    stage: "en_calificacion", situacion: "EN CALIFICACIÓN", situacionTone: "cyan",
-    subtitle: "mensaje sin responder hace 1h",
-    respondido: { microtext: "mensaje sin responder hace 1h" },
-  },
-  {
-    name: "EJEMPLO CAMILA ROSSI", phone: "54 911 1122 3344", fuente: "📷 IG Profile", canal: "instagram",
-    stage: "low_ticket_ofrecido", situacion: "DERIVADO A LT", situacionTone: "violet",
-    subtitle: "mensaje sin responder hace 3h",
-    respondido: { microtext: "mensaje sin responder hace 3h" },
-  },
-  // Seguimientos (subcategorías reales del setter — Para agendar / Para decisión LT, § auditoría v2 2026-07-11; "Muy seguro" era del closer y ni siquiera válida ahí desde §39.1)
-  { name: "EJEMPLO FERNANDO LOPEZ", phone: "+52 55 4225 6686", grade: "C", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA AGENDAR", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  { name: "EJEMPLO ELENA MARTIN", phone: "+52 55 9539 7100", grade: "A", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA DECISIÓN LT", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  { name: "EJEMPLO MIGUEL RUIZ", phone: "+52 55 5633 4783", grade: "A", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA AGENDAR", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  { name: "EJEMPLO PEDRO ALVAREZ", phone: "+52 55 8678 4587", grade: "C", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA DECISIÓN LT", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  { name: "EJEMPLO LAURA ALVAREZ", phone: "+52 55 2116 8027", grade: "D", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA AGENDAR", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  { name: "EJEMPLO LUIS PEREZ", phone: "+52 55 7484 4190", grade: "B", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA DECISIÓN LT", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  { name: "EJEMPLO ELENA ROMERO", phone: "+52 55 3311 2020", grade: "B", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA AGENDAR", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  { name: "EJEMPLO PEDRO MARTINEZ", phone: "+52 55 6644 1188", grade: "C", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO · PARA DECISIÓN LT", situacionTone: "amber",
-    subtitle: "respondió · esperando respuesta", overdue: "Vencido hace 2 días",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "respondió · esperando respuesta", vencido: true } },
-  {
-    name: "EJEMPLO RICARDO PAZ", phone: "+52 55 7712 4499", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "SEGUIMIENTO AGOTADO — REVISAR", situacionTone: "source",
-    subtitle: "serie completada sin respuesta · hace 1 día",
-    botEstado: "apagado_manual",
-    seguimientoPendiente: { microtext: "serie completada sin respuesta · hace 1 día" },
-  },
-  {
-    name: "EJEMPLO ANA SILVA", phone: "54 911 4444 5555", grade: "B", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "EN CALIFICACIÓN", situacionTone: "cyan",
-    subtitle: "preguntó por planes de pago a plazos",
-  },
-  {
-    name: "EJEMPLO MATEO DIAZ", phone: "54 911 5555 6666", grade: "C", fuente: "VSL opt-in", canal: "whatsapp",
-    stage: "en_calificacion", situacion: "EN CALIFICACIÓN", situacionTone: "cyan",
-    subtitle: "llamada cortada a mitad de la calificación",
-    llamadas: [
-      {
-        id: "md-1", origin: "lead_flow_voz", fecha: "Hoy", duracion: "01:48", contestada: true,
-        resultado: "Contestó · cortada", sentimiento: "neutral",
-        resumenIA: "Contestó y estaba respondiendo la calificación de presupuesto cuando la llamada se cortó abruptamente a mitad de su frase — el agente no esperó la pausa natural antes de continuar.",
-        audioUrl: "https://example.com/audio/lead-flow-voz-md-1.mp3",
-      },
-    ],
-  },
-  // Pipeline — Agendado
-  { name: "EJEMPLO PABLO MUÑOZ", phone: "—", grade: "D", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "agendado", situacion: "AGENDADO", situacionTone: "emerald", subtitle: "agendó", agendaFecha: "hace 3 días" },
-  { name: "EJEMPLO LUIS FERNANDEZ", phone: "—", grade: "A", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "agendado", situacion: "AGENDADO", situacionTone: "emerald", subtitle: "agendó", agendaFecha: "hace 2 días" },
-  { name: "EJEMPLO JUAN PEREZ", phone: "—", grade: "C", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "agendado", situacion: "AGENDADO", situacionTone: "emerald", subtitle: "agendó", agendaFecha: "hace 1 día" },
-  { name: "EJEMPLO MARTA PEREZ", phone: "—", grade: "B", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "agendado", situacion: "AGENDADO", situacionTone: "emerald",
-    subtitle: "Llamada agendada para hoy. El prospecto está muy interesado en automatizar su agencia.", agendaFecha: "hace 1 día" },
-  { name: "EJEMPLO LUIS GOMEZ", phone: "—", grade: "D", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "agendado", situacion: "AGENDADO", situacionTone: "emerald", subtitle: "agendó", agendaFecha: "hace 1 día" },
-  { name: "EJEMPLO SOFIA SANCHEZ", phone: "—", grade: "B", fuente: "Meta Ads", canal: "whatsapp",
-    stage: "agendado", situacion: "AGENDADO", situacionTone: "emerald", subtitle: "agendó", agendaFecha: "hace 1 día" },
-];
+/**
+ * ── Vacío desde el 2026-08-08 (patrón D4) ─────────────────────────────
+ *
+ * Eran **25 contactos `EJEMPLO`** que sostenían el módulo entero: las seis colas, el pipeline y
+ * los conteos. Cada uno traía sus banderas escritas a mano (`urgente: true`, `estancada: true`),
+ * así que un contacto entraba a una cola porque alguien lo había tipeado — no porque un dato lo
+ * pusiera ahí. El `"se apagó hace 11h"` era un string, no una diferencia de fechas.
+ *
+ * Ahora los contactos vienen de `GET /api/setter/mi-dia`, que los deriva por query desde
+ * `closer_contactos`. La lista queda vacía y no se borra la función que la consume: si mañana
+ * hace falta un fixture para un test, entra acá y no en producción.
+ */
+const SEED: Omit<SetterContact, "historial" | "notas">[] = [];
 
 function buildSeedContacts(): Record<string, SetterContact> {
   const map: Record<string, SetterContact> = {};
   for (const c of SEED) map[c.name] = { ...c, historial: seedHist(), notas: [] };
+  return map;
+}
+
+/**
+ * Arma los contactos del store a partir de las seis colas que devuelve el servidor.
+ *
+ * ── Las banderas siguen existiendo, y ya no son un dato ───────────────
+ *
+ * Las vistas leen `c.urgente`, `c.estancada`, `c.oportunidadLt`… y eso no cambia: reescribirlas
+ * a todas para leer colas habría sido un refactor grande y riesgoso a una semana del lanzamiento.
+ * Lo que cambia es de dónde salen. Antes se tipeaban en un array; ahora se **encienden acá** a
+ * partir de la cola en la que el servidor puso a cada contacto, y el servidor las derivó por
+ * query. Una bandera dejó de ser una afirmación de alguien para ser el resultado de un cálculo.
+ *
+ * Un contacto puede estar en más de una cola —el mismo lead puede estar estancado y tener una
+ * oportunidad LT— así que se acumulan sobre la misma entrada en vez de pisarse.
+ */
+function contactosDesdeColas(r: MiDiaSetterResponse): Record<string, SetterContact> {
+  const map: Record<string, SetterContact> = {};
+
+  const base = (c: ColaSetterContacto): SetterContact => ({
+    name: c.name,
+    phone: c.phone ?? "",
+    fuente: c.fuente ?? "",
+    canal: "whatsapp",
+    stage: (c.stage as SetterStageKey) ?? "en_calificacion",
+    situacion: "",
+    situacionTone: "violet",
+    subtitle: "",
+    ghlContactId: c.contactId,
+    historial: [],
+    notas: [],
+  });
+
+  const tocar = (c: ColaSetterContacto): SetterContact => (map[c.name] ??= base(c));
+
+  for (const c of r.urgentes ?? []) tocar(c).urgente = { detail: "el bot se apagó por un fallo" };
+  for (const c of r.estancadas ?? []) tocar(c).estancada = { microtext: "conversación estancada" };
+  for (const c of r.oportunidades ?? []) tocar(c).oportunidadLt = { microtext: "derivado a low-ticket" };
+
+  for (const c of r.buzon ?? []) {
+    const e = tocar(c);
+    // El microtexto sale del dato, no de un string fijo: es cuándo escribió de verdad.
+    e.respondido = { microtext: c.texto?.slice(0, 60) ?? "escribió y no le respondieron" };
+  }
+
+  for (const c of r.seguimientos ?? []) {
+    const e = tocar(c);
+    e.seguimientoPendiente = { microtext: c.fila?.microtext ?? "", vencido: c.fila?.vencido };
+    e.seguimientoAutomaticoActivo = c.caso === "automatico_en_curso";
+    if (c.situacion) e.situacion = c.situacion;
+  }
+
+  for (const c of r.completadas ?? []) {
+    const e = (map[c.name] ??= {
+      name: c.name, phone: "", fuente: "", canal: "whatsapp", stage: "en_calificacion",
+      situacion: "", situacionTone: "violet", subtitle: c.pildora ?? "", historial: [], notas: [],
+    });
+    e.completedToday = true;
+    if (c.pildora) e.subtitle = c.pildora;
+  }
+
   return map;
 }
 
@@ -406,7 +314,31 @@ const ZERO_SETTER_DELTAS: SetterSessionDeltas = { ltMonto: 0, ltCount: 0, agenda
 const SetterCtx = createContext<SetterStoreValue | null>(null);
 
 export function SetterProvider({ children }: { children: React.ReactNode }) {
+  /**
+   * Arranca **vacío**, no con semilla. `buildSeedContacts()` sigue existiendo y devuelve `{}`
+   * porque `SEED` está vacía: un módulo sin datos se ve sin datos hasta que el fetch conteste.
+   */
   const [contacts, setContacts] = useState<Record<string, SetterContact>>(() => buildSeedContacts());
+  /**
+   * Los tres estados se distinguen (regla 2): `null` mientras carga, `{}` cuando cargó y no hay
+   * nada, y `error` cuando no se pudo saber. Un módulo vacío por falta de datos y uno vacío
+   * porque el backend está caído no son el mismo hecho.
+   */
+  const [estado, setEstado] = useState<"cargando" | "listo" | "error">("cargando");
+
+  const recargar = useCallback(async () => {
+    const r = await fetchMiDiaSetter();
+    if (!r.ok) {
+      setEstado("error");
+      return;
+    }
+    setContacts(contactosDesdeColas(r));
+    setEstado("listo");
+  }, []);
+
+  useEffect(() => {
+    void recargar();
+  }, [recargar]);
   const [openContactName, setOpenContactName] = useState<string | null>(null);
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const [deltas, setDeltas] = useState<SetterSessionDeltas>(ZERO_SETTER_DELTAS);

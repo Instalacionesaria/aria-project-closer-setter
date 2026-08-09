@@ -30,7 +30,6 @@ import {
 import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
 import { botIconVisual, countCallsContestadas, countSalesCalls, type BotEstado, type Grade } from "../lib/closerStore";
-import { fetchUrgentesSetter } from "../lib/api";
 import { useAuth } from "../lib/authStore";
 import { fechaLarga, hoyISO } from "../lib/fechas";
 import {
@@ -39,11 +38,9 @@ import {
   setterPendingTasksBreakdown,
   type SetterContact,
   type SetterStageKey,
-  type SetterTagTone,
   type Canal,
 } from "../lib/setterStore";
 import { useAgentAudit } from "../lib/agentAuditStore";
-import { CADENCIA, registrarReloj } from "../lib/polling";
 
 type Tab = "inicio" | "midia" | "pipeline";
 const TAB_LABEL: Record<Tab, string> = { inicio: "Inicio", midia: "Mi Día", pipeline: "Pipeline" };
@@ -189,13 +186,12 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
           <div className="text-6xl font-light tracking-tighter text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]">
             {money(cockpit.comisionTotal)}
           </div>
-          {/* § correcciones dashboards (2026-07-11): nunca mostrar una comparación porcentual sin una base real que comparar — mismo criterio que la guardia de "Meta superada" del closer. */}
-          {cockpit.comisionTotal > 0 && (
-            <div className="flex items-center gap-2 text-sm text-zinc-400 bg-zinc-900/50 px-3 py-1.5 rounded-lg border border-zinc-800">
-              <TrendingUp className="w-4 h-4 text-emerald-500" />
-              <span>+12% vs mes pasado</span>
-            </div>
-          )}
+          {/*
+            El `+12% vs mes pasado` se fue el 2026-08-08. Estaba escrito a mano y detrás de un
+            guard `comisionTotal > 0`, así que aparecía como si fuera medido en cuanto había una
+            comisión — cualquier comisión. No hay serie histórica del setter contra la cual
+            comparar: la comparación vuelve cuando exista, no antes.
+          */}
         </div>
       </div>
 
@@ -492,14 +488,28 @@ function Section({
 /* Buzón General — cola catch-all con lentes de canal (§ nota de Francisco) */
 /* ------------------------------------------------------------------ */
 
-/** Totales reales de referencia (150/30/120) — la lista de abajo es una muestra demo, igual que el resto de las colas del producto. */
-const BUZON_COUNTS: Record<"todos" | Canal, number> = { todos: 150, whatsapp: 30, instagram: 120 };
+/**
+ * Los conteos del Buzón, contados de la lista que se está mostrando.
+ *
+ * Eran `{ todos: 150, whatsapp: 30, instagram: 120 }` escritos a mano, al lado de una lista real
+ * de cinco. El chip decía "Todos (150)" sobre cinco filas: no era una muestra de 150, era un
+ * número inventado con etiqueta de total.
+ */
+function contarPorCanal(contacts: SetterContact[]): Record<"todos" | Canal, number> {
+  return {
+    todos: contacts.length,
+    whatsapp: contacts.filter((c) => c.canal === "whatsapp").length,
+    instagram: contacts.filter((c) => c.canal === "instagram").length,
+  };
+}
 
 function BuzonSection({ contacts, onOpen }: { contacts: SetterContact[]; onOpen: (name: string) => void }) {
   const [filter, setFilter] = useState<"todos" | Canal>("todos");
   // `contacts` ya viene pineados-primero (§ ciclo de vida de tareas, 2026-07-11) — filter() conserva el orden relativo.
   const filtered = contacts.filter((c) => filter === "todos" || c.canal === filter);
   const filteredPinnedCount = filtered.filter((c) => c.pinned).length;
+  // Los conteos salen de la MISMA lista que se renderiza: no pueden divergir de lo que se ve.
+  const conteos = contarPorCanal(contacts);
 
   const chip = (key: "todos" | Canal, label: string) => (
     <button
@@ -511,7 +521,7 @@ function BuzonSection({ contacts, onOpen }: { contacts: SetterContact[]; onOpen:
           : "bg-background dark:bg-muted/40 text-muted-foreground border-border hover:bg-muted",
       )}
     >
-      {label} ({BUZON_COUNTS[key]})
+      {label} ({conteos[key]})
     </button>
   );
 
@@ -580,54 +590,17 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
 
   /**
-   * Urgentes REALES: contactos con `bot_pausado_fallo` + `zona_setter` en GHL, detectados
-   * por el analizador de conversaciones. Se muestran junto a los EJEMPLO, en el mismo
-   * formato — igual que en Closer.
+   * ── El fetch local se fue (2026-08-08) ────────────────────────────
    *
-   * ÚNICO cambio al Setter de la tarea de conexiones (decisión de Fabio, 2026-07-31): el
-   * intervalo pasó de 10s a 60s y se pausa con la pestaña oculta, vía el módulo único de
-   * polling. Misma funcionalidad, ~6× menos costo — el resto del Setter no se toca.
+   * Acá vivía un `useState` propio que pedía `/api/setter/urgentes` cada 60 s y mezclaba el
+   * resultado con los contactos semilla. Tenía un desfase real: los urgentes de verdad se
+   * mostraban en la sección pero **no contaban en ningún total**, porque el badge del nav y la
+   * tarjeta de KPI leían el store, y el store no los tenía.
+   *
+   * Ahora la cola viene del store como las otras cinco, derivada por query del lado del
+   * servidor. Una sola fuente, un solo número.
    */
-  const [realUrgentes, setRealUrgentes] = useState<SetterContact[]>([]);
-  useEffect(
-    () =>
-      registrarReloj(
-        "setter:urgentes",
-        () => {
-          fetchUrgentesSetter()
-            .then((res) => {
-              setRealUrgentes(
-                res.urgentes.map((u) => ({
-                  name: u.name.toUpperCase(),
-                  phone: "",
-                  // Sin score: el motor todavía no calificó a este lead (§4.7).
-                  grade: undefined,
-                  fuente: u.source,
-                  // El canal no viaja en la respuesta; WhatsApp es el único con bot (§11), y si
-                  // el bot falló es porque lo había. Instagram nunca llegaría a esta cola.
-                  canal: "whatsapp" as const,
-                  stage: "en_calificacion" as SetterStageKey,
-                  situacion: "IA PAUSADA · FALLO",
-                  situacionTone: "rose" as SetterTagTone,
-                  subtitle: "",
-                  botEstado: "pausado_fallo" as BotEstado,
-                  ghlContactId: u.contactId,
-                  urgente: { detail: u.fallo },
-                  historial: [],
-                  notas: [],
-                })),
-              );
-            })
-            .catch(() => {
-              /* si el backend no responde, se quedan solo los EJEMPLO */
-            });
-        },
-        CADENCIA.setterUrgentes,
-      ),
-    [],
-  );
-  /** EJEMPLO + reales en una sola cola, igual que en Closer. */
-  const urgentesTodos = [...urgentes, ...realUrgentes];
+  const urgentesTodos = urgentes;
   // Pineados primero — § correcciones toast/pin v2 (2026-07-11): tarea de conversación cubre Buzón, Oportunidad LT, Seguimientos Y Estancadas.
   const pinnedFirst = (c: SetterContact[]) => [...c].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
   const estancadas = pinnedFirst(all.filter((c) => c.estancada && !c.completedToday));
@@ -708,11 +681,12 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
               <MessageCircle className="w-4 h-4" />
             </div>
             <span className="text-[11px] font-medium text-foreground uppercase tracking-wide leading-tight group-hover:text-blue-500 transition-colors">
-              Buzón general · {BUZON_COUNTS.todos}
+              Buzón general · {respondieron.length}
             </span>
           </div>
           <span className="text-[10px] text-muted-foreground">
-            {BUZON_COUNTS.whatsapp} WA · {BUZON_COUNTS.instagram} IG
+            {respondieron.filter((c) => c.canal === "whatsapp").length} WA ·{" "}
+            {respondieron.filter((c) => c.canal === "instagram").length} IG
           </span>
         </div>
       </div>
