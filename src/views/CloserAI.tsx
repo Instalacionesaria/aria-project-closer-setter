@@ -54,6 +54,7 @@ import {
 } from "../lib/closerStore";
 import { useSettings } from "../lib/settingsStore";
 import { useAuth } from "../lib/authStore";
+import { fechaLarga, hoyISO } from "../lib/fechas";
 import { useAgentAudit } from "../lib/agentAuditStore";
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
@@ -213,18 +214,29 @@ const TABS: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
 function Header({ tab, setTab }: { tab: TabKey; setTab: (t: TabKey) => void }) {
   const { contacts } = useClosurer();
   const { total: midiaBadge } = pendingTasksBreakdown(contacts);
+  /**
+   * El nombre de QUIEN entró, no una semilla.
+   *
+   * Decía `CLOSER • DIEGO M.` escrito a mano — un nombre que no es de ningún usuario real, en el
+   * encabezado de la vista principal. Con la sesión puesta, cada closer veía el nombre de otro.
+   * Es el mismo hardcodeo que `"Jorge Q."` (D32); éste se había escapado porque no venía de una
+   * constante sino del JSX.
+   */
+  const { usuario } = useAuth();
   return (
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-8 border-b border-border/30">
       <div>
         <p className="text-[10px] font-bold tracking-[0.2em] text-primary uppercase mb-2 opacity-80">
-          CLOSER • DIEGO M.
+          {/* Sin sesión no se inventa un nombre: queda solo el rol. */}
+          CLOSER{usuario?.nombre ? ` • ${usuario.nombre}` : ""}
         </p>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">
           {tab === "inicio" && "Tu cockpit"}
           {tab === "midia" && (
             <span className="font-light">
               Mi Día —{" "}
-              <span className="text-muted-foreground">miércoles, 8 de julio</span>
+              {/* La fecha estaba escrita a mano: decía "8 de julio" en pleno agosto. */}
+              <span className="text-muted-foreground">{fechaLarga(hoyISO())}</span>
             </span>
           )}
           {tab === "pipeline" && "Pipeline"}

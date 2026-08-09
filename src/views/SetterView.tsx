@@ -31,6 +31,8 @@ import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
 import { botIconVisual, countCallsContestadas, countSalesCalls, type BotEstado, type Grade } from "../lib/closerStore";
 import { fetchUrgentesSetter } from "../lib/api";
+import { useAuth } from "../lib/authStore";
+import { fechaLarga, hoyISO } from "../lib/fechas";
 import {
   useSetter,
   TAG_CLS_BY_TONE,
@@ -56,6 +58,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   // con la cuenta real (que además tenía DOS fórmulas distintas entre Inicio y Mi Día).
   const { contacts } = useSetter();
   const midiaBadge = setterPendingTasksBreakdown(contacts).total;
+  const { usuario } = useAuth();
   const tabs: { key: Tab; label: string; Icon: LucideIcon; badge?: number }[] = [
     { key: "inicio", label: "Inicio", Icon: House },
     { key: "midia", label: "Mi Día", Icon: ListTodo, badge: midiaBadge > 0 ? midiaBadge : undefined },
@@ -66,12 +69,13 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-8 border-b border-border/30">
       <div>
         <p className="text-[10px] font-bold tracking-[0.2em] text-primary uppercase mb-2 opacity-80">
-          SETTER AI • DIEGO M.
+          {/* Mismo criterio que el closer: el nombre sale de la sesión, y sin sesión no hay nombre. */}
+          SETTER{usuario?.nombre ? ` • ${usuario.nombre}` : ""}
         </p>
         {tab === "midia" ? (
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
             <span className="font-light">
-              Mi Día — <span className="text-muted-foreground">miércoles, 8 de julio</span>
+              Mi Día — <span className="text-muted-foreground">{fechaLarga(hoyISO())}</span>
             </span>
           </h1>
         ) : (

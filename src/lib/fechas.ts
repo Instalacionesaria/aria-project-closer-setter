@@ -90,3 +90,25 @@ export function fechaCorta(iso: FechaISO): string {
     .toLocaleDateString("es-ES", { day: "2-digit", month: "short", timeZone: "UTC" })
     .replace(".", "");
 }
+
+/**
+ * `"miércoles, 8 de julio"` — el encabezado de Mi Día.
+ *
+ * Vive acá y no en cada vista porque el closer y el setter muestran **el mismo hecho**: qué día
+ * es hoy para la organización. Dos formateadores divergen (regla 3), y ya venían divergiendo de
+ * la peor forma posible: los dos tenían la fecha escrita a mano como texto.
+ *
+ * Se construye en UTC a partir del ISO y se formatea con `timeZone: "UTC"`, igual que
+ * `fechaCorta`. Es lo que evita el clásico corrimiento de un día: `new Date("2026-08-08")` se
+ * interpreta como medianoche UTC, y un browser en Lima (UTC-5) lo mostraría como el 7.
+ */
+export function fechaLarga(iso: FechaISO): string {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("es-ES", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "UTC",
+  });
+}
