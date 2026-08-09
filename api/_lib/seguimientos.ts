@@ -34,6 +34,7 @@ import {
 } from "../../src/lib/ghl/contrato.js";
 import { desenlaceDesdeTags } from "../../src/lib/ghl/etapas.js";
 import { RESULTADOS, TAGS_RESULTADO_EXCLUYENTES, type ResultadoAvanzar } from "../../src/lib/ghl/resultados.js";
+import { RESULTADOS_SETTER, type ResultadoSetter } from "../../src/lib/ghl/resultadosSetter.js";
 import {
   DIAS_GRACIA_SERIE,
   SERIE_RECUPERO,
@@ -358,9 +359,20 @@ const COLUMNA_SUBCATEGORIA: Record<string, string> = {
   descalificado: "motivo_descalificacion",
 };
 
+export type RolAvance = "closer" | "setter";
+
 export interface ProyeccionInput {
   ghlContactId: string;
-  resultado: ResultadoAvanzar;
+  /**
+   * Quién lo registró: `closer` o `setter` (migración `032`).
+   *
+   * No es cosmético — gobierna dos cosas. Primero, el CHECK compuesto de la tabla: un par
+   * (rol, salida) inválido no entra ni a mano. Y segundo, de dónde sale la etapa: ver abajo,
+   * porque el closer la deriva del tag y el setter no puede.
+   */
+  rol: RolAvance;
+  /** La clave del catálogo que corresponda al `rol`. */
+  resultado: ResultadoAvanzar | ResultadoSetter;
   subcategoria?: string | null;
   monto?: number;
   nota?: string;
@@ -374,6 +386,12 @@ export interface ProyeccionInput {
    * tener siempre las filas anteriores a que existiera la sesión.
    */
   autorUsuarioId?: string;
+  /**
+   * El setter que trabajó este lead a mano (migración `032`). Se escribe en el CONTACTO y no en
+   * el avance: la pregunta que destraba es *"de las ventas HT de este mes, ¿cuáles venían de un
+   * lead que un setter tocó?"*, y ésa se le hace al contacto.
+   */
+  atribucionSetterId?: string;
 }
 
 /**
@@ -410,20 +428,58 @@ export async function proyectarAvance(input: ProyeccionInput): Promise<string[]>
        * atribuirle una venta al closer más probable sería fabricar un hecho (§4.2).
        */
       autor_usuario_id: input.autorUsuarioId ?? null,
+      rol: input.rol,
     });
   if (errAvance) advertencias.push(`closer_avances: ${errAvance.message}`);
 
-  // La etapa se deriva del MISMO tag que viaja a GHL — la única fuente coherente con lo que
-  // el resto de las vistas derivan de tags. Un resultado siempre resuelve etapa.
-  const etapa = desenlaceDesdeTags([TAGS[RESULTADOS[input.resultado].tag].valor])?.etapa;
+  /**
+   * ── De dónde sale la etapa, y por qué difiere por rol ──────────────
+   *
+   * En el closer se deriva del MISMO tag que viaja a GHL: es la única fuente coherente con lo
+   * que el resto de las vistas derivan de tags, y un resultado siempre resuelve etapa.
+   *
+   * En el setter **no se puede**, y no es una simplificación: dos de sus cinco salidas no tienen
+   * tag confirmado (`agendo` porque el swap lo hace el WF 04.1, `venta_lt` porque el literal no
+   * existe todavía — ver `resultadosSetter.ts`). Derivar de un tag ausente daría `undefined`, y
+   * el contacto se quedaría en la etapa anterior después de un Avanzar exitoso: una escritura
+   * que se reporta bien y no mueve nada.
+   *
+   * Así que el setter toma la etapa **del catálogo**, que además es lo correcto — su pipeline es
+   * de nuestro dominio, no de GHL.
+   */
+  const etapa =
+    input.rol === "setter"
+      ? RESULTADOS_SETTER[input.resultado as ResultadoSetter].stage
+      : desenlaceDesdeTags([TAGS[RESULTADOS[input.resultado as ResultadoAvanzar].tag].valor])?.etapa;
   if (etapa) {
     const cambios: Record<string, unknown> = { stage_key: etapa };
     const columna = COLUMNA_SUBCATEGORIA[etapa];
     if (columna && input.subcategoria) cambios[columna] = input.subcategoria;
-    if (input.resultado === "venta" && typeof input.monto === "number") cambios.monto = input.monto;
+    if (
+      (input.resultado === "venta" || input.resultado === "venta_lt") &&
+      typeof input.monto === "number"
+    ) {
+      cambios.monto = input.monto;
+    }
 
     const { error } = await db().from("closer_contactos").update(cambios).eq("ghl_contact_id", input.ghlContactId);
     if (error) advertencias.push(`closer_contactos.stage_key: ${error.message}`);
+  }
+
+  /**
+   * El latch de atribución, con guard de "solo si está vacío" (`.is(..., null)`).
+   *
+   * Sin ese filtro, el segundo setter que tocara el contacto le robaría la atribución al primero
+   * — y el primero es el que lo originó, que es justamente lo que paga la comisión diferida. Un
+   * UPDATE que no matchea ninguna fila no es un error acá: es el latch ya encendido.
+   */
+  if (input.atribucionSetterId) {
+    const { error } = await db()
+      .from("closer_contactos")
+      .update({ atribucion_setter_id: input.atribucionSetterId })
+      .eq("ghl_contact_id", input.ghlContactId)
+      .is("atribucion_setter_id", null);
+    if (error) advertencias.push(`closer_contactos.atribucion_setter_id: ${error.message}`);
   }
 
   return advertencias;
@@ -444,6 +500,14 @@ export interface RegistrarSeguimientoInput {
   closerId?: string;
   /** Quién lo registra. Del endpoint sale `ctx.nombre`; sin él se firma como `Sistema`. */
   autor?: string;
+  /**
+   * `closer` por defecto. El setter reusa TODA esta máquina —la RPC transaccional, las series,
+   * los efectos— porque su Seguimiento es la misma acción del negocio; lo único que cambia es
+   * qué salida se registra y con qué catálogo se resuelve la etapa.
+   */
+  rol?: RolAvance;
+  /** Solo cuando `rol === "setter"`: enciende el latch de atribución en el contacto. */
+  atribucionSetterId?: string;
 }
 
 export interface ResultadoRegistro {
@@ -497,6 +561,8 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
   const tagModo = esAutomatico ? TAGS.seguimientoRecupero : TAGS.seguimientoManual;
   await proyectarAvance({
     ghlContactId: input.ghlContactId,
+    rol: input.rol ?? "closer",
+    atribucionSetterId: input.atribucionSetterId,
     resultado: "seguimiento",
     subcategoria: situacionLabel,
     nota: input.nota,
@@ -538,6 +604,10 @@ export interface RegistrarResultadoInput {
   closerId?: string;
   /** Quién lo registra. Del endpoint sale `ctx.nombre`; sin él se firma como `Sistema`. */
   autor?: string;
+  /** `closer` por defecto. Ver `RegistrarSeguimientoInput.rol`. */
+  rol?: RolAvance;
+  /** Solo cuando `rol === "setter"`: enciende el latch de atribución en el contacto. */
+  atribucionSetterId?: string;
 }
 
 export interface ResultadoRegistroAvanzar {
@@ -665,6 +735,8 @@ export async function registrarResultadoAvanzar(
   advertencias.push(
     ...(await proyectarAvance({
       ghlContactId: input.ghlContactId,
+      rol: input.rol ?? "closer",
+      atribucionSetterId: input.atribucionSetterId,
       resultado: input.resultado,
       subcategoria: input.subcategoria,
       monto: input.monto,
