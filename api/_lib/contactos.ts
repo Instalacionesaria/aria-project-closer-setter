@@ -54,10 +54,22 @@ export async function sincronizarContacto(ghlContactId: string): Promise<boolean
         email: contacto.email ?? null,
         tags: contacto.tags ?? [],
         fuente: fuenteDesdeTags(contacto.tags ?? []),
-        /* Congelado = perdió `zona_closer` (§7 del doc de conexiones): sigue visible y movible
-           por el pipeline, pero no se gasta NI UNA llamada de GHL más en él. Si el tag
-           reaparece en un refresco futuro, esto mismo lo descongela. */
-        congelado: !(contacto.tags ?? []).includes(TAGS.zonaCloser.valor),
+        /**
+         * Congelado = **no está en NINGÚN territorio** (§7 del doc de conexiones): sigue visible
+         * y movible por el pipeline, pero no se gasta ni una llamada de GHL más en él. Si un tag
+         * de territorio reaparece en un refresco futuro, esto mismo lo descongela.
+         *
+         * ── Era "perdió `zona_closer`" hasta el 2026-08-08 ────────────
+         *
+         * Con esa definición, **todo contacto del setter nacía congelado**: nunca tuvo
+         * `zona_closer` —lo gana recién al agendar, por el swap del WF 04.1— así que el módulo
+         * entero habría quedado inerte hacia GHL desde el primer sync, sin que nada fallara.
+         *
+         * La regla nueva no cambia una coma del comportamiento del closer: un contacto suyo que
+         * pierde `zona_closer` y no tiene `zona_setter` sigue congelándose igual. Lo que cambia es
+         * que ahora hay un segundo territorio que también cuenta.
+         */
+        congelado: !enAlgunTerritorio(contacto.tags ?? []),
 
         // Subcategorías de Avanzar. Se leen todas: la píldora usará la del stage actual,
         // pero las demás quedan disponibles para Gerencia (regla de acumulación, §4).
@@ -83,8 +95,13 @@ export async function sincronizarContacto(ghlContactId: string): Promise<boolean
   return true;
 }
 
+/** `true` si el contacto está en el territorio del closer o en el del setter. */
+function enAlgunTerritorio(tags: readonly string[]): boolean {
+  return tags.includes(TAGS.zonaCloser.valor) || tags.includes(TAGS.zonaSetter.valor);
+}
+
 export interface ResultadoSync {
-  /** Cuántos contactos tienen `zona_closer` en GHL ahora mismo. */
+  /** Cuántos contactos tienen un tag de territorio en GHL ahora mismo (los dos sumados). */
   encontrados: number;
   /** De esos, cuántos se releyeron y espejaron sin error. */
   sincronizados: number;
@@ -142,9 +159,32 @@ export async function sincronizarTerritorio(opciones: { tope?: number } = {}): P
     return { ...vacio, errores: ["Adapter en modo stub: no hay de dónde sincronizar."] };
   }
 
-  const ids = await cliente.buscarPorTag(TAGS.zonaCloser.valor, tope);
-  let llamadasGhl = 1;
-  const truncado = ids.length >= tope;
+  /**
+   * ── Los DOS territorios, en dos llamadas ──────────────────────────
+   *
+   * La búsqueda de GHL acepta un solo tag por request, así que barrer los dos cuesta dos
+   * llamadas en vez de una. Es el precio de que el setter exista: sin esto sus contactos nunca
+   * entran a la caché, y todas sus colas tendrían que consultar GHL en vivo — que es exactamente
+   * lo que hoy hace `api/setter/urgentes.ts` y por lo que corre cada 60 s en vez de cada 10.
+   *
+   * El `tope` aplica **por territorio**, no al total: son dos poblaciones distintas y recortar
+   * una por el tamaño de la otra dejaría contactos afuera sin motivo.
+   */
+  const [idsCloser, idsSetter] = await Promise.all([
+    cliente.buscarPorTag(TAGS.zonaCloser.valor, tope),
+    cliente.buscarPorTag(TAGS.zonaSetter.valor, tope),
+  ]);
+  let llamadasGhl = 2;
+
+  // Un contacto puede aparecer en los dos durante el swap. Se sincroniza una sola vez.
+  const ids = [...new Set([...idsCloser, ...idsSetter])];
+
+  /**
+   * `truncado` si CUALQUIERA de las dos llegó al tope, y esto no es una precaución de más: la
+   * congelación de abajo funciona por AUSENCIA, y con una lista recortada la ausencia no prueba
+   * nada. Basta que una venga incompleta para que congelar sea inseguro.
+   */
+  const truncado = idsCloser.length >= tope || idsSetter.length >= tope;
   const errores: string[] = [];
 
   // Quién estaba congelado ANTES, para poder informar cuántos volvieron. Cero llamadas a GHL.

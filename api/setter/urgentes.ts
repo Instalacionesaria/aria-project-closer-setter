@@ -16,13 +16,20 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { TAGS } from "../../src/lib/ghl/contrato.js";
 import { TAG_FALLO } from "../_lib/analizador.js";
 import { env } from "../_lib/env.js";
-import { contactosConTag } from "../_lib/ghl/lectura.js";
 import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 /** Cuando todavía no hay nota del analizador, se dice eso — no se inventa un diagnóstico. */
 const MOTIVO_SIN_NOTA = "requiere intervención — revisar conversación";
+
+interface FilaCache {
+  ghl_contact_id: string;
+  nombre: string | null;
+  fuente: string | null;
+  tags: string[] | null;
+  congelado: boolean;
+}
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
@@ -37,13 +44,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // Se pide por el tag del fallo y se filtra por territorio en memoria: la búsqueda de GHL
-    // acepta un solo filtro por request, y los que tienen el bot caído son siempre pocos.
-    //
-    // Esta llamada NO se puede evitar: `closer_contactos` solo cachea territorio del closer
-    // (`zona_closer` se aplica DESPUÉS de agendar, §51.3), así que el pre-agenda no está ahí.
-    const { contactos: conFallo } = await contactosConTag(TAG_FALLO);
-    const contactos = conFallo.filter((c) => c.tags.includes(TAGS.zonaSetter.valor));
+    /**
+     * ── De GHL en vivo a la caché (2026-08-08) ────────────────────────
+     *
+     * Este bloque decía que la llamada a GHL **no se podía evitar**, y era cierto cuando se
+     * escribió: `closer_contactos` cacheaba solo territorio del closer, así que el pre-agenda no
+     * estaba ahí. Por eso este endpoint corría cada 60 s en vez de cada 10 — el presupuesto no
+     * daba para más.
+     *
+     * Desde que `sincronizarTerritorio()` barre los dos territorios, el pre-agenda SÍ está en la
+     * caché. La llamada se fue: de 1 a 0.
+     */
+    const { data: filas } = await db()
+      .from("closer_contactos")
+      .select("ghl_contact_id, nombre, fuente, tags, congelado");
+
+    const delSetter = ((filas ?? []) as FilaCache[]).filter((c) =>
+      (c.tags ?? []).map((t) => t.trim().toLowerCase()).includes(TAGS.zonaSetter.valor),
+    );
+    const contactos = delSetter
+      .filter((c) => !c.congelado && (c.tags ?? []).map((t) => t.trim().toLowerCase()).includes(TAG_FALLO))
+      .map((c) => ({ id: c.ghl_contact_id, nombre: c.nombre ?? c.ghl_contact_id, fuente: c.fuente, tags: c.tags ?? [] }));
 
     /**
      * El motivo del fallo, en UNA query — antes era `ultimaNotaIa(c.id)` por contacto dentro
@@ -77,10 +98,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ok: true,
       ghlModo: env.ghlModo(),
       count: urgentes.length,
-      /** Con el bot caído pero fuera de pre-agenda: esos son del closer, no de esta cola. */
-      fueraDeZonaSetter: conFallo.length - contactos.length,
+      /** Cuántos del territorio del setter NO están en esta cola. Para leer la proporción. */
+      enZonaSetter: delSetter.length,
       /** Para que el presupuesto de §51.4 sea verificable con un curl, no declarativo. */
-      llamadasGhl: 1,
+      llamadasGhl: 0,
       urgentes,
     });
   } catch (e) {
