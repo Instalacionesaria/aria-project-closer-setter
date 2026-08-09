@@ -15,7 +15,7 @@
  * ── El GET muestra el secreto EFECTIVO, no la columna ─────────────────
  *
  * Y esa distinción evita romper producción. Hoy ARIA tiene las dos columnas en `null` y anda con
- * los globales (`WEBHOOK_SECRET` y `LLAMADAS_TOKEN`), que son los que Francisco ya pegó en el
+ * los globales (`WEBHOOK_SECRET` y `LLAMADAS_TOKEN`), que son los que ya está pegado en el
  * workflow de GHL y en Assistable. `atribuirWebhook` los resuelve así:
  *
  *     const esperado = credenciales[campo] ?? secretoGlobal;

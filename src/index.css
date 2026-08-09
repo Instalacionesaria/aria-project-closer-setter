@@ -35,7 +35,7 @@
   }
 
   .dark {
-    /* Dark Mode Premium — sistema de capas por elevación (2026-07-13, lineamientos de Francisco).
+    /* Dark Mode Premium — sistema de capas por elevación (2026-07-13, lineamientos de Fabio).
        Nivel 0 = fondo del lienzo; Nivel 1 = tarjetas/paneles/sidebar flotantes; Nivel 2 = elementos
        interactivos dentro de una tarjeta (inputs, botones secundarios, hover). Cada nivel sube en
        luminosidad para separarse del anterior — las sombras casi no se ven en fondos oscuros, así

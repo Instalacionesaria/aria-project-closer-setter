@@ -55,7 +55,7 @@
 -- ¿Es aceptable para este alcance? Sí, y por una razón concreta: hoy las mismas
 -- credenciales están en las variables de entorno de Vercel, que también son legibles en
 -- claro por cualquiera con acceso al dashboard del proyecto. La superficie de confianza no
--- empeora — es la misma persona (Francisco) y los mismos dos paneles. Lo que cambia es la
+-- empeora — es la misma persona y los mismos dos paneles. Lo que cambia es la
 -- comodidad de rotarlas.
 --
 -- ¿Cuándo deja de ser aceptable? Cuando haya varios clientes. Ahí un solo volcado de la

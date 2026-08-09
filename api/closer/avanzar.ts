@@ -308,7 +308,7 @@ async function registrarOtraSalida(args: {
  * propósito: son dos fuentes que hoy discrepan en un caso —`no_interesa` produce
  * `NO LE INTERESA` en el front y `DESCALIFICADO` en el catálogo— y el catálogo es el que
  * coincide con `CONTRATO-GHL.md` §4 y con el vocabulario fijado en §39.5. Queda anotado
- * para unificarlo con Francisco; mientras tanto, el backend dice lo que dice el contrato.
+ * para unificarlo con Fabio; mientras tanto, el backend dice lo que dice el contrato.
  *
  * La subcategoría es el valor REAL del custom field, no una versión recortada: la píldora de
  * un No-show sale `NO-SHOW · PLANTÓN SIN AVISO` y no `NO-SHOW · PLANTÓN`, porque es lo que

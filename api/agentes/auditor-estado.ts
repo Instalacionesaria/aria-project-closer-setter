@@ -6,7 +6,7 @@
  * El auditor está en CERO a propósito: su portón 2 exige `bot_activado` o `bot_reactivar`,
  * y verificado contra la cuenta el 2026-08-04 **ningún contacto tiene ninguno de los dos**.
  * Los workflows que los aplicarían (🟦 08.1 / 08.2) están en borrador. Fabio decidió esperar
- * a Francisco en vez de adivinar el estado del bot.
+ * a Fabio en vez de adivinar el estado del bot.
  *
  * Un cero silencioso es indistinguible de una caída. Este endpoint convierte ese cero en un
  * reclamo concreto: no "el auditor no funciona", sino *"0 de 8 contactos tienen
@@ -170,7 +170,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       loQueFalta.push(
         "⚠️ MODO PRUEBA (2026-08-06): el portón del tag 'bot_activado' está SALTEADO, así que el auditor " +
           "analiza cualquier contacto del territorio que junte 5 mensajes del agente, y puede escribir tags " +
-          "en GHL. Se apaga con AUDITOR_SIN_PORTON_TAGS=0. Cuando Francisco publique los workflows " +
+          "en GHL. Se apaga con AUDITOR_SIN_PORTON_TAGS=0. Cuando Fabio publique los workflows " +
           "🟦 08.1 / 08.2, esto se saca y vuelve a regir el portón por tags.",
       );
     } else if (conBot === 0) {
@@ -183,7 +183,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (porAutor.desconocido > 0 && porAutor.agente_ia === 0) {
       loQueFalta.push(
         `Hay ${porAutor.desconocido} mensajes salientes que no se pudieron atribuir y CERO identificados ` +
-          "como del agente. Puede que el bot de esta subcuenta firme distinto: si Francisco confirma cuál " +
+          "como del agente. Puede que el bot de esta subcuenta firme distinto: si Fabio confirma cuál " +
           "es su 'source' o su userId, se ajusta con AUDITOR_FUENTES_IA / AUDITOR_USER_IDS_IA sin desplegar.",
       );
     }

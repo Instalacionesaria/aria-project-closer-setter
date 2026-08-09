@@ -128,7 +128,7 @@ function MiDiaRow({
   /** Ej. "Abierta hace 767 días" en Urgentes. */
   badge?: string;
   highlighted?: boolean;
-  /** Completadas Hoy: fila atenuada + nombre tachado, pero fuente/píldora/iconos SIGUEN visibles (regla de Francisco, 2026-07-10). */
+  /** Completadas Hoy: fila atenuada + nombre tachado, pero fuente/píldora/iconos SIGUEN visibles (regla de Fabio, 2026-07-10). */
   completed?: boolean;
 }) {
   const pinned = !completed && c.pinned;
@@ -851,7 +851,7 @@ function MiDiaTab() {
       </div>
 
       {/*
-        Agenda de hoy — SIEMPRE visible, aunque esté vacía (decisión de Francisco,
+        Agenda de hoy — SIEMPRE visible, aunque esté vacía (decisión de Fabio,
         2026-07-25). Es la misma excepción que ya tenía "Completadas Hoy" frente a la regla
         §4.1: el closer necesita ver la sección para saber que no tiene citas, no que
         desaparezca y lo deje dudando de si se rompió algo.
@@ -953,7 +953,7 @@ function MiDiaTab() {
                     </button>
                   </div>
                 </div>
-                {/* Bloque de Francisco — siempre visible. Sin dato (aún no hay fuente): placeholders. */}
+                {/* Bloque de Fabio — siempre visible. Sin dato (aún no hay fuente): placeholders. */}
                 <div className={cn("grid transition-[grid-template-rows] duration-300 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
                   <div className="overflow-hidden">
                     <div className="mt-2 ml-[52px] mr-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
@@ -1941,7 +1941,7 @@ function AgendaTab() {
 
                         <div className={cn("grid transition-[grid-template-rows] duration-300 ease-in-out", isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]")}>
                           <div className="overflow-hidden">
-                            {/* Bloque de Francisco — siempre visible. Sin dato (aún no hay fuente): placeholders. */}
+                            {/* Bloque de Fabio — siempre visible. Sin dato (aún no hay fuente): placeholders. */}
                             <div className="mt-3 mb-2 p-2.5 bg-blue-50/50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-lg">
                               <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
                                 <span className="font-semibold text-blue-700 dark:text-blue-400 mr-1">

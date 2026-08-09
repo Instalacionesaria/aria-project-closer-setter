@@ -48,7 +48,7 @@ export interface EfectosSetterInput {
  * Los tags de resultado del setter que son mutuamente excluyentes.
  *
  * Se arma del catálogo y no a mano: si mañana una salida gana un tag —`venta_lt` lo va a ganar
- * cuando Kevin lo cree— entra acá sola. Una lista paralela escrita a mano se olvidaría.
+ * cuando exista en GHL— entra acá sola. Una lista paralela escrita a mano se olvidaría.
  */
 function tagsDeResultadoSetter(): Literal[] {
   const vistos = new Set<string>();

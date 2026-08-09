@@ -15,7 +15,7 @@
 --
 --   · `bot_activado` y `bot_reactivar` no existen en NINGÚN contacto de la cuenta (0 de 0),
 --     y los workflows que los aplicarían están en borrador. El portón 2 del auditor bloquea
---     al 100%: hoy no produce ni un análisis, a propósito, hasta que Francisco los publique.
+--     al 100%: hoy no produce ni un análisis, a propósito, hasta que se publiquen en GHL.
 --   · Y sin embargo el bot SÍ atiende: la conversación del contacto de prueba `moises` es
 --     un intercambio completo con Appointment Flow AI.
 --   · "outbound" no quiere decir "IA". Por el mismo canal salen el chatbot

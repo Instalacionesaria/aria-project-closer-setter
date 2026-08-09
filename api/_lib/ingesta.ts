@@ -283,7 +283,7 @@ export function estaFueraDeZona(tags: readonly string[]): boolean {
  *     esto la refleja acá).
  *  4. Reabre la tarea del día (§40.D — el revive real).
  *
- * Lo que NO hace: llamar al analizador de Kevin. Eso queda SOLO en el webhook — un
+ * Lo que NO hace: llamar al analizador. Eso queda SOLO en el webhook — un
  * analizador colgado de un bucle de 10s convertiría cada ciclo con actividad en una
  * inferencia de ~$0,02, y el doc de esta tarea prohíbe tocar su disparo.
  */

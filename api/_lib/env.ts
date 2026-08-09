@@ -132,7 +132,7 @@ export const env = {
   /**
    * Cómo reconocer al chatbot de GHL entre los mensajes salientes.
    *
-   * Son válvulas para no tener que desplegar si Francisco confirma que el bot de esta
+   * Son válvulas para no tener que desplegar si Fabio confirma que el bot de esta
    * subcuenta firma distinto. Sin ellas rige el default de `autoria.ts` (`source:"app"` sin
    * `userId`), que es lo medido contra la cuenta el 2026-08-04.
    */
@@ -200,7 +200,7 @@ export const env = {
    * **Cómo se enciende** para otra prueba: `AUDITOR_SIN_PORTON_TAGS=1` en Vercel. Cualquier
    * otro valor, o su ausencia, deja el portón puesto.
    *
-   * Consecuencia conocida y aceptada: mientras los workflows 🟦 08.1/08.2 de Francisco sigan
+   * Consecuencia conocida y aceptada: mientras los workflows 🟦 08.1/08.2 de Fabio sigan
    * en borrador, **cero contactos pasan el portón** y el auditor no analiza nada. Es el estado
    * correcto — no auditar es mejor que auditar a quien nadie marcó.
    */

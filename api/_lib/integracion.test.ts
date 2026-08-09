@@ -148,7 +148,7 @@ describeSi("integración — Supabase real, GHL en stub", () => {
  * Doble compuerta — `INTEGRACION=1` **y** `INTEGRACION_ESCRITURA=1` — porque esto modifica
  * la cuenta de producción.
  *
- * Solo prueba el modo **manual**. Confirmado con Francisco: `seguimiento_manual` no tiene
+ * Solo prueba el modo **manual**. Confirmado con Fabio: `seguimiento_manual` no tiene
  * ningún workflow enganchado, así que aplicarlo no envía nada. El modo automático queda
  * deliberadamente fuera: `seguimiento_recupero` dispara la serie Recupero, que manda tres
  * mensajes durante siete días, y eso no se deshace quitando el tag.

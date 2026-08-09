@@ -2,7 +2,7 @@
  * Citas: sincronización GHL → `closer_citas`, compartida por el cron de respaldo y el
  * refresco on-demand de la Agenda.
  *
- * El webhook de cita (workflow B de Francisco) da la inmediatez; esto da la garantía y,
+ * El webhook de cita (workflow B de Fabio) da la inmediatez; esto da la garantía y,
  * de paso, el ALTA de contactos nuevos: `zona_closer` se aplica después de agendar
  * (decisión de Fabio, 2026-07-31), así que todo contacto nuevo del territorio aparece
  * primero como una cita — y `sincronizarCitas` lo da de alta si el webhook no llegó.

@@ -120,7 +120,7 @@ type AvanzarResult = {
   agendaFecha?: string;
 };
 
-/* ---------- Closer: pantallas exactas provistas por Francisco ---------- */
+/* ---------- Closer: pantallas exactas provistas por Fabio ---------- */
 
 type CloserOutcomeKey = "venta" | "acordo" | "seguimiento" | "no_interesa" | "no_show" | "nurture";
 
@@ -835,7 +835,7 @@ const SETTER_OUTPUTS: OutputDef[] = [
   { key: "nurture" },
 ];
 
-/** Grid "¿Cómo termina?" del setter (referencia de Francisco, 2026-07-10) — icono + label + desc, mismo estilo que CLOSER_CARDS. */
+/** Grid "¿Cómo termina?" del setter (referencia de Fabio, 2026-07-10) — icono + label + desc, mismo estilo que CLOSER_CARDS. */
 const SETTER_CARDS: { key: SetterOutcomeKey; label: string; desc: string; icon: typeof Calendar; tone: "emerald" | "blue" | "violet" | "red" | "amber" }[] = [
   { key: "agendo", label: "Agendó", desc: "Coordinado manualmente", icon: Calendar, tone: "emerald" },
   { key: "venta_lt", label: "Venta Low-Ticket", desc: "Suma a comisiones", icon: CreditCard, tone: "violet" },
@@ -866,7 +866,7 @@ function buildSetterResult(output: OutputDef, subcat: string | null, values: Rec
   return { pildora: "—", texto: "Registró un resultado", toast: "Registrado", setterStage: "en_calificacion", situacionTone: "source" };
 }
 
-/** Setter: grid "¿Cómo termina?" (referencia de Francisco, 2026-07-10) + pantallas de detalle, mismo patrón de navegación que CloserAvanzar. */
+/** Setter: grid "¿Cómo termina?" (referencia de Fabio, 2026-07-10) + pantallas de detalle, mismo patrón de navegación que CloserAvanzar. */
 function SetterAvanzarModal({
   name,
   onClose,
@@ -1244,6 +1244,15 @@ export default function ContactDrawer({
     if (onAdvance && result.stage) {
       onAdvance(result);
     } else if (onSetterAdvance && result.setterStage && result.situacionTone) {
+      /**
+       * Se reenvía TODO lo que el backend necesita, no solo lo que la vista pinta.
+       *
+       * Hasta el 2026-08-08 acá se descartaban `subcategoriaGhl`, `situacionSlug`, `modo`,
+       * `preset` y `fechaPersonalizada` — los mismos campos que el camino del closer sí manda.
+       * No molestaba porque el Avanzar del setter no llegaba a ningún servidor: mutaba un
+       * `useState` y se acababa ahí. Ahora que persiste, descartarlos guardaría una venta sin su
+       * forma de pago y un seguimiento sin su fecha.
+       */
       onSetterAdvance({
         stage: result.setterStage,
         pildora: result.pildora,
@@ -1253,6 +1262,12 @@ export default function ContactDrawer({
         nota: result.nota,
         seguimientoAutomaticoActivo: result.seguimientoAutomaticoActivo,
         agendaFecha: result.agendaFecha,
+        subcategoria: result.subcategoriaGhl ?? result.formaPagoVenta,
+        situacionSlug: result.situacionSlug,
+        modo: result.modo,
+        preset: result.preset,
+        fechaPersonalizada: result.fechaPersonalizada,
+        idempotencyKey: result.idempotencyKey,
       });
     } else {
       setLocalPildora(result.pildora);
@@ -2209,7 +2224,7 @@ function ChatTab({
   );
 }
 
-/* ---------- Llamadas (§ spec de Francisco, 2026-07-10) ---------- */
+/* ---------- Llamadas (§ spec de Fabio, 2026-07-10) ---------- */
 
 const CALL_ORIGIN_META: Record<CallOrigin, { label: string; icon: typeof Mic }> = {
   sales_call: { label: "Sales Call", icon: Mic },

@@ -16,7 +16,7 @@ contacto, la evalúa contra una rúbrica, y produce **dos salidas que no hay que
 El portón 2 exige `bot_activado` o `bot_reactivar`. Verificado contra la subcuenta: **cero
 contactos tienen alguno de los dos**, y los workflows que los aplicarían están en borrador.
 
-Fabio decidió mantener el portón por tags y esperar a Francisco, en vez de que la plataforma
+Fabio decidió mantener el portón por tags y esperar a que los workflows existan, en vez de que la plataforma
 adivine el estado del bot. **El auditor está en cero deliberadamente.**
 
 > **El interruptor, y por qué el default está al revés que antes.** Entre el 06 y el 07 de

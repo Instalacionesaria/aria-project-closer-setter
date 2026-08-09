@@ -40,7 +40,7 @@ completa la tarea, y hay un **tope de 3**. Al agotarse, el sistema mueve el cont
 > **Hueco conocido:** en WhatsApp con bot, enviar el rescate dispara la pausa temporal y el
 > bot retoma. En **Instagram** no hay bot, y el mecanismo que documentaba cómo completar un
 > rescate ahí dependía de un botón ⏱ del compositor que se eliminó. **No hay vía definida
-> hoy.** No se inventó un reemplazo: pendiente de que Francisco especifique.
+> hoy.** No se inventó un reemplazo: pendiente de especificar.
 
 ### Oportunidades low-ticket
 

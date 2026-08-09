@@ -1,7 +1,7 @@
 # `api/` — funciones de servidor
 
 Funciones serverless de Vercel. Es la capa de integración entre el tool, GoHighLevel y
-Supabase SOFIA. Vive en este repo (no en el motor de Kevin) por decisión del 2026-07-25.
+Supabase SOFIA. Vive en este repo (no en un motor aparte) por decisión del 2026-07-25.
 
 ## Endpoints
 

@@ -3,7 +3,7 @@
  *
  * `CONTRATO-GHL.md` §0 es explícito sobre de quién es este trabajo: *"La píldora la ARMA
  * el tool: toma el stage (estado principal) + el custom field de la subcategoría del stage
- * actual"*. Kevin transporta los dos datos crudos y no concatena nada.
+ * actual"*. el workflow transporta los dos datos crudos y no concatena nada.
  *
  * Hoy la píldora se concatena a mano en seis puntos distintos de `ContactDrawer.tsx`, con
  * el resultado previsible: la semilla usa `"Seguimiento · Dudando"` y Avanzar produce
@@ -67,7 +67,7 @@ export function armarPildora({ stage, subcategoria, monto }: ArmarPildoraInput):
   // incoherente con `CAMPO_SUBCATEGORIA_POR_STAGE.ganado = "formaPagoVenta"` en
   // `ghl/contrato.ts`: el contrato ya decía que la subcategoría de `ganado` es la forma de
   // pago, no la plata. El modal de Venta pedía la forma de pago como campo OBLIGATORIO y
-  // después la tiraba, así que el dato se capturaba y se perdía. Corregido con Francisco
+  // después la tiraba, así que el dato se capturaba y se perdía. Corregido con Fabio
   // el 2026-07-30.
   //
   // Los dos campos son opcionales por separado: un contacto traído de GHL puede tener la
@@ -98,7 +98,7 @@ export function armarPildora({ stage, subcategoria, monto }: ArmarPildoraInput):
  * correcto. Encima la semilla usa una tercera variante, `NO INTERESADO · PRECIO`
  * (`ARIEL MENDEZ`, closerStore.tsx).
  *
- * Son tres strings para el mismo estado. Hay que elegir uno con Francisco; mi lectura es
+ * Son tres strings para el mismo estado. Hay que elegir uno con Fabio; mi lectura es
  * que gana `DESCALIFICADO · X`, que es lo que dicen los dos documentos.
  */
 export const PILDORA_DESCALIFICADO_PENDIENTE_DE_UNIFICAR = true;

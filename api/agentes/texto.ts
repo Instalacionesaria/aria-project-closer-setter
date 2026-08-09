@@ -1,7 +1,7 @@
 /**
  * `GET /api/agentes/texto` — lo que llena las dos tarjetas de "Agentes de Texto".
  *
- * Devuelve, por agente, exactamente los campos que Francisco definió en `AgentInfo`. La UI
+ * Devuelve, por agente, exactamente los campos que Fabio definió en `AgentInfo`. La UI
  * no se toca: este endpoint existe para que esas tarjetas dejen de mostrar datos sembrados
  * y muestren lo que realmente midieron las analizadoras.
  *
@@ -21,7 +21,7 @@
  * - **History** — 12 semanas: se pinta lo real donde lo hay y se conserva el valor sembrado
  *   donde todavía no. Así el sparkline se ve completo desde el primer día y se va volviendo
  *   real solo, semana a semana.
- * - **"Sin Respuesta"** — NO se calcula. Francisco todavía no definió qué cuenta
+ * - **"Sin Respuesta"** — NO se calcula. todavía no está definido qué cuenta
  *   exactamente (¿el último mensaje es de la IA?, ¿el contacto nunca escribió?), y elegirlo
  *   por mi cuenta sería inventar un criterio de negocio. Viaja `null` y la vista conserva
  *   el valor que él puso.
@@ -205,7 +205,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
      *
      * Sin ese dato, cualquier show-up que calcule es un invento: contar solo `showed` da 0%
      * y tratar `confirmed` como asistió da ~100%, y las dos cifras dirían algo que nadie
-     * midió. Así que no se calcula y la tarjeta conserva el número de Francisco.
+     * midió. Así que no se calcula y la tarjeta conserva el número de Fabio.
      *
      * Se destraba solo el día que empiecen a marcarse las citas — o cuando el "Avanzar" del
      * closer escriba el desenlace, que es la definición del propio producto ("Se presentó"
@@ -263,7 +263,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         ops: [
           { label: "Conversaciones", value: conversaciones > 0 ? String(conversaciones) : null },
           { label: "Agendadas", value: agendadas !== null ? String(agendadas) : null },
-          // Pendiente de que Francisco defina qué cuenta. Ver cabecera.
+          // Pendiente de que Fabio defina qué cuenta. Ver cabecera.
           { label: "Sin Respuesta", value: null },
         ],
         history: await historialDe(id),

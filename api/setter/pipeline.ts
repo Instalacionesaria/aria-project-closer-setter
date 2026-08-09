@@ -165,7 +165,7 @@ async function mover(req: VercelRequest, res: VercelResponse) {
    * escribió en Supabase, así que un throw dejaría la respuesta en 500 sobre un movimiento que en
    * realidad SÍ ocurrió. El usuario vería un error y la tarjeta movida.
    *
-   * Tres de las siete etapas tienen tag `pendiente` —Kevin todavía no los creó— y eso no es una
+   * Tres de las siete etapas tienen tag `pendiente` —todavía no existen en la subcuenta— y eso no es una
    * falla: es el estado esperado hasta que existan. Se reporta como un efecto explícito, con
    * `aplicado: false`, para que nadie confunda "no se mandó porque no existe" con "se mandó".
    */
@@ -183,7 +183,7 @@ async function mover(req: VercelRequest, res: VercelResponse) {
   } else if (modoReal && def.tag.confianza === "pendiente") {
     efectos.push({
       operacion: "tag_pendiente",
-      detalle: `"${def.tag.valor}" todavía no existe en la subcuenta. La etapa se guardó en el tool; el tag sale cuando Kevin lo cree.`,
+      detalle: `"${def.tag.valor}" todavía no existe en la subcuenta. La etapa se guardó en el tool; el tag sale cuando exista en GHL.`,
       ok: true,
       aplicado: false,
     });

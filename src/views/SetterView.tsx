@@ -32,6 +32,7 @@ import { botIconVisual, countCallsContestadas, countSalesCalls, type BotEstado, 
 import { useAuth } from "../lib/authStore";
 import {
   fetchPipelineSetter,
+  moverEtapaSetter,
   type PipelineSetterColumna,
   type PipelineSetterContacto,
   type PipelineSetterResponse,
@@ -368,7 +369,7 @@ function LeadRow({
   contact: SetterContact;
   rowCls: string;
   onOpen: (name: string) => void;
-  /** Completadas Hoy: fila atenuada + nombre tachado, pero tags e iconos SIGUEN visibles (regla de Francisco, 2026-07-10). */
+  /** Completadas Hoy: fila atenuada + nombre tachado, pero tags e iconos SIGUEN visibles (regla de Fabio, 2026-07-10). */
   completed?: boolean;
 }) {
   const pinned = !completed && contact.pinned;
@@ -489,7 +490,7 @@ function Section({
 }
 
 /* ------------------------------------------------------------------ */
-/* Buzón General — cola catch-all con lentes de canal (§ nota de Francisco) */
+/* Buzón General — cola catch-all con lentes de canal (§ nota de Fabio) */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -678,7 +679,7 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
             </span>
           </div>
         ))}
-        {/* Buzón general — formato título+subtítulo distinto al resto (§ nota de Francisco) */}
+        {/* Buzón general — formato título+subtítulo distinto al resto (§ nota de Fabio) */}
         <div className="flex flex-col p-4 rounded-[1.5rem] bg-card/50 backdrop-blur-sm border border-border/40 hover:bg-muted/30 transition-all cursor-pointer group shadow-sm justify-center">
           <div className="flex items-center gap-2 mb-1.5">
             <div className="w-8 h-8 rounded-full flex items-center justify-center shadow-inner bg-blue-500/10 text-blue-500 shrink-0">
@@ -849,6 +850,23 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
     );
   }
 
+  /**
+   * Mover una tarjeta. Recarga siempre, con éxito o con error: el servidor es el que sabe dónde
+   * quedó el contacto, y pintar el movimiento sin confirmarlo dejaría la columna mintiendo si el
+   * PATCH lo rechazó — por ejemplo, un contacto congelado, que se ve pero no se mueve.
+   */
+  const [moviendo, setMoviendo] = useState<string | null>(null);
+  const mover = useCallback(
+    async (contactId: string, etapa: string) => {
+      setMoviendo(contactId);
+      const r = await moverEtapaSetter(contactId, etapa);
+      setMoviendo(null);
+      if (!r.ok) setError(r.error ?? "No se pudo mover el contacto.");
+      await cargar();
+    },
+    [cargar],
+  );
+
   const q = busqueda.trim().toLowerCase();
   const filtrar = (cs: PipelineSetterContacto[]) =>
     q === "" ? cs : cs.filter((c) => c.name.toLowerCase().includes(q) || (c.phone ?? "").includes(q));
@@ -878,7 +896,14 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
 
       <div className="space-y-6 mt-8">
         {(datos.columnas ?? []).map((col) => (
-          <ColumnaEtapa key={col.key} columna={{ ...col, contactos: filtrar(col.contactos) }} onOpen={onOpenContact} />
+          <ColumnaEtapa
+            key={col.key}
+            columna={{ ...col, contactos: filtrar(col.contactos) }}
+            etapas={(datos.columnas ?? []).map((c) => ({ key: c.key, label: c.label }))}
+            moviendo={moviendo}
+            onOpen={onOpenContact}
+            onMover={mover}
+          />
         ))}
       </div>
     </div>
@@ -893,10 +918,17 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
  */
 function ColumnaEtapa({
   columna,
+  etapas,
+  moviendo,
   onOpen,
+  onMover,
 }: {
   columna: PipelineSetterColumna & { contactos: PipelineSetterContacto[] };
+  etapas: { key: string; label: string }[];
+  /** El contacto que está viajando ahora mismo, para no dejar disparar dos veces. */
+  moviendo: string | null;
   onOpen: (name: string) => void;
+  onMover: (contactId: string, etapa: string) => void;
 }) {
   return (
     <div className="rounded-[2rem] border border-border/60 bg-card overflow-hidden shadow-sm">
@@ -927,13 +959,16 @@ function ColumnaEtapa({
       ) : (
         <div className="divide-y divide-border/40">
           {columna.contactos.map((c) => (
-            <button
+            /* `div` y no `button`: un `<select>` adentro de un `<button>` es HTML inválido y el
+               navegador se come el clic del control. El nombre queda como el elemento clickeable. */
+            <div
               key={c.contactId}
-              onClick={() => onOpen(c.name)}
-              className="w-full text-left px-6 py-3 hover:bg-muted/30 transition-colors flex items-center justify-between gap-3"
+              className="w-full px-6 py-3 hover:bg-muted/30 transition-colors flex items-center justify-between gap-3"
             >
               <div className="min-w-0">
-                <div className="text-sm font-medium truncate">{c.name}</div>
+                <button onClick={() => onOpen(c.name)} className="text-sm font-medium truncate text-left hover:underline">
+                  {c.name}
+                </button>
                 <div className="text-[11px] text-muted-foreground truncate">
                   {[c.phone, c.fuente].filter(Boolean).join(" · ") || "—"}
                 </div>
@@ -944,14 +979,43 @@ function ColumnaEtapa({
                     {money(c.monto)}
                   </span>
                 )}
-                {/* Congelado: visible e inerte. Perdió su territorio, no se acciona. */}
-                {c.congelado && (
-                  <span className="text-[10px] font-medium text-muted-foreground border border-border rounded-full px-2 py-0.5">
+                {/*
+                  Congelado: **visible e inerte**. Perdió su territorio en GHL, así que se muestra
+                  —el trabajo hecho no desaparece— pero no se acciona. En vez del selector se
+                  muestra por qué, para que nadie busque el control que falta.
+                */}
+                {c.congelado ? (
+                  <span
+                    title="Perdió su tag de territorio en GHL: se muestra pero no se puede mover."
+                    className="text-[10px] font-medium text-muted-foreground border border-border rounded-full px-2 py-0.5"
+                  >
                     congelado
                   </span>
+                ) : (
+                  <select
+                    value=""
+                    // Sin esto, dos clics rápidos mandan dos PATCH y gana el último por carrera.
+                    disabled={moviendo === c.contactId}
+                    // El clic no debe abrir la ficha: es un control, no parte de la fila.
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      const destino = e.target.value;
+                      if (destino) onMover(c.contactId, destino);
+                    }}
+                    className="text-[11px] rounded-md border border-border bg-background px-2 py-1 text-muted-foreground hover:text-foreground"
+                  >
+                    <option value="">Mover a…</option>
+                    {etapas
+                      .filter((e) => e.key !== columna.key)
+                      .map((e) => (
+                        <option key={e.key} value={e.key}>
+                          {e.label}
+                        </option>
+                      ))}
+                  </select>
                 )}
               </div>
-            </button>
+            </div>
           ))}
         </div>
       )}

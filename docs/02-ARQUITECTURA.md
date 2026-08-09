@@ -27,7 +27,7 @@ porque casi todos los bugs caros del proyecto salieron de tener dos fuentes para
 
 | Dato | Fuente de verdad | Por qué |
 |---|---|---|
-| Contactos, tags, custom fields | **GHL** | Los escriben los workflows de Francisco y los agentes |
+| Contactos, tags, custom fields | **GHL** | Los escriben los workflows de la subcuenta y los agentes |
 | Citas | **GHL** (calendario) | Las crea el booking link |
 | Conversaciones | **GHL** | Es quien habla con WhatsApp/Meta |
 | **Etapa del pipeline** | **Supabase** | Ver abajo — esto cambió |

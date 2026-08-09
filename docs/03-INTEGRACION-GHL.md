@@ -7,7 +7,7 @@ debería estar usándolo.
 > valor exacto, su fuente y su nivel de confianza. Este documento explica el **modelo**; ese
 > archivo es la **referencia**. Si los dos se contradicen, gana el archivo.
 >
-> El contrato original de Francisco (`CONTRATO-GHL.md`) **no está en git** — está en
+> El contrato original de GHL (`CONTRATO-GHL.md`) **no está en git** — está en
 > `.gitignore` por decisión suya. Pedíselo antes de tocar la integración.
 
 ## Los tags son interruptores
@@ -185,10 +185,10 @@ en vez de ≤1 s. Cada uno es un workflow con acción Webhook apuntando a
 
 ---
 
-## La lista para entregarle a Kevin
+## Lo que hay que configurar en GHL
 
-Lo que sigue es lo único que hace falta pasarle. **Los tags los definimos nosotros**: son literales
-que el código espera, y un nombre distinto no matchea nada.
+Lo que sigue es lo único que falta del lado de la subcuenta. **Los tags los define el código**: son
+literales que espera `contrato.ts`, y un nombre distinto no matchea nada.
 
 ### 1. Los tres tags que sus workflows tienen que aplicar
 
@@ -216,7 +216,7 @@ https://<dominio>/api/webhooks/ghl?evento=mensaje.entrante
 Un workflow por evento, cambiando solo el query param. Header `x-webhook-secret` con el valor que
 sale de Ajustes › Credenciales › Webhooks.
 
-> **Kevin no compone ningún JSON**, y esto es fácil de equivocar. La acción Webhook estándar manda
+> **No hay que componer ningún JSON**, y esto es fácil de equivocar. La acción Webhook estándar manda
 > el payload nativo de GHL y **no deja editar el cuerpo** — por eso el evento va en la URL. El
 > `contactId` lo saca el handler del payload nativo, probando `contactId`, `contact_id` y
 > `contact.id` en ese orden. El `evento` en el cuerpo también funciona (webhook premium, o pruebas

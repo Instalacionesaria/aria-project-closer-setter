@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo } from "react";
 import { type Grade, type BotEstado, type HistorialItem, type NotaItem, type CallRecord, type PerfilField } from "./closerStore";
 import { useSettings } from "./settingsStore";
-import { fetchMiDiaSetter, type ColaSetterContacto, type MiDiaSetterResponse } from "./api";
+import { avanzarSetter, fetchMiDiaSetter, type ColaSetterContacto, type MiDiaSetterResponse } from "./api";
 import { useAuth } from "./authStore";
 
 /**
@@ -111,7 +111,32 @@ export interface SetterAdvanceInput {
   nota?: string;
   seguimientoAutomaticoActivo?: boolean;
   agendaFecha?: string;
+  /** Lo que el backend necesita y hasta el 2026-08-08 se descartaba en el drawer. */
+  subcategoria?: string;
+  situacionSlug?: string;
+  modo?: string;
+  preset?: string;
+  fechaPersonalizada?: string;
+  idempotencyKey?: string;
 }
+
+/**
+ * De la etapa a la salida del Avanzar.
+ *
+ * Es 1:1 con el campo `stage` del catálogo (`RESULTADOS_SETTER`), invertido. Se deriva acá en vez
+ * de hacer que el drawer arrastre la clave por tres componentes: el mapeo es una propiedad del
+ * catálogo, no un dato que la UI tenga que llevar de la mano.
+ */
+const RESULTADO_POR_ETAPA: Record<SetterStageKey, string | null> = {
+  agendado: "agendo",
+  low_ticket_ofrecido: "venta_lt",
+  en_calificacion: "seguimiento",
+  descalificado: "no_califica",
+  nurture: "nurture",
+  // Ninguna salida del Avanzar lleva a estas dos: son etapas de entrada, no de resultado.
+  nuevo: null,
+  calificado_sin_agendar: null,
+};
 
 const seedHist = (): HistorialItem[] => [
   { fecha: "8 jul, 10:05", texto: "Respondió al mensaje de calificación", autor: "Sistema" },
@@ -209,7 +234,12 @@ interface SetterStoreValue {
   openGhlContactId: string | null;
   openContact: (name: string, ghlContactId?: string) => void;
   closeContact: () => void;
-  advance: (name: string, input: SetterAdvanceInput) => void;
+  /**
+   * `Promise<void>` y no `void`: desde que persiste, esto hace una escritura de red. TypeScript
+   * acepta asignar una función async a un tipo `void` —ignora el retorno— y eso la haría parecer
+   * síncrona en el tipo, escondiendo que hay un `await` que alguien podría querer esperar.
+   */
+  advance: (name: string, input: SetterAdvanceInput) => Promise<void>;
   addNota: (name: string, texto: string) => void;
   resolveIntervention: (name: string) => void;
   setBotEstado: (name: string, estado: BotEstado, evento: string, autor?: string) => void;
@@ -260,9 +290,9 @@ interface SetterCockpitBase {
   agendasGeneradasBase: number;
   showRateNum: number;
   showRateDen: number;
-  /** Ya confirmado coherente por Francisco (§ correcciones dashboards) — se muestra tal cual, sin recalcular vía división (evita un 79% por redondeo donde el confirmado es 78%). */
+  /** Ya confirmado coherente por Fabio (§ correcciones dashboards) — se muestra tal cual, sin recalcular vía división (evita un 79% por redondeo donde el confirmado es 78%). */
   showRatePct: number;
-  /** Ídem — referencia de demo (mismo patrón que BUZON_COUNTS, §23 de CLAUDE.md): la lista real de Oportunidades LT en Mi Día es una muestra, este es el conteo total de referencia que Francisco ya validó. */
+  /** Ídem — referencia de demo (mismo patrón que BUZON_COUNTS, §23 de CLAUDE.md): la lista real de Oportunidades LT en Mi Día es una muestra, este es el conteo total de referencia que ya está validado. */
   oportunidadesLTBase: number;
 }
 
@@ -345,53 +375,87 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
   const { comisionesSetterLT, comisionesSetterDiferida } = useSettings();
   const { usuario } = useAuth();
 
-  const advance = useCallback((name: string, input: SetterAdvanceInput) => {
-    setContacts((prev) => {
-      const c = prev[name];
-      if (!c) return prev;
-      const historial = [{ fecha: "Hoy", texto: input.texto, autor: "Usuario Activo" }, ...c.historial];
-      const notas = input.nota
-        ? [{ id: Date.now(), contexto: input.pildora, texto: input.nota, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas]
-        : c.notas;
-      return {
-        ...prev,
-        [name]: {
-          ...c,
-          stage: input.stage,
-          situacion: input.pildora,
-          situacionTone: input.situacionTone,
-          subtitle: input.texto,
-          monto: input.monto ?? c.monto,
-          agendaFecha: input.agendaFecha ?? c.agendaFecha,
-          // Cancelación universal, igual que el closer: cualquier Avanzar apaga la serie.
-          // `?? c.seguimientoAutomaticoActivo` dejaba el ⏱ encendido tras un resultado que no fuera Seguimiento.
-          seguimientoAutomaticoActivo: input.seguimientoAutomaticoActivo ?? false,
-          historial,
-          notas,
-          urgente: undefined,
-          estancada: undefined,
-          oportunidadLt: undefined,
-          // Mismo cierre total de tareas que en el closer: sin esto, FIJAR tras un Avanzar
-          // resucita al contacto en su cola vieja con la píldora del resultado nuevo.
-          respondido: undefined,
-          seguimientoPendiente: undefined,
-          completedToday: true,
-          pinned: undefined,
-          // Registrar un Avanzar ES la intervención manual — el latch de atribución se enciende y ya no se apaga.
-          atribucionSetter: true,
-        },
-      };
-    });
-    // § correcciones dashboards (2026-07-11): Avanzar → Agendó SIEMPRE es una agenda "generada por el
-    // setter" (el bot nunca usa Avanzar — sus agendas automáticas viven solo en la base semilla).
-    // Avanzar → Venta Low-Ticket suma al bruto LT en vivo, igual que el closer con sus ventas.
-    if (input.stage === "agendado") {
-      setDeltas((d) => ({ ...d, agendasGeneradas: d.agendasGeneradas + 1 }));
-    }
-    if (input.stage === "low_ticket_ofrecido" && input.monto) {
-      setDeltas((d) => ({ ...d, ltMonto: d.ltMonto + input.monto!, ltCount: d.ltCount + 1 }));
-    }
-  }, []);
+  /**
+   * Registra una de las cinco salidas. **Escribe en el servidor** desde el 2026-08-08.
+   *
+   * Antes era una mutación de `useState` a secas: sin fetch, sin `await`, sin manejo de error, y
+   * con `autor: "Usuario Activo"` escrito a mano. El Avanzar del setter moría al refrescar, no lo
+   * veía otro usuario, y no entraba a ninguna métrica.
+   *
+   * ── Optimista, pero con vuelta atrás ─────────────────────────────
+   *
+   * Se pinta el resultado enseguida —el closer hace lo mismo, y esperar medio segundo a que el
+   * servidor conteste hace sentir la app rota— y después se recarga desde la base. Si el POST
+   * falla, `recargar()` trae el estado real y la tarjeta vuelve a su lugar: lo que NO pasa es
+   * que quede pintada como registrada una salida que el servidor rechazó.
+   */
+  const advance = useCallback(
+    async (name: string, input: SetterAdvanceInput) => {
+      const contacto = contacts[name];
+      const resultado = RESULTADO_POR_ETAPA[input.stage];
+
+      // Pintado optimista, igual que antes.
+      setContacts((prev) => {
+        const c = prev[name];
+        if (!c) return prev;
+        const historial = [{ fecha: "Hoy", texto: input.texto, autor: usuario?.nombre ?? "Vos" }, ...c.historial];
+        const notas = input.nota
+          ? [{ id: Date.now(), contexto: input.pildora, texto: input.nota, autor: usuario?.nombre ?? "Vos", fecha: "Hoy" }, ...c.notas]
+          : c.notas;
+        return {
+          ...prev,
+          [name]: {
+            ...c,
+            stage: input.stage,
+            situacion: input.pildora,
+            situacionTone: input.situacionTone,
+            subtitle: input.pildora,
+            monto: input.monto ?? c.monto,
+            agendaFecha: input.agendaFecha ?? c.agendaFecha,
+            seguimientoAutomaticoActivo: input.seguimientoAutomaticoActivo ?? false,
+            // Toda salida saca al contacto de sus colas: ya se resolvió.
+            urgente: undefined,
+            estancada: undefined,
+            oportunidadLt: undefined,
+            respondido: undefined,
+            seguimientoPendiente: undefined,
+            completedToday: true,
+            pinned: undefined,
+            atribucionSetter: true,
+            historial,
+            notas,
+          },
+        };
+      });
+
+      /**
+       * Sin `ghlContactId` no hay a quién registrarle nada. Pasa con un contacto que todavía no
+       * se sincronizó: se deja el pintado optimista y no se inventa una escritura.
+       */
+      if (!contacto?.ghlContactId || !resultado) return;
+
+      const r = await avanzarSetter({
+        ghlContactId: contacto.ghlContactId,
+        resultado,
+        // La clave de idempotencia la manda el drawer; si no vino, se compone con el contacto y
+        // el minuto — dos clics seguidos sobre la misma salida no duplican el registro.
+        idempotencyKey: input.idempotencyKey ?? `setter:${contacto.ghlContactId}:${resultado}:${Math.floor(Date.now() / 60000)}`,
+        monto: input.monto,
+        nota: input.nota,
+        subcategoria: input.subcategoria,
+        situacion: input.situacionSlug,
+        modo: input.modo,
+        preset: input.preset,
+        fechaPersonalizada: input.fechaPersonalizada,
+        fecha: input.agendaFecha,
+      });
+
+      // Se recarga siempre: con éxito trae lo que el servidor dejó, y con error deshace el pintado.
+      if (!r.ok) console.warn("[setter] el Avanzar no se pudo registrar:", r.error);
+      await recargar();
+    },
+    [contacts, usuario, recargar],
+  );
 
   const addNota = useCallback((name: string, texto: string) => {
     setContacts((prev) => {

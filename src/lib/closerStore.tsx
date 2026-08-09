@@ -153,7 +153,7 @@ export interface NotaItem {
 }
 
 /**
- * Tab "Llamadas" de la ficha (§ spec de Francisco, 2026-07-10). Tres orígenes:
+ * Tab "Llamadas" de la ficha (§ spec de Fabio, 2026-07-10). Tres orígenes:
  * "sales_call" (closer, meet de ventas — score/objeciones SOLO aquí, nunca en llamadas de IA),
  * "app_flow_voz" (closer, agente Appointment Flow), "lead_flow_voz" (setter, agente Lead Flow).
  */

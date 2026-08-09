@@ -70,7 +70,7 @@ export interface SenalesMensaje {
 export interface OpcionesAutoria {
   /** `source` que, SIN `userId`, cuentan como el bot. Default: solo `app`. */
   fuentesIa?: readonly string[];
-  /** `userId` que en realidad SON el bot (cuentas de servicio), si Francisco confirma alguno. */
+  /** `userId` que en realidad SON el bot (cuentas de servicio), si Fabio confirma alguno. */
   userIdsIa?: readonly string[];
 }
 
@@ -99,7 +99,7 @@ export function autorDeMensaje(m: SenalesMensaje, opts: OpcionesAutoria = {}): A
   const fuente = limpio(m.source);
   const usuario = (m.userId ?? "").trim();
 
-  // Una cuenta de servicio declarada gana sobre todo lo demás: si Francisco confirma que el
+  // Una cuenta de servicio declarada gana sobre todo lo demás: si Fabio confirma que el
   // bot escribe con un userId, ese userId ES el bot aunque tenga la firma de un humano.
   if (usuario && (opts.userIdsIa ?? []).includes(usuario)) return "agente_ia";
 

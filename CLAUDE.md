@@ -43,7 +43,7 @@ el archivo.
 
 ## Cómo trabajar en este repo
 
-- Los cambios llegan como **specs** de Francisco. Implementar lo especificado; **no inventar**
+- Los cambios llegan como **specs** de Fabio. Implementar lo especificado; **no inventar**
   features, textos ni estados.
 - Ante ambigüedad: **preguntar, no asumir**. Estas reglas ganan sobre cualquier patrón
   genérico de UI.
@@ -100,7 +100,7 @@ entre "parece que anda" y "anda" apareció recién ahí.
 - **Ninguna variable con prefijo `VITE_`** para secretos: terminan en el bundle del browser.
 - **Toda tabla nueva** lleva `enable row level security` + `revoke all from anon, authenticated`.
   La `anon key` viaja en el bundle.
-- **`CONTRATO-GHL*.md` no se versiona.** Está en `.gitignore` por decisión de Francisco.
+- **`CONTRATO-GHL*.md` no se versiona.** Está en `.gitignore` por decisión de Fabio.
 - **Contactos que no se tocan en pruebas**: Veronica Ochoa Orrego, Enrique Izaguirre, Richard
   Andrés Rodriguez. Los de prueba usan `@example.com` y se borran después.
 - **Commits** firmados con `instalacionesariaia@gmail.com`.

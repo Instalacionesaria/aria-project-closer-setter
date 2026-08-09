@@ -32,7 +32,7 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Qué es un hallazgo amarillo y por qué no genera tarea? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El carril amarillo |
 | ¿Dónde se edita el prompt de un agente? ¿Quién puede? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El prompt del agente auditado |
 | ¿Qué URL le paso al cliente para sus webhooks? ¿Cómo la roto? | Ajustes › Credenciales § Webhooks, y [09-DECISIONES](09-DECISIONES.md) D31 |
-| ¿Qué le tengo que pedir a Kevin y qué le tengo que dar? | [03-INTEGRACION-GHL](03-INTEGRACION-GHL.md) § La lista para entregarle a Kevin |
+| ¿Qué hay que configurar en la subcuenta de GHL? | [03-INTEGRACION-GHL](03-INTEGRACION-GHL.md) § Lo que hay que configurar en GHL |
 | ¿Por qué la tarjeta de un agente de voz está bloqueada? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § Los auditores de voz están BLOQUEADOS |
 | ¿Qué significa que un análisis salga verde? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El veredicto de tres niveles |
 | ¿Por qué el botón atrás me saca de la app? | [10-ESTADO](10-ESTADO.md) § Huecos conocidos |
@@ -73,7 +73,7 @@ Si venís de cero, leelos en este orden. Los cuatro primeros alcanzan para enten
 | El esquema de la base | `docs/db/*.sql`, en orden numérico |
 | Las reglas que el asistente debe seguir siempre | `../CLAUDE.md` |
 | Notas locales que no se versionan | `../CLAUDE.local.md` |
-| El contrato original de Francisco | `CONTRATO-GHL.md` — **no está en git**, pedírselo a él |
+| El contrato original de GHL | `CONTRATO-GHL.md` — **no está en git**, vive en el disco de Fabio |
 
 ## Encontré un `§NN` en un comentario del código
 
@@ -111,7 +111,7 @@ tabla para resolverlas.
 
 **Ojo:** varios `§` del código apuntan a **`CONTRATO-GHL.md`**, no a `CLAUDE.md` — se
 distinguen porque el comentario lo dice (`CONTRATO-GHL.md §9 · Resultados post-call`). Ese
-documento no está en git; pedírselo a Francisco.
+documento no está en git; vive en el disco de Fabio.
 
 El `CLAUDE.md` viejo completo sigue en git:
 

@@ -87,7 +87,7 @@ export const TAGS = {
    * ── Las tres que faltan, y por qué solo tres ──────────────────────
    *
    * El pipeline del setter tiene 7 etapas, pero **cuatro ya tienen tag confirmado** y sería un
-   * error pedirle a Kevin que cree duplicados:
+   * error crear duplicados:
    *
    *   · `low_ticket_ofrecido` → `derivado_lt` (TAGS_BOT). Ofrecerle un low-ticket a un lead ES
    *     derivarlo a low-ticket: el tag ya significa exactamente eso.
@@ -101,26 +101,26 @@ export const TAGS = {
    * hoy no tiene representación en GHL porque el módulo nunca escribió nada.
    *
    * Van como `pendiente` a propósito: `assertEnviable()` impide que salgan en modo real hasta que
-   * Kevin las cree. La app las usa igual para su propio pipeline (Supabase es la fuente de verdad
+   * existan en la subcuenta. La app las usa igual para su propio pipeline (Supabase es la fuente de verdad
    * del stage), así que las 7 columnas funcionan desde el día uno y la escritura a GHL se
    * enciende sola cuando los tags existan.
    */
   setterNuevo: {
     valor: "setter_nuevo",
     confianza: "pendiente",
-    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de que Kevin lo cree en la subcuenta.",
+    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
     uso: "Lead que entró y todavía nadie tocó. Primera etapa del pipeline del setter.",
   },
   setterEnCalificacion: {
     valor: "setter_en_calificacion",
     confianza: "pendiente",
-    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de que Kevin lo cree en la subcuenta.",
+    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
     uso: "El setter está calificándolo: hay conversación en curso pero todavía no hay veredicto.",
   },
   setterCalificado: {
     valor: "setter_calificado",
     confianza: "pendiente",
-    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de que Kevin lo cree en la subcuenta.",
+    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
     uso: "Califica para high-ticket pero todavía no agendó. Es la etapa 🔥 del pipeline.",
   },
 
@@ -213,7 +213,7 @@ export const TAGS = {
    * §8 dice "NO se quita el tag `cita_agendada` (otros workflows lo usan)". No afecta al
    * portón de entrada (ese es `zona_closer`), pero sí a la lógica de `Resultado de call`,
    * que usa este tag para decidir si un Avanzar vino de una llamada o de un chat.
-   * Pendiente de aclarar con Francisco.
+   * Pendiente de aclarar con Fabio.
    */
   citaAgendada: {
     valor: "cita_agendada",
@@ -267,7 +267,7 @@ export function perteneceAlCloser(tags: readonly string[], exigirZonaCloser = fa
  * `analizador.ts`) — la duplicación estaba anotada como deuda en `respondieron.ts`.
  *
  * `bot_activado` es el único que este tool nunca vio en la subcuenta: lo tiene que aplicar
- * Francisco en sus workflows cuando el chatbot atiende, y los que lo harían siguen en
+ * Fabio en sus workflows cuando el chatbot atiende, y los que lo harían siguen en
  * borrador (ver `docs/03-INTEGRACION-GHL.md` y `docs/10-ESTADO.md`). Va `confirmado` igual
  * porque este tool solo lo LEE — leer un tag que no existe todavía es un no-op, no un
  * riesgo. Lo que SÍ bloquea es al auditor: ver `docs/07-AUDITOR-IA.md`.
@@ -276,7 +276,7 @@ export const TAGS_BOT = {
   botActivado: {
     valor: "bot_activado",
     confianza: "confirmado",
-    fuente: "CONTEXTO-CLOSER-Conexiones-Polling.md §2 — lo aplica el workflow de Francisco",
+    fuente: "CONTEXTO-CLOSER-Conexiones-Polling.md §2 — lo aplica el workflow de GHL",
     uso: "El chatbot de GHL está atendiendo al contacto. Solo lectura.",
   },
   botReactivar: {
@@ -294,7 +294,7 @@ export const TAGS_BOT = {
   botPausadoFallo: {
     valor: "bot_pausado_fallo",
     confianza: "confirmado",
-    fuente: "api/_lib/analizador.ts (el auditor de Kevin lo aplica)",
+    fuente: "api/_lib/analizador.ts (el auditor de lo aplica el workflow)",
     uso:
       "El auditor IA apagó el bot por fallo grave. Lo APLICA el auditor y lo QUITA " +
       "`api/agentes/alertas.ts` al resolver la intervención por humano (§10 de la espec " +
@@ -318,7 +318,7 @@ export const TAGS_BOT = {
 /**
  * El tag que dispara el workflow de seguimiento AUTOMÁTICO post-call en GHL.
  *
- * PENDIENTE confirmar con Francisco cuál de la familia `seguimiento_*` es el correcto —
+ * PENDIENTE confirmar con Fabio cuál de la familia `seguimiento_*` es el correcto —
  * mientras tanto es `seguimiento_recupero`, que es lo que el código ya mandaba antes de
  * esta tarea. Cambiar el valor acá NO debe tocar ninguna lógica (doc §2).
  */
@@ -746,7 +746,7 @@ export function situacionDesdeGhl(valor: string | null | undefined): SituacionSe
  * El front tiene un solo `cierre`, etiquetado "Cierre en curso", que se alimenta de
  * "Acordó comprar, falta pago" — pero el contrato manda esa salida a "Adelanto" vía
  * `adelanto_ganado`. Ninguna salida de Avanzar escribe "Cierre en curso". Se mapean los
- * dos stages de GHL al mismo `cierre` del front y queda anotado para Francisco.
+ * dos stages de GHL al mismo `cierre` del front y queda anotado para Fabio.
  */
 export const STAGE_GHL_A_FRONT: Readonly<Record<string, string>> = {
   Agendado: "agendado",
@@ -780,7 +780,7 @@ export class LiteralNoConfirmadoError extends Error {
   constructor(literal: Literal) {
     super(
       `Literal de GHL sin confirmar: "${literal.valor}" (${literal.fuente}). ` +
-        `No se envía a GHL en modo real — pedir confirmación a Francisco antes de activarlo. ` +
+        `No se envía a GHL en modo real — pedir confirmación a Fabio antes de activarlo. ` +
         `CLAUDE.md §49: los nombres se usan literales del contrato, no se inventan.`,
     );
     this.name = "LiteralNoConfirmadoError";

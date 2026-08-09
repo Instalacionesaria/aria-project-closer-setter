@@ -122,7 +122,7 @@ están en borrador. El bot **sí** atiende — hay conversaciones completas que 
 Había una alternativa: decidir por **evidencia** (¿hay mensajes del bot en la conversación?),
 que habría funcionado desde el día uno.
 
-**Decisión de Fabio: esperar a Francisco.** El motivo es que la plataforma no debería adivinar
+**Decisión de Fabio: esperar a que los workflows existan.** El motivo es que la plataforma no debería adivinar
 el estado del bot; si el tag no está, el sistema de GHL tiene un hueco y taparlo desde acá lo
 volvería invisible.
 
@@ -439,7 +439,7 @@ deja vacío** — dejando la URL abierta a que cualquiera inyecte eventos y disp
 
 Lo que cambió es de qué lado nace el valor, no si existe. Pero el GET muestra el secreto
 **efectivo**, no la columna, y esa distinción evita romper producción: hoy ARIA tiene las dos
-columnas en `null` y anda con los globales, que Francisco ya pegó en GHL y en Assistable. Como la
+columnas en `null` y anda con los globales, que ya están pegados en GHL y en Assistable. Como la
 resolución es `propio ?? global`, generar uno propio **cambia el secreto que el endpoint espera** —
 o sea que abrir la pantalla de Ajustes habría cortado la ingesta sin que nadie pidiera nada. Un GET
 no puede tener esa consecuencia. Se genera solo cuando no hay ninguno.
@@ -583,7 +583,7 @@ protege el primer día y ninguno de los siguientes, que es cuando el hábito ya 
 chat, se ejecutan, y quedan en disco para poder releer qué se pidió exactamente.
 
 El motivo no es que sean secretas: es que **describen trabajo futuro, alternativas descartadas y
-fases ya ejecutadas**, y en el repo compartido con Kevin se leerían como si fueran el estado del
+fases ya ejecutadas**, y en el repo compartido se leerían como si fueran el estado del
 producto. Un lector que abra `ESPEC-RUTAS-Y-EMPRESA-EN-URL.md` no tiene cómo saber que nada de eso
 está implementado.
 
@@ -592,6 +592,6 @@ espec. `docs/` es el estado; las especs son el pedido.
 
 **Consecuencia al escribir docs, y es la parte que importa:** un documento versionado **no puede
 apuntar a una espec** como si el lector pudiera abrirla. Si un `docs/*.md` necesita explicar algo
-que vive en una espec, lo explica él mismo. Un enlace que para Kevin no abre nada es el mismo
+que vive en una espec, lo explica él mismo. Un enlace que no abre nada para quien lea el repo es el mismo
 problema que `docs/prompts/*.md` — dos archivos que nunca existieron mientras el panel los
 reportaba como cargados.

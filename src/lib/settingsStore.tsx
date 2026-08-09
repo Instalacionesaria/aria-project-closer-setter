@@ -74,7 +74,7 @@ const DEFAULT_MI_CUENTA: MiCuenta = {
  */
 const SEED_COMISIONES: Record<string, number> = {};
 
-/** § correcciones dashboards (2026-07-11) — comisión del Setter tiene 2 tramos (§ doc de Francisco): directa (LT que vende él) y diferida (HT que cierra el closer sobre un lead que el setter originó/rescató). */
+/** § correcciones dashboards (2026-07-11) — comisión del Setter tiene 2 tramos (§ doc de Fabio): directa (LT que vende él) y diferida (HT que cierra el closer sobre un lead que el setter originó/rescató). */
 const SEED_COMISIONES_SETTER_LT: Record<string, number> = {};
 const SEED_COMISIONES_SETTER_DIFERIDA: Record<string, number> = {};
 
@@ -106,7 +106,7 @@ const nextId = (prefix: string) => `${prefix}-${Date.now()}-${++idCounter}`;
  * Persistencia real (2026-07-12): antes Ajustes vivía solo en memoria — refrescar la página
  * volvía a la configuración semilla, aunque se hubiera editado todo. Ahora cada campo se
  * guarda en localStorage, pero SOLO cuando el usuario aprieta "Guardar Cambios" (no en cada
- * tecla) — así el botón que pidió Francisco tiene un propósito real, no cosmético.
+ * tecla) — así el botón que pidió Fabio tiene un propósito real, no cosmético.
  */
 const STORAGE_KEY = "comando-central:ajustes";
 

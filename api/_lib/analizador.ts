@@ -27,7 +27,7 @@
  *
  *    ⚠️ **Hoy este portón bloquea al 100%, a propósito.** Verificado contra la cuenta:
  *    `bot_activado` y `bot_reactivar` no los tiene NINGÚN contacto, y los workflows que los
- *    aplicarían (🟦 08.1 / 08.2) están en borrador. Decisión de Fabio: se espera a Francisco
+ *    aplicarían (🟦 08.1 / 08.2) están en borrador. Decisión de Fabio: se espera a Fabio
  *    en vez de adivinar el estado del bot. `/api/agentes/auditor-estado` reporta el embudo
  *    para que ese cero sea un reclamo concreto y no un misterio.
  *
@@ -118,7 +118,7 @@ const MAX_HALLAZGOS = 3;
 export type Territorio = "closer" | "setter";
 
 /**
- * Los ids que usa la pestaña Auditoría de Agentes. Son los de Francisco (`AgentInfo.id`) y
+ * Los ids que usa la pestaña Auditoría de Agentes. Son los de Fabio (`AgentInfo.id`) y
  * NO se tocan: cada territorio audita a un agente distinto y su resultado va a su tarjeta.
  * Los agentes de VOZ (`lead-flow-voz`, `appointment-flow-voz`) no salen de acá — todavía no
  * tienen fuente: GHL no expone las llamadas ni sus transcripciones (§53.4).
@@ -1159,7 +1159,7 @@ export interface DecisionAuditor {
  * cuando `AUDITOR_SIN_PORTON_TAGS=1`, y por eso sí audita. Dos definiciones de "el bot atiende"
  * divergen en silencio; es la regla 3 de CLAUDE.md. Ahora hay una.
  *
- * El día que Francisco publique los workflows, la escotilla se apaga y **los dos carriles** pasan
+ * El día que Fabio publique los workflows, la escotilla se apaga y **los dos carriles** pasan
  * a regirse por el tag a la vez.
  */
 export function elAgenteAtiende(tags: readonly string[]): boolean {
@@ -1347,7 +1347,7 @@ export async function analizarYMarcar(
      *
      * `dryRun` lo saltea, y es deliberado: no escribe ni un tag, ni una nota, ni una fila —
      * lo único que produce es el veredicto de vuelta. Sin esta salida la rúbrica sería
-     * imposible de probar contra conversaciones reales mientras los workflows de Francisco
+     * imposible de probar contra conversaciones reales mientras los workflows de GHL
      * sigan en borrador, porque este portón bloquea al 100% de los contactos (§54.1).
      *
      * Lo que `dryRun` NO saltea es el portón 5: que haya de verdad un mensaje del agente en

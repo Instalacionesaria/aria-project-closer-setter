@@ -10,8 +10,7 @@
 El módulo Closer está conectado a datos reales de punta a punta. **La plataforma es
 multi-empresa** desde el 2026-08-07: autenticación, roles, credenciales cifradas por empresa y
 aislamiento en tres capas — ver [12-MULTIEMPRESA](12-MULTIEMPRESA.md). El Setter y Auditoría de
-Agentes tienen la estructura hecha pero les falta backend o les falta que Francisco publique
-configuración en GHL.
+Agentes tienen la estructura hecha pero les falta backend o les falta configuración publicada en GHL.
 
 ## Infraestructura
 
@@ -26,7 +25,7 @@ configuración en GHL.
 | Integración Meta (lectura) | ⚠️ Construida y **nunca ejecutada**: falta cargar las credenciales de una cuenta real |
 | Integración GHL (lectura) | ✅ Contactos, citas, conversaciones, custom fields |
 | Integración GHL (escritura) | ✅ Aplicar y quitar tags, custom fields, notas |
-| Webhooks de GHL | ⚠️ El endpoint existe y rutea por `locationId`; los workflows los tiene que crear Francisco |
+| Webhooks de GHL | ⚠️ El endpoint existe y rutea por `locationId`; faltan crear los workflows en GHL |
 | Webhook de llamadas (Assistable) | ✅ Recibe, redacta secretos, parsea y archiva en `closer_llamadas` |
 | Anthropic (auditor) | ✅ Cableado. **En cero por decisión** — ver abajo |
 
@@ -76,7 +75,7 @@ marcados — requiere que el contacto del closer sepa qué setter lo originó.
 
 ## Lo que bloquea, en orden de impacto
 
-### 1. Francisco: publicar los workflows de `bot_activado`
+### 1. Publicar los workflows de `bot_activado` en GHL
 
 **Es lo único que separa al auditor de estar funcionando.** Los workflows `🟦 08.1` y `🟦 08.2`
 están en borrador; ningún contacto tiene el tag. Sin él, el auditor no analiza a nadie y la
@@ -253,8 +252,7 @@ Cosas que funcionan pero con un límite que conviene tener presente:
 - **El estado de asistencia a citas** — GHL nunca marca `showed`, así que el show-rate del
   Appointment Flow no se puede calcular. Se destraba cuando alguien marque la asistencia, o
   cuando Avanzar escriba el desenlace.
-- **`ops["Sin Respuesta"]`** en Auditoría de Agentes viaja siempre `null`: Francisco no definió
-  qué cuenta.
+- **`ops["Sin Respuesta"]`** en Auditoría de Agentes viaja siempre `null`: falta definir qué cuenta.
 - **`tasa` del sparkline viaja `null`** mientras sea el mismo número que el sentimiento. Dos
   trazos superpuestos se leen como bug de render.
 - **Con la app cerrada solo ingiere el webhook**, que casi nunca manda `source`. El contador de
@@ -298,5 +296,5 @@ Cosas que funcionan pero con un límite que conviene tener presente:
   Andrés Rodriguez.
 - **Contactos de prueba**: con `@example.com`, y se borran después.
 - **Commits**: firmados con `instalacionesariaia@gmail.com`.
-- **`api/_lib/analizador.ts` era de Kevin** y se reescribió con autorización explícita. Hay que
+- **`api/_lib/analizador.ts` venía de una implementación anterior** y se reescribió entero. Hay que
   coordinarlo con él.

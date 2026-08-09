@@ -5,7 +5,7 @@
  *
  * Una Private Integration NO puede suscribirse a webhooks — eso es para apps del
  * marketplace. El camino real en GHL, y el que encaja con la filosofía del contrato
- * ("Kevin decide y etiqueta; GHL ejecuta lo predecible"), es que Francisco cree un
+ * ("el operador decide y etiqueta; GHL ejecuta lo predecible"), es que Fabio cree un
  * **workflow con acción Webhook** por cada evento. Todos apuntan acá y se distinguen por el
  * campo `evento` del cuerpo. Un endpoint = una URL que copiar, un secreto que rotar.
  *

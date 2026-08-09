@@ -76,7 +76,7 @@ export interface GhlPort {
 
   /**
    * Fija el **Opportunity Value** de la oportunidad del contacto — el monto de una Venta
-   * tiene que llegar ahí, no solo a un custom field (decisión de Francisco, 2026-07-30):
+   * tiene que llegar ahí, no solo a un custom field (decisión de Fabio, 2026-07-30):
    * es el número con el que GHL arma sus propios reportes de pipeline.
    *
    * Es una operación idempotente por naturaleza: escribe un valor absoluto, no un delta,

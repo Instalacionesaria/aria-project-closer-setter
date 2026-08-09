@@ -38,7 +38,7 @@ describe("assertEnviable — un literal inventado no puede llegar a GHL", () => 
 
   it("el error dice qué falta y a quién pedírselo", () => {
     expect(() => assertEnviable(TAGS.seguimientoTerminado, true)).toThrow(/seguimiento_terminado/);
-    expect(() => assertEnviable(TAGS.seguimientoTerminado, true)).toThrow(/Francisco/);
+    expect(() => assertEnviable(TAGS.seguimientoTerminado, true)).toThrow(/Fabio/);
   });
 });
 
@@ -54,10 +54,10 @@ describe("literales del contrato", () => {
    *      no sabemos qué lo dispara. Pendiente por desconocimiento.
    *   2. Los tres `setter_*` — los PROPUSIMOS nosotros el 2026-08-08 para las etapas de
    *      calificación del pipeline del setter, que no tenían representación en GHL. Pendientes
-   *      hasta que Kevin los cree. Ver `etapasSetter.ts`.
+   *      hasta que existan en GHL. Ver `etapasSetter.ts`.
    *
    * Las otras cuatro etapas del setter NO están acá porque reusan tags confirmados: sería un
-   * error pedirle a Kevin que cree duplicados de `derivado_lt`, `nurture_appflow` y
+   * error crear duplicados de `derivado_lt`, `nurture_appflow` y
    * `descalificado`, y `agendado` lo resuelve el swap de territorio.
    */
   it("los pendientes son exactamente los que sabemos que faltan", () => {
@@ -74,7 +74,7 @@ describe("literales del contrato", () => {
    *
    * Es lo que permite que las siete columnas del pipeline funcionen desde el día uno con tres
    * tags que todavía no existen — la etapa se guarda en Supabase, que es la fuente de verdad, y
-   * el tag se manda recién cuando Kevin lo cree.
+   * el tag se manda recién cuando exista en GHL.
    */
   it("los tags propuestos del setter no salen a GHL hasta que existan", () => {
     for (const tag of [TAGS.setterNuevo, TAGS.setterEnCalificacion, TAGS.setterCalificado]) {
@@ -207,7 +207,7 @@ describe("armarPildora — CATEGORÍA · SUBCATEGORÍA en mayúsculas (§12/§39
   });
 
   it("una venta lleva TRES campos: categoría, forma de pago y monto", () => {
-    // El caso que reportó Francisco: la píldora salía sin la forma de pago aunque el modal
+    // El caso que reportó Fabio: la píldora salía sin la forma de pago aunque el modal
     // la exigía para poder confirmar. La subcategoría de `ganado` es `formaPagoVenta`, tal
     // como lo declara CAMPO_SUBCATEGORIA_POR_STAGE en contrato.ts.
     expect(armarPildora({ stage: "ganado", subcategoria: "Contado", monto: 100 })).toBe("VENTA · CONTADO · $100");
@@ -257,7 +257,7 @@ describe("estadoBotDesdeTags — el ruteo del Buzón depende de esto (doc §2)",
     expect(estadoBotDesdeTags(["zona_closer", "noshow", "bot_activado"])).toBe("prendido");
   });
 
-  it("TAG_SEGUIMIENTO_AUTO apunta a seguimiento_recupero hasta que Francisco confirme", () => {
+  it("TAG_SEGUIMIENTO_AUTO apunta a seguimiento_recupero hasta que Fabio confirme", () => {
     expect(TAG_SEGUIMIENTO_AUTO).toBe(TAGS.seguimientoRecupero.valor);
   });
 

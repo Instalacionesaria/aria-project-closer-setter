@@ -190,7 +190,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ...(contactos.length === 0
         ? {
             aviso:
-              "La caché de contactos está vacía. Se llena con el webhook de citas de Francisco o el cron de :25/:55 — " +
+              "La caché de contactos está vacía. Se llena con el webhook de citas de Fabio o el cron de :25/:55 — " +
               "si es un entorno recién configurado, POST /api/closer/citas-respaldo la puebla.",
           }
         : {}),

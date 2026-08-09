@@ -54,7 +54,7 @@ export interface ResultadoSetterDef {
  * El dato **no se pierde**: viaja en `closer_avances.detalle` y se muestra en la píldora. Lo que
  * no se hace es fingir que llegó a GHL.
  *
- * Se destraba de una de dos formas, y las dos son de Kevin: agregar esas opciones a los
+ * Se destraba de una de dos formas, y las dos son del lado de GHL: agregar esas opciones a los
  * dropdowns existentes, o crear custom fields propios del setter. Hasta entonces, `null`.
  */
 export const RESULTADOS_SETTER: Readonly<Record<ResultadoSetter, ResultadoSetterDef>> = {
@@ -89,7 +89,7 @@ export const RESULTADOS_SETTER: Readonly<Record<ResultadoSetter, ResultadoSetter
    * low-ticket es una decisión de ruteo, no una venta cobrada. Usarlo acá haría que el workflow
    * que escucha "derivado" se disparara sobre alguien que ya compró.
    *
-   * No existe hoy un tag para "el setter vendió un low-ticket". Entra en el mismo pedido a Kevin
+   * No existe hoy un tag para "el setter vendió un low-ticket". Entra en el mismo pendiente de configuración
    * que los literales de etapa (Bloque D): hasta que exista, la venta se registra en la base —con
    * su producto, su monto y su forma de pago— y no viaja a GHL. Registrada y visible es mejor que
    * mandada al tag equivocado.

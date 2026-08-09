@@ -25,7 +25,7 @@ $97–500, que vende el setter.
 | **Setter** | Pre-agenda: entrada → cita | Lead Flow | Agendado (won, $0) y LT vendido (won, con monto) |
 | **Closer** | Post-agenda: cita → venta | Appointment Flow | GANADO — el monto high-ticket vive solo acá |
 | **Técnico** | Mantiene los agentes de IA | — | — |
-| **Admin** (Francisco) | Configura catálogo, comisiones, metas | — | — |
+| **Admin** (Fabio) | Configura catálogo, comisiones, metas | — | — |
 
 **Regla de traspaso:** setter → closer es el MISMO contacto cambiando de etapa. Cero reseteo
 de datos: el contador de llamadas, el perfil y el historial continúan. Solo cambian de dueño

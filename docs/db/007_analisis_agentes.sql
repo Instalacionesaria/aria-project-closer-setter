@@ -10,7 +10,7 @@
 --
 -- ── Por qué se guarda en vez de calcularse al vuelo ──
 --
--- La pestaña "Auditoría de Agentes" que armó Francisco pide, por agente: el sentimiento
+-- La pestaña "Auditoría de Agentes" pide, por agente: el sentimiento
 -- repartido en tres tramos, los operativos de los últimos 30 días y un sparkline de 12
 -- semanas. Nada de eso sale de mirar GHL en el momento: el sentimiento lo produce un modelo
 -- (caro de recalcular) y las 12 semanas son historia que hay que haber acumulado.
