@@ -23,6 +23,25 @@ dist-ssr
 # subiendo con el otro nombre.
 **/CONTRATO-GHL*.md
 
+# Las especificaciones de Francisco. Son el CONTRATO de cada tarea: llegan por chat, se
+# ejecutan, y quedan acá para poder releer qué se pidió exactamente y qué se decidió en el
+# camino. No se versionan por decisión de Fabio (2026-08-08).
+#
+# El motivo no es secreto sino ruido: describen trabajo futuro, alternativas descartadas y
+# fases que ya se ejecutaron, y en el repo compartido con Kevin se leerían como si fueran
+# el estado del producto. Lo que SÍ es estado vive en `docs/`, que sí se versiona — cuando
+# una espec se implementa, lo que sobrevive es la entrada en `09-DECISIONES` o en
+# `10-ESTADO`, no la espec.
+#
+# Consecuencia a tener presente al escribir docs: **un documento versionado no puede
+# apuntar a una espec como si el lector pudiera abrirla.** Si un `docs/*.md` necesita
+# explicar algo que vive en una espec, lo explica él mismo y nombra la espec solo como
+# referencia interna del equipo. Un enlace roto para Kevin es el mismo problema que
+# `docs/prompts/*.md`, que nunca existieron y el panel reportaba como cargados.
+#
+# El comodín cubre cualquier ubicación: mover la carpeta no la vuelve a colar en un commit.
+**/docs/especs/
+
 # graphify es una herramienta de trabajo local, no parte del proyecto: nada suyo viaja al
 # repo compartido (decisión de Fabio, 2026-07-30). El grafo se regenera con
 # `graphify update .`, así que versionarlo solo agregaría ruido y conflictos.

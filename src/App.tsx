@@ -12,6 +12,7 @@ import {
   LogOut,
   Building2,
   ChevronDown,
+  TriangleAlert,
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { LimiteDeError } from "./components/LimiteDeError";
@@ -253,6 +254,71 @@ function AppInner() {
 }
 
 /**
+ * El aviso de pestaña única, al lado del selector.
+ *
+ * ── El problema que comunica ──────────────────────────────────────────
+ *
+ * La empresa activa vive en `closer_sesiones.empresa_activa`: **un valor por SESIÓN, no por
+ * pestaña**. Con dos pestañas abiertas en dos empresas distintas, la última elección gana para
+ * las dos — y la pestaña vieja sigue mostrando en pantalla los datos que ya había cargado.
+ *
+ * Lo que hace a esto peligroso es que **no falla**. Se registra un Avanzar desde la pestaña
+ * vieja, el backend lee la sesión, ve la OTRA empresa, y escribe ahí. La escritura sale bien, en
+ * la cuenta equivocada, y se descubre días después cuando un número no cuadra. No hay error, no
+ * hay pantalla roja, no hay nada que revisar.
+ *
+ * Solo lo ve el `super_admin` porque es el único rol que puede cambiar de contexto. Para
+ * cualquier otro sería ruido sobre un riesgo que no corre: su sesión está atada a una empresa.
+ *
+ * ── Es un aviso, no un candado ────────────────────────────────────────
+ *
+ * No se detecta cuántas pestañas hay abiertas —eso pide `BroadcastChannel` o `localStorage`,
+ * infraestructura para un problema que una línea de texto mitiga— ni se bloquea abrir la
+ * segunda. Y no se puede descartar: se lee de reojo cada vez que se usa el selector, que es
+ * exactamente cuando importa.
+ *
+ * La solución de verdad —prefijo de empresa en la URL más header por request— está diseñada y
+ * pospuesta. Ver D37 en `docs/09-DECISIONES.md`.
+ *
+ * ── Por qué el color no es `text-destructive` a secas ─────────────────
+ *
+ * La superficie sí usa `destructive` del sistema de temas: es lo que lo identifica como
+ * advertencia y lo que hace que siga al tema si mañana cambia la paleta.
+ *
+ * El TEXTO no, y está medido: `--destructive` da 3.76:1 sobre el fondo claro y **1.99:1 sobre el
+ * oscuro** —prácticamente invisible—, porque en `.dark` la variable es un rojo oscuro pensado
+ * para rellenos, no para tipografía. El par de abajo da 6.47:1 y 10.43:1. Un aviso ilegible es
+ * peor que no tenerlo, así que la legibilidad gana sobre la pureza de usar una sola variable.
+ */
+function AvisoPestanaUnica() {
+  const TEXTO = "Usá una sola pestaña: con dos abiertas, lo que registres puede guardarse en la otra empresa.";
+  return (
+    <div
+      /**
+       * `title` y no un tooltip propio: en angosto el texto se oculta con `hidden sm:inline` y
+       * este atributo es lo que lo devuelve al pasar el mouse. El nodo **nunca sale del DOM** —
+       * `hidden` es display, no desmontaje—, así que el ícono queda siempre visible y el texto
+       * sigue estando para un lector de pantalla.
+       */
+      title={TEXTO}
+      className={cn(
+        "inline-flex items-center gap-1.5 min-w-0 rounded-md px-2 py-1",
+        "border border-destructive/30 bg-destructive/10",
+        "text-[11px] font-medium leading-tight",
+        "text-red-700 dark:text-red-300",
+      )}
+    >
+      <TriangleAlert className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+      {/* `truncate` para que un ancho intermedio no empuje la barra a dos líneas: el texto se
+          recorta con puntos suspensivos y el `title` de arriba lo devuelve entero. */}
+      <span className="hidden sm:inline truncate">{TEXTO}</span>
+      {/* En angosto el ícono queda solo: sin esto, el aviso no tendría nombre accesible. */}
+      <span className="sr-only sm:hidden">{TEXTO}</span>
+    </div>
+  );
+}
+
+/**
  * El selector de empresa activa del super admin (§7.1).
  *
  * ── No filtra la vista: cambia la sesión ──────────────────────────────
@@ -302,6 +368,8 @@ function SelectorEmpresa() {
         {empresa?.nombre ?? "—"}
         <ChevronDown className={cn("w-3 h-3 text-muted-foreground transition-transform", abierto && "rotate-180")} />
       </button>
+
+      <AvisoPestanaUnica />
 
       {abierto && (
         <>
