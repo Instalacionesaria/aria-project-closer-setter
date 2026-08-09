@@ -266,6 +266,55 @@ export function fetchPipelineSetter(): Promise<PipelineSetterResponse> {
   return pedir<PipelineSetterResponse>(`/api/setter/pipeline`);
 }
 
+/* ── El cockpit del setter, calculado ── */
+
+export interface CockpitSetter {
+  /** `null` = no tiene porcentaje cargado. NO es cero: la vista no lo renderiza. */
+  comisionLt: number | null;
+  comisionDiferida: number | null;
+  comisionTotal: number | null;
+  /** Las bases viajan con la comisión: un número sin su base no se puede verificar (§4.9). */
+  ltBruto: number;
+  ltVentas: number;
+  diferidaBruto: number;
+  diferidaVentas: number;
+  agendasGeneradas: number;
+  sinDato: Record<string, string>;
+  faltaPctLt: boolean;
+  faltaPctDiferida: boolean;
+}
+
+export function fetchInicioSetter(): Promise<{ ok: boolean; cockpit?: CockpitSetter; error?: string }> {
+  return pedir(`/api/setter/inicio`);
+}
+
+/* ── §1.4 · Las comisiones, por empresa y por persona ── */
+
+export type TramoComision = "closer" | "setter_lt" | "setter_diferida";
+
+export interface ComisionesResponse {
+  ok: boolean;
+  /** Indexado por `usuario_id`. Un tramo ausente = sin porcentaje fijado, no 0%. */
+  comisiones?: Record<string, Partial<Record<TramoComision, number>>>;
+  error?: string;
+}
+
+export function fetchComisiones(): Promise<ComisionesResponse> {
+  return pedirAdmin<ComisionesResponse>(`/api/admin/comisiones`);
+}
+
+/** `pct: null` BORRA la fila. Vacío significa "sin fijar", que no es lo mismo que 0%. */
+export function guardarComision(
+  usuarioId: string,
+  tipo: TramoComision,
+  pct: number | null,
+): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>(`/api/admin/comisiones`, {
+    ...conJson({ usuarioId, tipo, pct }),
+    method: "PUT",
+  });
+}
+
 /** Mueve un contacto de etapa. Escribe Supabase y manda el tag a GHL si el literal existe. */
 export function moverEtapaSetter(ghlContactId: string, etapa: string): Promise<{ ok: boolean; error?: string }> {
   return pedir(`/api/setter/pipeline`, { ...conJson({ ghlContactId, etapa }), method: "PATCH" });
@@ -533,6 +582,12 @@ export interface InicioResponse {
   mes: string;
   ghlModo: string;
   cashCollected: number;
+  /**
+   * El % de comisión de quien mira, desde `closer_comisiones` (migración `033`), y la comisión ya
+   * calculada. `null` = no tiene porcentaje cargado — NO es cero, y la vista no lo renderiza.
+   */
+  comisionPct?: number | null;
+  comisionReal?: number | null;
   ventas: number;
   /** Señas/promesas de "Acordó comprar" — sobre la mesa, no cobrado. */
   sobreLaMesa: number;

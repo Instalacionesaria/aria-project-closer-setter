@@ -62,6 +62,22 @@ const DEFAULT_MI_CUENTA: MiCuenta = {
 };
 
 /**
+ * ── Los tres mapas de comisión se fueron el 2026-08-08 ────────────────
+ *
+ * Vivían acá y se persistían en `localStorage`, o sea **por navegador**: dos admins de la misma
+ * empresa veían números distintos del mismo closer y ninguno estaba equivocado. Ese número
+ * multiplica plata cobrada.
+ *
+ * Ahora viven en `closer_comisiones` (migración `033`), indexados por `usuario_id` y no por
+ * nombre — con la clave vieja, renombrar a alguien le borraba su comisión en silencio.
+ *
+ * Se borran enteros en vez de quedar vacíos: un mapa que nadie lee pero que se sigue guardando es
+ * el mismo modo de fallo de `closer_conexiones`, que se escribía con éxito y nadie consultaba.
+ * Las claves que quedan en el blob de quien ya usó la app se ignoran solas: `loadPersisted` no
+ * falla con extras.
+ */
+
+/**
  * ── Vacío a propósito (2026-08-07) ────────────────────────────────────
  *
  * Traía `{"Jorge Q.": 10, "Ariel C.": 12}`. "Ariel C." no es ni fue nunca un usuario: era un
@@ -72,11 +88,8 @@ const DEFAULT_MI_CUENTA: MiCuenta = {
  * Acá solo vive el porcentaje que alguien fijó, indexado por nombre. Una empresa nueva arranca
  * con sus closers y sin porcentaje — que es lo que hay que completar, no un 10% inventado.
  */
-const SEED_COMISIONES: Record<string, number> = {};
 
 /** § correcciones dashboards (2026-07-11) — comisión del Setter tiene 2 tramos (§ doc de Fabio): directa (LT que vende él) y diferida (HT que cierra el closer sobre un lead que el setter originó/rescató). */
-const SEED_COMISIONES_SETTER_LT: Record<string, number> = {};
-const SEED_COMISIONES_SETTER_DIFERIDA: Record<string, number> = {};
 
 /**
  * El objetivo de facturación **no** es una semilla que haya que vaciar: no hay ninguna otra fuente
@@ -112,9 +125,6 @@ const STORAGE_KEY = "comando-central:ajustes";
 
 interface PersistedSettings {
   miCuenta: MiCuenta;
-  comisiones: Record<string, number>;
-  comisionesSetterLT: Record<string, number>;
-  comisionesSetterDiferida: Record<string, number>;
   catalog: CatalogLink[];
   categorias: string[];
   /**
@@ -155,13 +165,7 @@ function loadPersisted(): Partial<PersistedSettings> {
 interface SettingsStoreValue {
   miCuenta: MiCuenta;
   setMiCuenta: (patch: Partial<MiCuenta>) => void;
-  comisiones: Record<string, number>;
-  setComisionPct: (closer: string, pct: number) => void;
   /** § correcciones dashboards (2026-07-11) — % de comisión directa (LT) y diferida (HT) por setter. */
-  comisionesSetterLT: Record<string, number>;
-  setComisionSetterLTPct: (setter: string, pct: number) => void;
-  comisionesSetterDiferida: Record<string, number>;
-  setComisionSetterDiferidaPct: (setter: string, pct: number) => void;
   catalog: CatalogLink[];
   addCatalogLink: (link: Omit<CatalogLink, "id">) => void;
   updateCatalogLink: (id: string, patch: Omit<CatalogLink, "id">) => void;
@@ -182,9 +186,6 @@ const SettingsCtx = createContext<SettingsStoreValue | null>(null);
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const persisted = loadPersisted();
   const [miCuentaState, setMiCuentaState] = useState<MiCuenta>(persisted.miCuenta ?? DEFAULT_MI_CUENTA);
-  const [comisiones, setComisiones] = useState<Record<string, number>>(persisted.comisiones ?? SEED_COMISIONES);
-  const [comisionesSetterLT, setComisionesSetterLT] = useState<Record<string, number>>(persisted.comisionesSetterLT ?? SEED_COMISIONES_SETTER_LT);
-  const [comisionesSetterDiferida, setComisionesSetterDiferida] = useState<Record<string, number>>(persisted.comisionesSetterDiferida ?? SEED_COMISIONES_SETTER_DIFERIDA);
   const [catalog, setCatalog] = useState<CatalogLink[]>(persisted.catalog ?? SEED_CATALOG);
   const [categorias, setCategorias] = useState<string[]>(persisted.categorias ?? SEED_CATEGORIAS);
   const [gerencia, setGerenciaState] = useState<GerenciaParams>(persisted.gerencia ?? DEFAULT_GERENCIA);
@@ -196,17 +197,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setComisionPct = useCallback((closer: string, pct: number) => {
-    setComisiones((prev) => ({ ...prev, [closer]: pct }));
     setHasUnsavedChanges(true);
   }, []);
 
   const setComisionSetterLTPct = useCallback((setter: string, pct: number) => {
-    setComisionesSetterLT((prev) => ({ ...prev, [setter]: pct }));
     setHasUnsavedChanges(true);
   }, []);
 
   const setComisionSetterDiferidaPct = useCallback((setter: string, pct: number) => {
-    setComisionesSetterDiferida((prev) => ({ ...prev, [setter]: pct }));
     setHasUnsavedChanges(true);
   }, []);
 
@@ -236,24 +234,18 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const saveSettings = useCallback(() => {
-    const blob: PersistedSettings = { miCuenta: miCuentaState, comisiones, comisionesSetterLT, comisionesSetterDiferida, catalog, categorias, gerencia };
+    const blob: PersistedSettings = { miCuenta: miCuentaState, catalog, categorias, gerencia };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(blob));
     } catch {
       // localStorage no disponible (modo privado, cuota excedida) — falla en silencio, no es crítico para el demo.
     }
     setHasUnsavedChanges(false);
-  }, [miCuentaState, comisiones, comisionesSetterLT, comisionesSetterDiferida, catalog, categorias, gerencia]);
+  }, [miCuentaState, catalog, categorias, gerencia]);
 
   const value: SettingsStoreValue = {
     miCuenta: miCuentaState,
     setMiCuenta,
-    comisiones,
-    setComisionPct,
-    comisionesSetterLT,
-    setComisionSetterLTPct,
-    comisionesSetterDiferida,
-    setComisionSetterDiferidaPct,
     catalog,
     addCatalogLink,
     updateCatalogLink,

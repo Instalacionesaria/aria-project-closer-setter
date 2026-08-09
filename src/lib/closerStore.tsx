@@ -591,7 +591,11 @@ export interface Cockpit {
    * hay, y la vista rotula la base — antes era el literal 80, que no salía de ningún lado.
    */
   salesCalls: number;
-  comision: number;
+  /**
+   * `comision` se fue de este tipo el 2026-08-08. La calcula `/api/closer/inicio` con el % de
+   * `closer_comisiones`, y acá exigía el mapa de `settingsStore` — o sea, localStorage. Dos
+   * vitrinas del mismo hecho, una leyendo un blob del navegador.
+   */
   /**
    * Contactos que llegaron a tener su llamada con el closer (≥1 `sales_call`). Es la base de
    * la Tasa de Cierre: §6.A la define como "% de ventas sobre citas atendidas", y una llamada
@@ -694,7 +698,6 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * cuenta: §51.1 pide que los conteos se deriven por query, nunca de contadores sueltos.
    */
   const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
-  const { comisiones } = useSettings();
   const { usuario } = useAuth();
   /**
    * El % del closer QUE ESTÁ MIRANDO, de Ajustes › Operación.
@@ -704,7 +707,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * todos verían un 10% que nadie fijó. Sin porcentaje cargado ahora es 0, y lo que hay que
    * cargarlo es Ajustes.
    */
-  const comisionPct = (usuario ? (comisiones[usuario.nombre] ?? 0) : 0) / 100;
+
 
   /**
    * `ghlContactId` → cuándo se registró un Avanzar sobre él, en esta pestaña.
@@ -1406,11 +1409,18 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       cashCollected,
       ventas: ganadoCount,
       salesCalls,
-      comision: Math.round(cashCollected * comisionPct),
+      /**
+       * `comision` se fue del cockpit del store el 2026-08-08.
+       *
+       * Nadie la leía —`CloserAI` la toma de `/api/closer/inicio`, que la calcula con el % de
+       * `closer_comisiones`— y calcularla acá exigía el mapa de `settingsStore`, que vive en
+       * localStorage. Era el último consumidor de ese mapa: dos vitrinas del mismo hecho, una de
+       * ellas leyendo un blob del navegador.
+       */
       atendieron,
       noShow,
     }),
-    [cashCollected, ganadoCount, salesCalls, atendieron, noShow, comisionPct]
+    [cashCollected, ganadoCount, salesCalls, atendieron, noShow]
   );
 
   /**

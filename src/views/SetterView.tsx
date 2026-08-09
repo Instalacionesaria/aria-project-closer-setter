@@ -135,40 +135,49 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
   const tareas = setterPendingTasksBreakdown(contacts);
   const { urgentes: urgentesN, estancadas: estancadasN, oportunidades: oportunidadesN, respondieron: respondieronN, seguimientosHoy: seguimientosN, total: tareasHoy } = tareas;
 
-  // § correcciones dashboards (2026-07-11): las 3 tarjetas KPI livianas ahora derivan del cockpit
-  // — "Agendas generadas" (ambigua, mezclaba bot+setter) se separó en dos tarjetas reales.
+  /**
+   * ── Las tarjetas, con lo que de verdad se mide ─────────────────────
+   *
+   * Eran cuatro y las cuatro salían de constantes: `agendasAutomaticas: 33`, `showRatePct: 78`,
+   * `oportunidadesLTBase: 12`. Ahora quedan las que el servidor puede calcular, y las otras dos
+   * se muestran como pendientes **con su motivo** — que viaja en `cockpit.sinDato`, así que si
+   * mañana se pueden medir la vista no hay que tocarla.
+   *
+   * `—` y no `0`: un cero afirma que el bot no agendó nada, y lo que pasa es que todavía no se
+   * puede distinguir quién creó cada cita.
+   */
   const KPI_CARDS: { label: string; value: string; sub: string; Icon: LucideIcon; iconWrap: string; iconColor: string }[] = [
     {
-      label: "Agendas automáticas",
-      value: String(cockpit.agendasAutomaticas),
-      sub: "El bot agendó solo (sin vos)",
-      Icon: CalendarDays,
-      iconWrap: "bg-muted",
-      iconColor: "text-muted-foreground",
-    },
-    {
       label: "Agendas generadas por ti",
-      value: String(cockpit.agendasGeneradas),
+      value: cockpit ? String(cockpit.agendasGeneradas) : "—",
       sub: "Rescatadas — tu mérito real",
       Icon: CalendarDays,
       iconWrap: "bg-primary/5",
       iconColor: "text-primary",
     },
     {
-      label: "Show rate",
-      value: `${cockpit.showRatePct}%`,
-      sub: `${cockpit.showRateNum} de ${cockpit.showRateDen} agendas se presentaron`,
-      Icon: Activity,
-      iconWrap: "bg-primary/5",
-      iconColor: "text-primary",
-    },
-    {
-      label: "Oportunidades LT abiertas",
-      value: String(cockpit.oportunidadesLT),
-      sub: "Leads derivados por el bot",
+      label: "Ventas Low-Ticket",
+      value: cockpit ? String(cockpit.ltVentas) : "—",
+      sub: cockpit ? `${money(cockpit.ltBruto)} cobrados este mes` : "Cargando…",
       Icon: Target,
       iconWrap: "bg-violet-500/10",
       iconColor: "text-violet-600",
+    },
+    {
+      label: "Agendas automáticas",
+      value: "—",
+      sub: cockpit?.sinDato?.agendasAutomaticas ?? "Todavía no se puede medir",
+      Icon: CalendarDays,
+      iconWrap: "bg-muted",
+      iconColor: "text-muted-foreground",
+    },
+    {
+      label: "Show rate",
+      value: "—",
+      sub: cockpit?.sinDato?.showRate ?? "Todavía no se puede medir",
+      Icon: Activity,
+      iconWrap: "bg-muted",
+      iconColor: "text-muted-foreground",
     },
   ];
 
@@ -188,9 +197,18 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
           </div>
         </div>
         <div className="relative z-10 flex flex-col items-end gap-2 text-right">
+          {/*
+            `—` y no `$0` sin porcentaje cargado: un cero afirma que no ganó nada, y lo que pasa es
+            que nadie configuró su comisión. Es lo que le pasa a cualquier empresa el primer día.
+          */}
           <div className="text-6xl font-light tracking-tighter text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-            {money(cockpit.comisionTotal)}
+            {cockpit?.comisionTotal != null ? money(cockpit.comisionTotal) : "—"}
           </div>
+          {(cockpit?.faltaPctLt || cockpit?.faltaPctDiferida) && (
+            <p className="text-xs text-zinc-400">
+              Cargá tu % de comisión en <span className="text-zinc-200 font-medium">Ajustes › Operación</span>
+            </p>
+          )}
           {/*
             El `+12% vs mes pasado` se fue el 2026-08-08. Estaba escrito a mano y detrás de un
             guard `comisionTotal > 0`, así que aparecía como si fuera medido en cuanto había una
@@ -213,8 +231,12 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
                 <Banknote className="w-4 h-4 text-amber-500" />
               </div>
             </div>
-            <p className="text-3xl font-light">{money(cockpit.comisionLT)}</p>
-            <p className="text-xs text-zinc-500 mt-2">{cockpit.ltVentasCount} ventas directas</p>
+            <p className="text-3xl font-light">
+              {cockpit?.comisionLt != null ? money(cockpit.comisionLt) : "—"}
+            </p>
+            <p className="text-xs text-zinc-500 mt-2">
+              {cockpit ? `${cockpit.ltVentas} ventas directas · ${money(cockpit.ltBruto)} bruto` : "Cargando…"}
+            </p>
           </div>
         </div>
         <div className="border shadow-sm bg-zinc-950 dark:bg-zinc-900 border-zinc-800 text-zinc-50 p-6 rounded-2xl relative overflow-hidden group">
@@ -226,8 +248,14 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
               </p>
               <div className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800" />
             </div>
-            <p className="text-3xl font-light">{money(cockpit.comisionDiferida)}</p>
-            <p className="text-xs text-zinc-500 mt-2">{cockpit.diferidaVentasCount} ventas de closer (sobre {money(cockpit.diferidaBruto)} total)</p>
+            <p className="text-3xl font-light">
+              {cockpit?.comisionDiferida != null ? money(cockpit.comisionDiferida) : "—"}
+            </p>
+            <p className="text-xs text-zinc-500 mt-2">
+              {cockpit
+                ? `${cockpit.diferidaVentas} ventas de closer sobre leads que originaste (${money(cockpit.diferidaBruto)})`
+                : "Cargando…"}
+            </p>
           </div>
         </div>
       </div>

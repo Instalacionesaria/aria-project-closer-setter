@@ -119,13 +119,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     /* ── Avances ─────────────────────────────────────────────────────────── */
     const { data: avances, error: errAvances } = await db()
       .from("closer_avances")
-      .select("ghl_contact_id, salida, detalle, autor_usuario_id, created_at")
+      .select("ghl_contact_id, salida, detalle, autor_usuario_id, rol, created_at")
       .gte("created_at", desde)
       .lte("created_at", hasta);
     if (errAvances) throw new Error(`closer_avances: ${errAvances.message}`);
 
     const todos = avances ?? [];
     const ventas = todos.filter((a) => a.salida === "venta");
+    /**
+     * Las low-ticket del setter (migración `032`). Son revenue del negocio igual que las
+     * high-ticket —plata cobrada es plata cobrada— pero se cuentan aparte: mezclarlas en
+     * `ticketPromedio` lo hundiría, y un promedio que junta un programa de $4.000 con una
+     * masterclass de $97 no describe ninguno de los dos.
+     */
+    const ventasLt = todos.filter((a) => a.rol === "setter" && a.salida === "venta_lt");
+    const revenueLt = ventasLt.reduce((s, a) => s + montoDe(a.detalle), 0);
 
     /**
      * `acordo` NO entra en el revenue, y es la regla que más fácil se rompe al escribir esto: su
@@ -221,18 +229,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: usuarios } = await db().from("closer_usuarios").select("id, nombre");
     const nombrePor = new Map((usuarios ?? []).map((u) => [u.id as string, u.nombre as string]));
 
+    /**
+     * ── El ranking se separa por ROL (migración `032`) ─────────────────
+     *
+     * Antes agrupaba por `autor_usuario_id` sin discriminar, así que cualquier autor caía en la
+     * misma lista ordenada por revenue. Con el setter escribiendo en la misma tabla eso pasa de
+     * inofensivo a engañoso: un setter con tres low-tickets de $97 aparecería en el ranking de
+     * closers, último, como si hubiera tenido un mes malo vendiendo high-ticket.
+     *
+     * Son dos trabajos con dos escalas distintas. Un solo ranking no puede describir los dos.
+     */
     const porPersona = new Map<string, { ventas: number; revenue: number }>();
+    const porSetter = new Map<string, { ventas: number; revenue: number }>();
     let sinAtribuir = 0;
-    for (const a of ventas) {
+    for (const a of [...ventas, ...ventasLt]) {
       const autor = a.autor_usuario_id as string | null;
       if (!autor) {
-        sinAtribuir++;
+        // Solo las HT sin autor cuentan como "sin atribuir": las LT nacieron con autor.
+        if (a.salida === "venta") sinAtribuir++;
         continue;
       }
-      const acum = porPersona.get(autor) ?? { ventas: 0, revenue: 0 };
+      const destino = a.rol === "setter" ? porSetter : porPersona;
+      const acum = destino.get(autor) ?? { ventas: 0, revenue: 0 };
       acum.ventas++;
       acum.revenue += montoDe(a.detalle);
-      porPersona.set(autor, acum);
+      destino.set(autor, acum);
     }
 
     return res.status(200).json({
@@ -260,6 +281,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         revenue,
         ticketPromedio,
         sobreLaMesa,
+        /**
+         * El low-ticket del setter, **aparte del `revenue`** y no sumado adentro.
+         *
+         * Sumarlo haría que el número grande del panel dejara de ser comparable con el de los
+         * meses anteriores sin que nadie lo notara: subiría por una fuente nueva y parecería
+         * crecimiento del high-ticket. Separado, las dos preguntas se pueden hacer.
+         */
+        revenueLt,
+        ventasLt: ventasLt.length,
         /**
          * Los cuatro dependen del gasto en pauta. `null` cuando la empresa no tiene Meta
          * conectado: un ROAS de 0 afirma que no hubo retorno, y `null` dice que no sabemos cuánto
@@ -290,6 +320,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
          * el closer más probable habría sido fabricar un hecho.
          */
         sinAtribuir,
+        /**
+         * Los setters, en su propia lista. Vacía mientras ninguno haya vendido un low-ticket este
+         * período — que es distinto de "no hay setters", y por eso la vista la muestra vacía en
+         * vez de esconder la sección.
+         */
+        setters: [...porSetter.entries()]
+          .map(([id, v]) => ({ id, nombre: nombrePor.get(id) ?? "—", ...v }))
+          .sort((a, b) => b.revenue - a.revenue),
       },
 
       /**
@@ -303,7 +341,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           "El espejo del lado del closer (`ClosurerContact.atribucionSetter`) nunca se asigna, así que " +
           "no hay señal de intervención manual del setter que contrastar contra las ventas del closer.",
         cortesHighLowTicket: "Ninguna marca sobre una venta distingue high-ticket de low-ticket.",
-        metricasSetter: "`api/setter/` no escribe nada todavía: ninguna acción de un setter llega a la base.",
+        /**
+         * `metricasSetter` salió de esta lista el 2026-08-08: `api/setter/` ya escribe. Lo que
+         * sigue sin poder medirse de su trabajo es más chico y más preciso.
+         */
+        showRateSetter:
+          "El show-rate del setter necesita saber si el contacto asistió, y GHL nunca marca " +
+          "`showed`. Es el mismo hueco que tiene el Appointment Flow.",
+        agendasAutomaticasVsManuales:
+          "`closer_citas` no guarda quién creó la cita, así que no se puede separar lo que agendó " +
+          "el bot de lo que agendó un setter. Sus agendas manuales SÍ se cuentan, desde " +
+          "`closer_avances` con salida `agendo`.",
         metricasVideo: "`contact._video_precall` llega de GHL pero no se persiste.",
         // `gastoEnPauta` ya NO está acá: se mide desde `closer_meta_metricas` (2026-08-07). Si una
         // empresa no tiene Meta conectado, los cuatro indicadores viajan `null` por su cuenta.

@@ -64,6 +64,13 @@ export type AccionAuditada =
   | "editar_empresa"
   | "cambiar_empresa_activa"
   | "rotar_credencial"
+  /**
+   * Alguien fijó o borró el % de comisión de una persona. Es su propia acción y no una
+   * `rotar_credencial` reciclada: la auditoría se lee filtrando por acción, y meter dos hechos
+   * distintos bajo la misma etiqueta la vuelve inservible justo cuando hace falta —
+   * "¿quién le cambió la comisión a este closer y cuándo?" es una pregunta de plata.
+   */
+  | "fijar_comision"
   | "bootstrap";
 
 /**

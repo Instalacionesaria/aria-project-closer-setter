@@ -100,9 +100,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       (c) => !noShowPorContactoDia.has(`${c.ghl_contact_id}:${diaLima(c.fecha_hora)}`),
     ).length;
 
+    /**
+     * El % de comisión de QUIEN mira, desde la base (migración `033`).
+     *
+     * Antes salía de `settingsStore` → `localStorage`, indexado por nombre. Eso tenía dos
+     * consecuencias: dos admins veían números distintos del mismo closer, y renombrar a alguien le
+     * borraba su comisión en silencio. Acá viaja calculado con el cash real del período.
+     *
+     * `null` cuando no tiene porcentaje cargado — no cero. La vista no renderiza el anillo en vez
+     * de afirmar que ganó $0, que es lo que pasa el primer día de cualquier empresa nueva.
+     */
+    const { data: filaPct } = await db()
+      .from("closer_comisiones")
+      .select("pct")
+      .eq("usuario_id", ctx.usuarioId)
+      .eq("tipo", "closer")
+      .maybeSingle();
+
+    const comisionPct = filaPct ? Number((filaPct as { pct: string | number }).pct) : null;
+
     return res.status(200).json({
       ok: true,
       mes: nombreMes,
+      comisionPct,
+      comisionReal: comisionPct !== null ? Math.round(cashCollected * (comisionPct / 100)) : null,
       rango: { desde: inicioMesIso, hasta: hoy },
       zonaHoraria: ZONA_HORARIA_ORG,
       ghlModo: env.ghlModo(),

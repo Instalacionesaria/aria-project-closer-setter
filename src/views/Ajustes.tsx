@@ -23,7 +23,7 @@
  * de cambiar. Ver `Retencion` en `Administracion.tsx`.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Building2,
   CircleCheck,
@@ -44,7 +44,14 @@ import { useAuth } from "../lib/authStore";
 import { useSettings, type CatalogLink, type Role, type SonidoVenta } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
 import { SeccionConfiguracion, SeccionEmpresas, SeccionUsuarios, type Retencion } from "./Administracion";
-import { fetchUsuariosAdmin, type Rol, type UsuarioAdmin } from "../lib/api";
+import {
+  fetchComisiones,
+  fetchUsuariosAdmin,
+  guardarComision,
+  type Rol,
+  type TramoComision,
+  type UsuarioAdmin,
+} from "../lib/api";
 
 const money = (n: number) => `$${n.toLocaleString("es-AR")}`;
 
@@ -307,9 +314,6 @@ const PESTANAS_DE_AJUSTES = new Set<Pestana>(["cuenta", "operacion"]);
 export default function Ajustes({ role = "admin" }: { role?: string }) {
   const {
     miCuenta, setMiCuenta,
-    comisiones, setComisionPct,
-    comisionesSetterLT, setComisionSetterLTPct,
-    comisionesSetterDiferida, setComisionSetterDiferidaPct,
     catalog, addCatalogLink, updateCatalogLink, removeCatalogLink,
     categorias, addCategoria,
     gerencia, setGerencia,
@@ -387,20 +391,44 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
    * y la refuerza el 403 de `api/admin/*`.
    */
   const [equipo, setEquipo] = useState<UsuarioAdmin[] | null>(null);
+  /**
+   * ── Los porcentajes salen de la BASE (2026-08-08) ──────────────────
+   *
+   * Vivían en `settingsStore` → `localStorage`, o sea por navegador: dos admins de la misma
+   * empresa veían números distintos del mismo closer y ninguno estaba equivocado. Ese número
+   * multiplica plata cobrada.
+   *
+   * Y estaban indexados por **nombre**, así que renombrar a alguien le borraba su comisión en
+   * silencio. Ahora la clave es `usuario_id` y renombrar es renombrar.
+   */
+  const [comisionesBase, setComisionesBase] = useState<Record<string, Partial<Record<TramoComision, number>>>>({});
+
+  const cargarOperacion = useCallback(async () => {
+    const [us, cs] = await Promise.all([fetchUsuariosAdmin(), fetchComisiones()]);
+    setEquipo(us.ok ? (us.usuarios ?? []) : []);
+    setComisionesBase(cs.ok ? (cs.comisiones ?? {}) : {});
+  }, []);
+
   useEffect(() => {
     if (pestana !== "operacion") return;
-    let vivo = true;
-    void fetchUsuariosAdmin().then((r) => {
-      if (vivo) setEquipo(r.ok ? (r.usuarios ?? []) : []);
-    });
-    return () => {
-      vivo = false;
-    };
-  }, [pestana]);
+    void cargarOperacion();
+  }, [pestana, cargarOperacion]);
 
-  const conRol = (rol: Rol) => (equipo ?? []).filter((u) => u.activo && u.roles.includes(rol)).map((u) => u.nombre);
+  /**
+   * Las filas son los usuarios, con su id — no su nombre. El `%` se busca por id contra lo que
+   * devolvió la base, así que dos personas homónimas dejan de pisarse.
+   */
+  const conRol = (rol: Rol) => (equipo ?? []).filter((u) => u.activo && u.roles.includes(rol));
   const closers = conRol("closer");
   const setters = conRol("setter");
+
+  /** Guarda y recarga: el servidor confirma, la pantalla no adivina. */
+  const fijarComision = async (usuarioId: string, tipo: TramoComision, valor: string) => {
+    const pct = valor.trim() === "" ? null : Number(valor);
+    if (pct !== null && (!Number.isFinite(pct) || pct < 0 || pct > 100)) return;
+    await guardarComision(usuarioId, tipo, pct);
+    await cargarOperacion();
+  };
   const [savedToast, setSavedToast] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
@@ -649,9 +677,9 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                             </td>
                           </tr>
                         )}
-                        {closers.map((closer) => (
-                          <tr key={closer} className="border-b transition-colors hover:bg-muted/50">
-                            <td className="p-4 align-middle font-medium">{closer}</td>
+                        {closers.map((u) => (
+                          <tr key={u.id} className="border-b transition-colors hover:bg-muted/50">
+                            <td className="p-4 align-middle font-medium">{u.nombre}</td>
                             <td className="p-4 align-middle">
                               <div className="flex items-center gap-2 max-w-[100px]">
                                 <input
@@ -659,9 +687,10 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                                   min={0}
                                   max={100}
                                   /* Sin porcentaje fijado va VACÍO, no en 0: un 0% afirma que no cobra comisión. */
-                                  value={comisiones[closer] ?? ""}
+                                  defaultValue={comisionesBase[u.id]?.closer ?? ""}
                                   placeholder="—"
-                                  onChange={(e) => setComisionPct(closer, Number(e.target.value))}
+                                  /* `onBlur` y no `onChange`: cada tecla sería un PUT. Se guarda al salir del campo. */
+                                  onBlur={(e) => void fijarComision(u.id, "closer", e.target.value)}
                                   className="flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-8 bg-background dark:bg-secondary"
                                 />
                                 <span className="text-sm text-muted-foreground">%</span>
@@ -699,18 +728,18 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                             </td>
                           </tr>
                         )}
-                        {setters.map((setter) => (
-                          <tr key={setter} className="border-b transition-colors hover:bg-muted/50">
-                            <td className="p-4 align-middle font-medium">{setter}</td>
+                        {setters.map((u) => (
+                          <tr key={u.id} className="border-b transition-colors hover:bg-muted/50">
+                            <td className="p-4 align-middle font-medium">{u.nombre}</td>
                             <td className="p-4 align-middle">
                               <div className="flex items-center gap-2 max-w-[100px]">
                                 <input
                                   type="number"
                                   min={0}
                                   max={100}
-                                  value={comisionesSetterLT[setter] ?? ""}
+                                  defaultValue={comisionesBase[u.id]?.setter_lt ?? ""}
                                   placeholder="—"
-                                  onChange={(e) => setComisionSetterLTPct(setter, Number(e.target.value))}
+                                  onBlur={(e) => void fijarComision(u.id, "setter_lt", e.target.value)}
                                   className="flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-8 bg-background dark:bg-secondary"
                                 />
                                 <span className="text-sm text-muted-foreground">%</span>
@@ -722,9 +751,9 @@ export default function Ajustes({ role = "admin" }: { role?: string }) {
                                   type="number"
                                   min={0}
                                   max={100}
-                                  value={comisionesSetterDiferida[setter] ?? ""}
+                                  defaultValue={comisionesBase[u.id]?.setter_diferida ?? ""}
                                   placeholder="—"
-                                  onChange={(e) => setComisionSetterDiferidaPct(setter, Number(e.target.value))}
+                                  onBlur={(e) => void fijarComision(u.id, "setter_diferida", e.target.value)}
                                   className="flex w-full rounded-md border border-input px-3 py-2 text-base ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:text-sm h-8 bg-background dark:bg-secondary"
                                 />
                                 <span className="text-sm text-muted-foreground">%</span>

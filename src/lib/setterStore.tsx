@@ -1,7 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useState, useMemo } from "react";
 import { type Grade, type BotEstado, type HistorialItem, type NotaItem, type CallRecord, type PerfilField } from "./closerStore";
-import { useSettings } from "./settingsStore";
-import { avanzarSetter, fetchMiDiaSetter, type ColaSetterContacto, type MiDiaSetterResponse } from "./api";
+import {
+  avanzarSetter,
+  fetchInicioSetter,
+  fetchMiDiaSetter,
+  type CockpitSetter,
+  type ColaSetterContacto,
+  type MiDiaSetterResponse,
+} from "./api";
 import { useAuth } from "./authStore";
 
 /**
@@ -228,7 +234,12 @@ function contactosDesdeColas(r: MiDiaSetterResponse): Record<string, SetterConta
 interface SetterStoreValue {
   contacts: Record<string, SetterContact>;
   /** § correcciones dashboards (2026-07-11) — única fuente de los KPIs de Inicio (comisiones, agendas, show rate). */
-  cockpit: SetterCockpit;
+  /**
+   * `null` mientras carga o si el servidor no contestó. La vista distingue eso de "cargó y todo
+   * dio cero" — un cockpit vacío por falta de datos y uno vacío porque el backend está caído no
+   * son el mismo hecho (regla 2).
+   */
+  cockpit: CockpitSetter | null;
   openContactName: string | null;
   /** contactId de GHL de la ficha abierta (cuando se abrió desde un urgente real) — para su conversación real. */
   openGhlContactId: string | null;
@@ -372,7 +383,6 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
   const [openContactName, setOpenContactName] = useState<string | null>(null);
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const [deltas, setDeltas] = useState<SetterSessionDeltas>(ZERO_SETTER_DELTAS);
-  const { comisionesSetterLT, comisionesSetterDiferida } = useSettings();
   const { usuario } = useAuth();
 
   /**
@@ -523,32 +533,29 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const cockpit: SetterCockpit = useMemo(() => {
-    // Sin porcentaje cargado en Ajustes, 0: no hay comisión que mostrar hasta que alguien la fije.
-    const yo = usuario?.nombre ?? "";
-    const ltPct = (comisionesSetterLT[yo] ?? 0) / 100;
-    const diferidaPct = (comisionesSetterDiferida[yo] ?? 0) / 100;
-    const ltBruto = SETTER_COCKPIT_BASE.ltBruto + deltas.ltMonto;
-    const diferidaBruto = SETTER_COCKPIT_BASE.diferidaBruto;
-    const comisionLT = Math.round(ltBruto * ltPct);
-    const comisionDiferida = Math.round(diferidaBruto * diferidaPct);
-    const agendasGeneradas = SETTER_COCKPIT_BASE.agendasGeneradasBase + deltas.agendasGeneradas;
-    return {
-      comisionLT,
-      ltVentasCount: SETTER_COCKPIT_BASE.ltVentasCount + deltas.ltCount,
-      comisionDiferida,
-      diferidaBruto,
-      diferidaVentasCount: SETTER_COCKPIT_BASE.diferidaVentasCount,
-      comisionTotal: comisionLT + comisionDiferida,
-      agendasAutomaticas: SETTER_COCKPIT_BASE.agendasAutomaticas,
-      agendasGeneradas,
-      agendasTotal: SETTER_COCKPIT_BASE.agendasAutomaticas + agendasGeneradas,
-      showRateNum: SETTER_COCKPIT_BASE.showRateNum,
-      showRateDen: SETTER_COCKPIT_BASE.showRateDen,
-      showRatePct: SETTER_COCKPIT_BASE.showRatePct,
-      oportunidadesLT: SETTER_COCKPIT_BASE.oportunidadesLTBase,
-    };
-  }, [comisionesSetterLT, comisionesSetterDiferida, deltas]);
+  /**
+   * ── El cockpit lo calcula el SERVIDOR (2026-08-08) ─────────────────
+   *
+   * `SETTER_COCKPIT_BASE` eran **diez constantes** —`ltBruto: 500`, `diferidaBruto: 10000`,
+   * `agendasAutomaticas: 33`, `showRatePct: 78`…— y de las cifras que el cockpit mostraba solo
+   * tres tenían aritmética, las tres multiplicando una base fija. El hero de comisiones era un
+   * porcentaje configurable aplicado sobre un número inventado.
+   *
+   * Ahora sale de `/api/setter/inicio`, que lo calcula con las ventas reales del período y el %
+   * de `closer_comisiones`. Los que todavía no se pueden medir —el show-rate, las agendas
+   * automáticas— viajan en `sinDato` con su motivo, y la vista los muestra como pendientes en vez
+   * de mostrar un número.
+   */
+  const [cockpit, setCockpit] = useState<CockpitSetter | null>(null);
+
+  const recargarCockpit = useCallback(async () => {
+    const r = await fetchInicioSetter();
+    if (r.ok && r.cockpit) setCockpit(r.cockpit);
+  }, []);
+
+  useEffect(() => {
+    void recargarCockpit();
+  }, [recargarCockpit]);
 
   const value: SetterStoreValue = {
     contacts,

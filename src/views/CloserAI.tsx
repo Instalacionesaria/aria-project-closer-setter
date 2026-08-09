@@ -420,28 +420,40 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
 
   const cashCollected = inicio?.cashCollected ?? 0;
   const ventas = inicio?.ventas ?? 0;
-  /** Comisión = cash real × el % del closer en Ajustes > Operación (§30). */
-  const { comisiones } = useSettings();
-  const { usuario } = useAuth();
   /**
-   * El % de QUIEN ESTÁ MIRANDO. Decía `comisiones["Jorge Q."] ?? 10`: un nombre escrito en el
-   * código y un 10% de respaldo, sobre el que después se paga plata. Sin porcentaje cargado en
-   * Ajustes › Operación es 0, y lo que falta es cargarlo.
+   * La comisión la calcula el SERVIDOR desde el 2026-08-08 (`closer_comisiones`, migración `033`).
+   *
+   * Salía de `settingsStore` → `localStorage` indexado por nombre, con dos consecuencias: dos
+   * admins veían números distintos del mismo closer, y renombrar a alguien le borraba su comisión
+   * sin que nada fallara. Un número que multiplica plata cobrada no puede vivir en un blob del
+   * navegador.
+   *
+   * `null` = sin porcentaje cargado. No es cero: la tarjeta lo dice en vez de mostrar $0.
    */
-  const pct = (usuario ? (comisiones[usuario.nombre] ?? 0) : 0) / 100;
-  const comisionReal = Math.round(cashCollected * pct);
+  const comisionReal = inicio?.comisionReal ?? null;
+  const faltaPctComision = inicio != null && (inicio.comisionPct ?? null) === null;
 
   /** Tasa de Cierre = ventas ÷ llamadas ocurridas (§6.A), con su base (§4.9). */
   const ocurridas = inicio?.llamadas.ocurridas ?? 0;
   const closeRate = ocurridas > 0 ? ((ventas / ocurridas) * 100).toFixed(1) : null;
   const showRate = inicio?.showRate ?? null;
 
-  const falta = miCuenta.metaComision - comisionReal;
-  const avgComision = ventas > 0 ? comisionReal / ventas : 0;
-  const ventasFaltantes = falta > 0 && avgComision > 0 ? Math.ceil(falta / avgComision) : 0;
+  /**
+   * Todo lo que se deriva de la comisión solo tiene sentido si la comisión existe.
+   *
+   * Sin porcentaje cargado no hay "cuánto falta para la meta" ni "cuántas ventas faltan": no son
+   * cero, son incalculables. Tratarlos como cero mostraría un anillo vacío y un "te faltan N
+   * ventas" fabricados sobre un porcentaje que nadie fijó.
+   */
+  const falta = comisionReal !== null ? miCuenta.metaComision - comisionReal : null;
+  const avgComision = comisionReal !== null && ventas > 0 ? comisionReal / ventas : 0;
+  const ventasFaltantes = falta !== null && falta > 0 && avgComision > 0 ? Math.ceil(falta / avgComision) : 0;
   // § auditoría v2 (2026-07-11): "Meta superada" nunca se muestra con comisión $0.
-  const metaSuperada = falta <= 0 && comisionReal > 0;
-  const ringPercentage = miCuenta.metaComision > 0 ? Math.min((comisionReal / miCuenta.metaComision) * 100, 100) : 0;
+  const metaSuperada = falta !== null && falta <= 0 && (comisionReal ?? 0) > 0;
+  const ringPercentage =
+    comisionReal !== null && miCuenta.metaComision > 0
+      ? Math.min((comisionReal / miCuenta.metaComision) * 100, 100)
+      : 0;
 
   /** Cada tarjeta con su base real; sin dato → "—", jamás un número inventado (§4.10). */
   const cockpitStats = [
@@ -540,14 +552,28 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
               />
               <GoldRing percentage={ringPercentage} />
               <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                {/*
+                  Sin porcentaje cargado no se muestra `$0` — afirmaría que ganó cero. Se dice qué
+                  falta, que además es accionable: está en Ajustes › Operación.
+                */}
                 <span className="text-3xl font-light text-white tracking-tight">
-                  <AnimatedNumber value={comisionReal} format={money} />
+                  {comisionReal !== null ? <AnimatedNumber value={comisionReal} format={money} /> : "—"}
                 </span>
-                <span className="text-[9px] uppercase tracking-widest text-white/40 mt-1">Comisión</span>
+                <span className="text-[9px] uppercase tracking-widest text-white/40 mt-1">
+                  {faltaPctComision ? "Sin % cargado" : "Comisión"}
+                </span>
               </div>
             </div>
+            {/*
+              La tarjeta de la meta entera desaparece sin porcentaje: "faltan $X para meta" es una
+              cuenta sobre una comisión que no se puede calcular. Se dice qué hacer en su lugar.
+            */}
             <div className="bg-white/5 border border-white/10 rounded-2xl p-4 w-full text-center backdrop-blur-sm">
-              {!metaSuperada ? (
+              {falta === null ? (
+                <p className="text-xs font-light text-white/70 mb-1">
+                  Cargá tu % de comisión en <span className="text-white font-medium">Ajustes › Operación</span>
+                </p>
+              ) : !metaSuperada ? (
                 <p className="text-xs font-light text-white/70 mb-1">
                   Faltan <span className="text-white font-medium">{money(Math.max(falta, 0))}</span> para meta
                 </p>
