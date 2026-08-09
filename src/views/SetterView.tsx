@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   House,
@@ -21,7 +21,6 @@ import {
   AlarmClock,
   DollarSign,
   ChevronRight,
-  ChevronDown,
   Search,
   Video,
   Pin,
@@ -31,13 +30,18 @@ import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
 import { botIconVisual, countCallsContestadas, countSalesCalls, type BotEstado, type Grade } from "../lib/closerStore";
 import { useAuth } from "../lib/authStore";
+import {
+  fetchPipelineSetter,
+  type PipelineSetterColumna,
+  type PipelineSetterContacto,
+  type PipelineSetterResponse,
+} from "../lib/api";
 import { fechaLarga, hoyISO } from "../lib/fechas";
 import {
   useSetter,
   TAG_CLS_BY_TONE,
   setterPendingTasksBreakdown,
   type SetterContact,
-  type SetterStageKey,
   type Canal,
 } from "../lib/setterStore";
 import { useAgentAudit } from "../lib/agentAuditStore";
@@ -785,123 +789,172 @@ function PipelineRow({ contact, rowBg, onOpen }: { contact: SetterContact; rowBg
   );
 }
 
-function StageCard({
-  name,
-  dotCls,
-  headerCls,
-  rowBg,
-  contacts,
-  onOpen,
-}: {
-  name: string;
-  dotCls: string;
-  headerCls: string;
-  rowBg: string;
-  contacts: SetterContact[];
-  onOpen: (name: string) => void;
-}) {
-  return (
-    <div className="bg-card/50 backdrop-blur-sm rounded-[2rem] border border-border/40 shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden">
-      <div className={cn("py-4 px-8 border-b border-border/40 flex items-center gap-2", headerCls)}>
-        <span className={cn("w-2 h-2 rounded-full", dotCls)} />
-        <span className="font-semibold text-[11px] uppercase tracking-widest text-foreground">{name}</span>
-        <div className="inline-flex items-center border py-0.5 font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80 ml-2 text-[10px] h-5 px-1.5 shadow-none rounded-full">
-          {contacts.length}
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <div className="relative w-full overflow-auto">
-          <table className="w-full caption-bottom text-sm">
-            <thead className="[&_tr]:border-b bg-transparent">
-              <tr className="transition-colors data-[state=selected]:bg-muted border-b border-border/40 hover:bg-transparent">
-                <th className="h-12 text-left align-middle w-[40%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
-                  Nombre
-                </th>
-                <th className="h-12 text-left align-middle w-[30%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
-                  Situación
-                </th>
-                <th className="h-12 text-left align-middle w-[25%] font-semibold text-[10px] uppercase tracking-[0.1em] text-muted-foreground px-8 py-4">
-                  Última Actividad
-                </th>
-                <th className="h-12 text-left align-middle font-medium text-muted-foreground w-[5%] px-8 py-4" />
-              </tr>
-            </thead>
-            <tbody className="[&_tr:last-child]:border-0">
-              {contacts.map((c) => (
-                <PipelineRow key={c.name} contact={c} rowBg={rowBg} onOpen={onOpen} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
+/*
+  `StageCard` se borró el 2026-08-08 junto con el pipeline de 2 columnas. Lo reemplazó
+  `ColumnaEtapa`, que renderiza las siete etapas desde el endpoint. Se borra entera en vez de
+  quedar sin llamadores: una función viva que nadie usa es una invitación a volver al render
+  viejo, y este ya perdía contactos en silencio.
+*/
 
+/**
+ * Las SIETE etapas del pipeline del setter, con datos reales.
+ *
+ * ── Qué reemplaza ─────────────────────────────────────────────────────
+ *
+ * Renderizaba **2 columnas de 7**, filtrando el array de semillas en memoria. Los contactos de
+ * las otras cinco etapas no aparecían en ninguna parte —ni en un "otros", ni en un contador— y un
+ * Avanzar → No califica hacía que el contacto se esfumara del tablero.
+ *
+ * Las siete se muestran siempre, **incluidas las vacías**: una columna que desaparece cuando no
+ * tiene contactos rompe la lectura del embudo, y no se puede arrastrar una tarjeta hacia algo que
+ * no se ve.
+ */
 function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void }) {
-  const { contacts } = useSetter();
-  const all = Object.values(contacts);
-  const enCalificacion = all.filter((c) => c.stage === "en_calificacion");
-  const agendado = all.filter((c) => c.stage === "agendado");
+  const [datos, setDatos] = useState<PipelineSetterResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState("");
+
+  const cargar = useCallback(async () => {
+    setError(null);
+    const r = await fetchPipelineSetter();
+    if (!r.ok) {
+      setError(r.error ?? "No se pudo cargar el pipeline.");
+      setDatos(null);
+      return;
+    }
+    setDatos(r);
+  }, []);
+
+  useEffect(() => {
+    void cargar();
+  }, [cargar]);
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-6 text-sm space-y-2">
+        <p>{error}</p>
+        <button onClick={() => void cargar()} className="text-xs font-medium text-primary hover:underline">
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+
+  if (!datos) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground py-10">
+        <div className="h-4 w-4 rounded-full border-2 border-muted border-t-primary animate-spin" />
+        Cargando el pipeline…
+      </div>
+    );
+  }
+
+  const q = busqueda.trim().toLowerCase();
+  const filtrar = (cs: PipelineSetterContacto[]) =>
+    q === "" ? cs : cs.filter((c) => c.name.toLowerCase().includes(q) || (c.phone ?? "").includes(q));
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Filter bar */}
-      <div className="flex justify-between items-center bg-muted/10 p-4 rounded-2xl border border-border/40">
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            className="flex h-10 items-center justify-between border px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 w-[140px] rounded-full bg-background border-border/60 hover:bg-muted/30 transition-colors"
-          >
-            <span>Todos</span>
-            <ChevronDown className="h-4 w-4 opacity-50" />
-          </button>
-          <button
-            type="button"
-            className="flex h-10 items-center justify-between border px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1 w-[160px] rounded-full bg-background border-border/60 hover:bg-muted/30 transition-colors"
-          >
-            <span>Etapa: Todas</span>
-            <ChevronDown className="h-4 w-4 opacity-50" />
-          </button>
-          <div className="flex items-center gap-1.5 bg-background border border-border/60 rounded-full p-1">
-            {["A", "B", "C"].map((g) => (
-              <button
-                key={g}
-                className="w-7 h-7 rounded-full text-xs font-bold transition-all text-muted-foreground hover:bg-muted"
-              >
-                {g}
-              </button>
-            ))}
-          </div>
-        </div>
+      {/*
+        La barra de filtros tenía dos `<button>` sin `onClick`, tres botones de grade sin handler
+        y un `<input>` sin `value` ni `onChange`: cuatro controles que no hacían nada. Se dejó el
+        único que se puede sostener con los datos que hay —la búsqueda— y se sacaron los otros.
+        Un control que no responde es peor que su ausencia: enseña que la pantalla está rota.
+      */}
+      <div className="flex justify-between items-center gap-4 bg-muted/10 p-4 rounded-2xl border border-border/40">
+        <span className="text-xs font-medium text-muted-foreground">
+          {datos.total} {datos.total === 1 ? "contacto" : "contactos"} en el territorio del setter
+        </span>
         <div className="relative w-[280px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <input
-            className="flex w-full border px-3 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm pl-9 h-9 rounded-full bg-background border-border/60"
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            className="flex w-full border px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 pl-9 h-9 rounded-full bg-background border-border/60"
             placeholder="Buscar por nombre o teléfono..."
           />
         </div>
       </div>
 
-      {/* Stages */}
       <div className="space-y-6 mt-8">
-        <StageCard
-          name="En Calificación"
-          dotCls="bg-primary/40"
-          headerCls="bg-muted/5"
-          rowBg="bg-amber-50/30 dark:bg-amber-900/10"
-          contacts={enCalificacion}
-          onOpen={onOpenContact}
-        />
-        <StageCard
-          name="Agendado"
-          dotCls="bg-emerald-500"
-          headerCls="bg-emerald-50/50 dark:bg-emerald-900/10"
-          rowBg="bg-transparent"
-          contacts={agendado}
-          onOpen={onOpenContact}
-        />
+        {(datos.columnas ?? []).map((col) => (
+          <ColumnaEtapa key={col.key} columna={{ ...col, contactos: filtrar(col.contactos) }} onOpen={onOpenContact} />
+        ))}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Una etapa del pipeline.
+ *
+ * Las terminales —agendado, nurture, descalificado— se pintan distinto: el contacto ya salió del
+ * trabajo del setter y verlas iguales a las activas haría parecer que todavía hay algo que hacer.
+ */
+function ColumnaEtapa({
+  columna,
+  onOpen,
+}: {
+  columna: PipelineSetterColumna & { contactos: PipelineSetterContacto[] };
+  onOpen: (name: string) => void;
+}) {
+  return (
+    <div className="rounded-[2rem] border border-border/60 bg-card overflow-hidden shadow-sm">
+      <div
+        className={cn(
+          "px-6 py-4 border-b border-border/60 flex items-center justify-between gap-3",
+          columna.terminal ? "bg-muted/20" : "bg-muted/5",
+        )}
+      >
+        <div className="flex items-center gap-2.5">
+          <div className={cn("w-2 h-2 rounded-full", columna.terminal ? "bg-muted-foreground/40" : "bg-primary/60")} />
+          <span className="text-sm font-semibold">{columna.label}</span>
+          <span className="text-xs text-muted-foreground">{columna.contactos.length}</span>
+        </div>
+        {/*
+          Que el tag todavía no exista en GHL es un hecho de la columna y se dice, en vez de que
+          el usuario descubra por su cuenta que mover una tarjeta ahí no manda nada.
+        */}
+        {columna.tagPendiente && (
+          <span className="text-[10px] font-medium text-amber-700 dark:text-amber-400">
+            El tag de esta etapa todavía no existe en GHL — se guarda acá igual
+          </span>
+        )}
+      </div>
+
+      {columna.contactos.length === 0 ? (
+        <div className="px-6 py-5 text-xs text-muted-foreground">Sin contactos en esta etapa.</div>
+      ) : (
+        <div className="divide-y divide-border/40">
+          {columna.contactos.map((c) => (
+            <button
+              key={c.contactId}
+              onClick={() => onOpen(c.name)}
+              className="w-full text-left px-6 py-3 hover:bg-muted/30 transition-colors flex items-center justify-between gap-3"
+            >
+              <div className="min-w-0">
+                <div className="text-sm font-medium truncate">{c.name}</div>
+                <div className="text-[11px] text-muted-foreground truncate">
+                  {[c.phone, c.fuente].filter(Boolean).join(" · ") || "—"}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {c.monto !== null && c.monto > 0 && (
+                  <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    {money(c.monto)}
+                  </span>
+                )}
+                {/* Congelado: visible e inerte. Perdió su territorio, no se acciona. */}
+                {c.congelado && (
+                  <span className="text-[10px] font-medium text-muted-foreground border border-border rounded-full px-2 py-0.5">
+                    congelado
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

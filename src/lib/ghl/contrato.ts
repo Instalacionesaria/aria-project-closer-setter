@@ -81,6 +81,49 @@ export const TAGS = {
     uso: "Candidato a disparador de 'serie agotada'. Solo lectura hasta confirmar su semántica.",
   },
 
+  /* ---- Etapas propias del setter (pre-agenda) ---- */
+
+  /**
+   * ── Las tres que faltan, y por qué solo tres ──────────────────────
+   *
+   * El pipeline del setter tiene 7 etapas, pero **cuatro ya tienen tag confirmado** y sería un
+   * error pedirle a Kevin que cree duplicados:
+   *
+   *   · `low_ticket_ofrecido` → `derivado_lt` (TAGS_BOT). Ofrecerle un low-ticket a un lead ES
+   *     derivarlo a low-ticket: el tag ya significa exactamente eso.
+   *   · `agendado`            → lo resuelve el swap `zona_setter` → `zona_closer` del WF 04.1.
+   *                             No necesita tag propio; de hecho tener uno sería una segunda
+   *                             fuente para el mismo hecho.
+   *   · `nurture`             → `nurture_appflow`.
+   *   · `descalificado`       → `descalificado`.
+   *
+   * Quedan estas tres, que son las etapas de calificación — el trabajo específico del setter, que
+   * hoy no tiene representación en GHL porque el módulo nunca escribió nada.
+   *
+   * Van como `pendiente` a propósito: `assertEnviable()` impide que salgan en modo real hasta que
+   * Kevin las cree. La app las usa igual para su propio pipeline (Supabase es la fuente de verdad
+   * del stage), así que las 7 columnas funcionan desde el día uno y la escritura a GHL se
+   * enciende sola cuando los tags existan.
+   */
+  setterNuevo: {
+    valor: "setter_nuevo",
+    confianza: "pendiente",
+    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de que Kevin lo cree en la subcuenta.",
+    uso: "Lead que entró y todavía nadie tocó. Primera etapa del pipeline del setter.",
+  },
+  setterEnCalificacion: {
+    valor: "setter_en_calificacion",
+    confianza: "pendiente",
+    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de que Kevin lo cree en la subcuenta.",
+    uso: "El setter está calificándolo: hay conversación en curso pero todavía no hay veredicto.",
+  },
+  setterCalificado: {
+    valor: "setter_calificado",
+    confianza: "pendiente",
+    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de que Kevin lo cree en la subcuenta.",
+    uso: "Califica para high-ticket pero todavía no agendó. Es la etapa 🔥 del pipeline.",
+  },
+
   /** Series del setter — acá solo se leen, para no pisarlas desde el territorio del closer. */
   seguimientoParaAgendar: {
     valor: "seguimiento_para_agendar",

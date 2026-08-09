@@ -44,12 +44,44 @@ describe("assertEnviable — un literal inventado no puede llegar a GHL", () => 
 
 describe("literales del contrato", () => {
   /**
-   * Verificado contra la subcuenta DbWG5cimcumPcKk5p3xC el 2026-07-25: los 11 tags que este
-   * módulo escribe o lee EXISTEN. El único pendiente es uno que encontramos en la cuenta y
-   * NO está en el contrato, así que no sabemos qué lo dispara.
+   * Verificado contra la subcuenta DbWG5cimcumPcKk5p3xC el 2026-07-25: los tags que este módulo
+   * escribe o lee EXISTEN.
+   *
+   * Los pendientes son de **dos clases distintas**, y la lista se fija entera a propósito: si
+   * mañana aparece un cuarto pendiente sin que nadie lo haya decidido, este test lo caza.
+   *
+   *   1. `seguimiento_terminado` — lo ENCONTRAMOS en la cuenta y no está en el contrato, así que
+   *      no sabemos qué lo dispara. Pendiente por desconocimiento.
+   *   2. Los tres `setter_*` — los PROPUSIMOS nosotros el 2026-08-08 para las etapas de
+   *      calificación del pipeline del setter, que no tenían representación en GHL. Pendientes
+   *      hasta que Kevin los cree. Ver `etapasSetter.ts`.
+   *
+   * Las otras cuatro etapas del setter NO están acá porque reusan tags confirmados: sería un
+   * error pedirle a Kevin que cree duplicados de `derivado_lt`, `nurture_appflow` y
+   * `descalificado`, y `agendado` lo resuelve el swap de territorio.
    */
-  it("todo lo que el módulo escribe está confirmado; solo queda pendiente lo no documentado", () => {
-    expect(literalesPendientes().map((l) => l.valor)).toEqual(["seguimiento_terminado"]);
+  it("los pendientes son exactamente los que sabemos que faltan", () => {
+    expect(literalesPendientes().map((l) => l.valor)).toEqual([
+      "seguimiento_terminado",
+      "setter_nuevo",
+      "setter_en_calificacion",
+      "setter_calificado",
+    ]);
+  });
+
+  /**
+   * El portón que hace que un literal pendiente sea inofensivo: no sale a GHL en modo real.
+   *
+   * Es lo que permite que las siete columnas del pipeline funcionen desde el día uno con tres
+   * tags que todavía no existen — la etapa se guarda en Supabase, que es la fuente de verdad, y
+   * el tag se manda recién cuando Kevin lo cree.
+   */
+  it("los tags propuestos del setter no salen a GHL hasta que existan", () => {
+    for (const tag of [TAGS.setterNuevo, TAGS.setterEnCalificacion, TAGS.setterCalificado]) {
+      expect(() => assertEnviable(tag, true)).toThrow();
+      // En modo stub sí pasan: ahí no hay cuenta real que pueda rechazarlos.
+      expect(() => assertEnviable(tag, false)).not.toThrow();
+    }
   });
 
   it("el tag de modo manual existe en la cuenta — verificado, no supuesto", () => {

@@ -232,6 +232,45 @@ export function fetchMiDiaSetter(): Promise<MiDiaSetterResponse> {
   return pedir<MiDiaSetterResponse>(`/api/setter/mi-dia`);
 }
 
+/* ── El pipeline de 7 etapas ── */
+
+export interface PipelineSetterContacto {
+  contactId: string;
+  name: string;
+  phone: string | null;
+  fuente: string | null;
+  monto: number | null;
+  /** Perdió su territorio en GHL: se muestra y no se acciona. */
+  congelado: boolean;
+  atribuido: boolean;
+}
+
+export interface PipelineSetterColumna {
+  key: string;
+  label: string;
+  /** El contacto ya salió del trabajo del setter (agendado, nurture, descalificado). */
+  terminal: boolean;
+  /** El tag de esta etapa todavía no existe en la subcuenta de GHL. */
+  tagPendiente: boolean;
+  contactos: PipelineSetterContacto[];
+}
+
+export interface PipelineSetterResponse {
+  ok: boolean;
+  total?: number;
+  columnas?: PipelineSetterColumna[];
+  error?: string;
+}
+
+export function fetchPipelineSetter(): Promise<PipelineSetterResponse> {
+  return pedir<PipelineSetterResponse>(`/api/setter/pipeline`);
+}
+
+/** Mueve un contacto de etapa. Escribe Supabase y manda el tag a GHL si el literal existe. */
+export function moverEtapaSetter(ghlContactId: string, etapa: string): Promise<{ ok: boolean; error?: string }> {
+  return pedir(`/api/setter/pipeline`, { ...conJson({ ghlContactId, etapa }), method: "PATCH" });
+}
+
 /** Registra una de las cinco salidas del Avanzar del setter. */
 export function avanzarSetter(body: Record<string, unknown>): Promise<Record<string, unknown>> {
   return pedir<Record<string, unknown>>(`/api/setter/avanzar`, conJson(body));
