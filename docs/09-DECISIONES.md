@@ -539,3 +539,59 @@ Dos consecuencias concretas:
 
 Lo que queda como deuda de proceso: **apretar cada botón del panel de administración una vez** antes
 del 15 de agosto. Un endpoint con tests unitarios y sin una sola ejecución real es una hipótesis.
+
+## D37 · El contexto de empresa es por sesión, y se mitiga con un aviso en vez de resolverse
+
+`closer_sesiones.empresa_activa` es **un valor por sesión**, y todas las pestañas del navegador
+comparten la sesión. Un `super_admin` con dos pestañas en dos empresas escribe en la última que
+eligió: la escritura sale bien, en la empresa equivocada, y **sin ningún error visible**.
+
+Es el peor modo de fallar que tiene el aislamiento. Las otras tres capas —el Proxy de `db()`, los
+tests que lo hacen cumplir, RLS sin políticas— fallan cerrado y ruidoso. Ésta no falla: acierta en
+el lugar incorrecto.
+
+### La alternativa existe y funciona
+
+Mover el contexto a la URL: prefijo `/e/<slug>/` en la ruta y un header `X-Empresa-Id` por
+request, con la URL ganando sobre la sesión. Está diseñada entera, no es una idea suelta.
+
+Se pospuso por tres razones, en orden de peso:
+
+1. **Toca `exigir()`**, que es el punto ÚNICO por donde pasa el aislamiento entre empresas. Todo
+   endpoint lo llama; una regresión ahí no se ve como un bug, se ve como datos de otra empresa.
+2. **Llegaba a días del lanzamiento del 15/08**, con la multiempresa recién puesta y la
+   autenticación sin haber sido ejercitada en producción por usuarios reales.
+3. **El riesgo alcanza a un solo rol**, y hoy ese rol es una persona que conoce el problema.
+
+### Lo que se acepta a cambio
+
+Un aviso permanente en vez de una garantía técnica. La disciplina de una sola pestaña sostiene la
+corrección de los datos hasta que se implemente el prefijo — y "disciplina" es exactamente la
+palabra: si alguien abre dos, nada lo detiene y nada se lo dice después.
+
+Por eso el aviso **no se puede descartar**. Un banner que se cierra y se recuerda como leído
+protege el primer día y ninguno de los siguientes, que es cuando el hábito ya se relajó.
+
+> **Y por eso tampoco se detectan las pestañas.** `BroadcastChannel` o `localStorage` darían un
+> aviso más preciso —"tenés otra pestaña abierta en Acme"— a cambio de infraestructura de
+> sincronización entre pestañas para un problema cuya solución de verdad es otra. Sería construir
+> la mitigación con más cuidado que el arreglo.
+
+## D38 · Las especificaciones no se versionan
+
+`docs/especs/` está en `.gitignore` desde el 2026-08-08. Son el contrato de cada tarea: llegan por
+chat, se ejecutan, y quedan en disco para poder releer qué se pidió exactamente.
+
+El motivo no es que sean secretas: es que **describen trabajo futuro, alternativas descartadas y
+fases ya ejecutadas**, y en el repo compartido con Kevin se leerían como si fueran el estado del
+producto. Un lector que abra `ESPEC-RUTAS-Y-EMPRESA-EN-URL.md` no tiene cómo saber que nada de eso
+está implementado.
+
+Lo que sobrevive a una espec implementada es la entrada en `09-DECISIONES` o en `10-ESTADO`, no la
+espec. `docs/` es el estado; las especs son el pedido.
+
+**Consecuencia al escribir docs, y es la parte que importa:** un documento versionado **no puede
+apuntar a una espec** como si el lector pudiera abrirla. Si un `docs/*.md` necesita explicar algo
+que vive en una espec, lo explica él mismo. Un enlace que para Kevin no abre nada es el mismo
+problema que `docs/prompts/*.md` — dos archivos que nunca existieron mientras el panel los
+reportaba como cargados.

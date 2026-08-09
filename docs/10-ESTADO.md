@@ -261,12 +261,23 @@ Cosas que funcionan pero con un límite que conviene tener presente:
   mensajes de la IA no avanza hasta que alguien abra la herramienta.
 - **Tres contactos con `bot_pausado_fallo` sin territorio** — el auditor no pudo tagearlos.
   Hay otra fuente sin identificar. Va como pregunta en el diagnóstico.
-- **La firma de los ajustes** usa el autor por defecto, que es el closer — pero quien aplica un
-  ajuste al prompt es el técnico. Dato falso, solo que poco visible. Ya hay sesión con usuario
-  real (`AUTOR_POR_DEFECTO` en `api/_lib/repo.ts` es lo que quedó de antes): la firma puede salir
-  de `ctx.nombre` y todavía no lo hace.
 - **Si alguien mueve un stage a mano en GHL**, la plataforma no se entera (ver
   [09-DECISIONES](09-DECISIONES.md) § D1).
+- **La app no tiene rutas navegables.** La navegación es un switch de vista sobre `React.lazy`,
+  sin History API: no hay `pushState`, no hay `<a href>`, la URL nunca cambia. Consecuencias: el
+  botón atrás **sale de la aplicación**, refrescar devuelve al inicio, y no se puede compartir un
+  link a una vista ni a un contacto. Es estético y no corrompe ningún dato, así que se pospuso
+  frente al lanzamiento del 15/08.
+  El diseño está resuelto y listo para retomar: un mapa vista↔ruta, la ficha del contacto como
+  query param, y `pushState` a mano sin sumar una librería de routing.
+- **La empresa activa es por sesión, no por pestaña.** Un `super_admin` con dos pestañas en dos
+  empresas distintas escribe en la última que eligió, **sin error visible** — la escritura sale
+  bien, en la empresa equivocada. Hoy se mitiga con el aviso permanente junto al selector
+  (`AvisoPestanaUnica` en `src/App.tsx`), que es disciplina, no garantía.
+  La solución real es mover el contexto a la URL —prefijo `/e/<slug>/` más un header por
+  request— y se pospuso porque toca `exigir()`, el punto único por donde pasa todo el aislamiento
+  entre empresas: no es el archivo que conviene tocar la semana del lanzamiento. Ver
+  [D37](09-DECISIONES.md).
 
 ## Operativo
 

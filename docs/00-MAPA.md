@@ -35,6 +35,8 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Qué le tengo que pedir a Kevin y qué le tengo que dar? | [03-INTEGRACION-GHL](03-INTEGRACION-GHL.md) § La lista para entregarle a Kevin |
 | ¿Por qué la tarjeta de un agente de voz está bloqueada? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § Los auditores de voz están BLOQUEADOS |
 | ¿Qué significa que un análisis salga verde? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El veredicto de tres niveles |
+| ¿Por qué el botón atrás me saca de la app? | [10-ESTADO](10-ESTADO.md) § Huecos conocidos |
+| ¿Por qué dice que use una sola pestaña? | [09-DECISIONES](09-DECISIONES.md) D37 |
 | ¿Dónde están las credenciales de un cliente? ¿Cómo se rotan? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Credenciales |
 | Agregué un endpoint y explota con "sin empresa activa" | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Capa 1 |
 | ¿De qué empresa es este webhook? ¿Por qué hay filas con `org_id` nulo? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Webhooks |

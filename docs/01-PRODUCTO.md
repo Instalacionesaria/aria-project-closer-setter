@@ -197,6 +197,12 @@ el usuario un módulo o cinco.
 *Empresas* (`super_admin`). Las tres últimas son el §7 de la especificación multi-empresa y su
 código vive en `src/views/Administracion.tsx`.
 
+Arriba, y **solo para `super_admin`**, va el selector de empresa con un aviso rojo permanente al
+lado: *"Usá una sola pestaña"*. No es una advertencia genérica — la empresa activa es un valor por
+sesión, así que con dos pestañas abiertas lo que se registre en una puede guardarse en la empresa
+de la otra, sin error visible. Ningún otro rol lo ve, porque ninguno puede cambiar de empresa. El
+detalle está en [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § El contexto es por SESIÓN.
+
 Al pie, junto al nombre de quien entró: el **toggle de tema** y **Salir**, en ese orden — el
 destructivo va último. El tema **se guarda por usuario**, en la columna `tema` de
 `closer_usuarios`: viaja con la cuenta, no con la máquina. El navegador guarda además una copia

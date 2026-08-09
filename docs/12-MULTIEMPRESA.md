@@ -266,6 +266,28 @@ dice de qué empresa son los datos que se están viendo.
 Al cambiar **se recarga la página**: los cuatro providers tienen en memoria los contactos, la agenda
 y las alertas de la empresa anterior.
 
+### El contexto es por SESIÓN, no por pestaña
+
+Es una propiedad del diseño actual, no un detalle: `closer_sesiones.empresa_activa` es **un solo
+valor por sesión**, y todas las pestañas del mismo navegador comparten esa sesión.
+
+Con dos pestañas abiertas en dos empresas distintas:
+
+1. Pestaña A elige ARIA. La sesión guarda ARIA.
+2. Pestaña B elige Acme. La sesión guarda **Acme** — para las dos.
+3. Pestaña A sigue mostrando los datos de ARIA, que ya estaban en pantalla.
+4. Se registra un Avanzar desde A. El backend lee la sesión, ve **Acme**, y escribe ahí.
+
+**No falla.** No hay error, no hay pantalla roja: la escritura sale bien, en la empresa
+equivocada, y se descubre días después cuando un número no cuadra. Es el modo de fallar más
+incómodo que tiene el aislamiento — todas las demás capas fallan cerrado y ruidoso; ésta no falla.
+
+Solo alcanza al `super_admin`, que es el único rol que puede cambiar de contexto.
+
+Hoy se mitiga con un **aviso permanente** al lado del selector, que solo ese rol ve. Es
+disciplina, no garantía: no detecta pestañas ni bloquea nada. La solución técnica —el contexto en
+la URL— está diseñada y pospuesta; el porqué está en [D37](09-DECISIONES.md).
+
 ---
 
 ## Qué se rompió por el camino
