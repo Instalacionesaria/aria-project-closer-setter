@@ -595,3 +595,83 @@ apuntar a una espec** como si el lector pudiera abrirla. Si un `docs/*.md` neces
 que vive en una espec, lo explica él mismo. Un enlace que no abre nada para quien lea el repo es el mismo
 problema que `docs/prompts/*.md` — dos archivos que nunca existieron mientras el panel los
 reportaba como cargados.
+
+## D39 · El Avanzar del setter va a `closer_avances`, con el rol como discriminador
+
+La alternativa era una tabla propia, y aísla mejor: un bug escribiendo del lado del setter no
+podría tocar filas del closer. Se descartó porque el revenue del negocio es **la suma de los dos**
+—el high-ticket que cierra el closer y el low-ticket que vende el setter— y con dos tablas cada
+métrica de Estadísticas pasa a ser un `UNION` o se duplica. Dos implementaciones del mismo hecho
+divergen en silencio: es la regla 3, y acá lo que diverge es plata.
+
+El costo es un CHECK más complejo, y se acepta porque **no depende de que nadie se acuerde**:
+
+```sql
+check ((rol = 'closer' and salida in (…)) or (rol = 'setter' and salida in (…)))
+```
+
+Un Avanzar de setter con `salida = 'no_show'` no entra ni a mano. Verificado contra producción
+con las ocho combinaciones.
+
+> **El `default 'closer'` de la columna no es pereza.** `closer_avances` tiene un trigger de
+> inmutabilidad que aborta todo UPDATE con un `raise` incondicional, así que un backfill no
+> rellenaría nada: reventaría la transacción entera, con un mensaje que ni siquiera habla de esa
+> columna. `add column ... default` es DDL y no dispara triggers de fila. Es la misma salida que
+> ya documentó la `019`.
+
+## D40 · Los efectos del setter son otra función, no un parámetro
+
+Parametrizar `aplicarEfectosGhl` con un `rol` era la salida obvia. Es la equivocada, y la razón es
+una sola línea de negocio:
+
+**El closer aplica `bot_desactivado_postcall` en toda salida menos No-show**, porque cualquier
+resultado suyo demuestra que el contacto ya tuvo su llamada de venta. El setter es **pre-agenda por
+definición**: ninguna de sus cinco salidas lo prueba. Aplicar ese tag desde ahí mataría el chatbot
+de un lead que todavía se está calificando — y justo en la salida Seguimiento, que es la que lo
+deja en manos del bot durante días.
+
+No es una diferencia de configuración: es una regla distinta. Meterla con un `if (rol === …)`
+adentro de una función de 150 líneas habría dejado las dos lógicas trenzadas para ahorrar
+duplicación que en realidad no existe.
+
+## D41 · El % de comisión vive en la base, indexado por id
+
+Vivía en `settingsStore` → `localStorage`, o sea **por navegador**: dos admins de la misma empresa
+veían números distintos del mismo closer y ninguno estaba equivocado, cada uno leía su propio blob.
+Ese número multiplica plata cobrada.
+
+Se eligió una tabla `closer_comisiones (org_id, usuario_id, tipo, pct)` sobre una columna `jsonb`
+en `closer_org_config` por dos motivos: esa tabla no tiene hoy ninguna columna jsonb —son todas
+escalares— y, sobre todo, Estadísticas necesita **cruzar** el porcentaje con las ventas por
+persona. Con jsonb eso se resuelve trayendo el blob entero a Node; con una tabla es un join.
+
+**Indexado por `usuario_id` y no por nombre**, que es como estaba. Con la clave vieja, renombrar a
+un usuario le borraba su comisión en silencio: la fila del panel se arma desde `closer_usuarios`,
+así que aparecía con el nombre nuevo y el campo vacío, y nada fallaba hasta el día de pago.
+
+**Sin default y sin cero.** Una comisión sin cargar es `null`. Un 0% afirma que esa persona no
+cobra comisión, y es un hecho distinto de "todavía no lo configuraron" — que es el estado de
+cualquier empresa el primer día. Cuando el tipo pasó a `number | null`, TypeScript marcó los seis
+lugares que lo daban por hecho: ninguno mostraba `—`, todos habrían mostrado `$0`.
+
+## D42 · Un script que no existe esconde tests que no corren
+
+`PLAN-LANZAMIENTO-15AGO.md` citaba `npm run test:integracion` en sus reglas de trabajo. **No
+existía.** La suite de integración estaba escrita, versionada y documentada, y se corría a mano con
+`$env:INTEGRACION=1; npx vitest run …` — o sea, casi nunca.
+
+Al agregar el script, la primera corrida dio **6 de 7 fallando**, y ninguno era nuevo:
+
+1. `activar()` en un `beforeAll` **no propaga**. Es la trampa que `credenciales.ts` documenta:
+   `enterWith` fija el contexto de la cadena actual, y llamado dentro de una función `async` muere
+   con la continuación de esa función. Llevaba roto desde la migración multi-empresa.
+2. Una aserción esperaba dos tags donde el código manda tres desde que existe la regla del bot
+   post-call.
+
+Es el mismo patrón de [D36](#d36--lo-que-se-construye-y-no-se-ejercita-no-está-construido), esta vez
+aplicado a los tests: **un test que no se corre no es un test, es un archivo**.
+
+El script es un `.mjs` propio y no `INTEGRACION=1 vitest …` en el `package.json`, porque el prefijo
+`VAR=valor comando` es sintaxis de shell POSIX y **en PowerShell es un error de parseo** — este
+repo se desarrolla en Windows. La alternativa era sumar `cross-env`, una dependencia entera para
+exportar una variable.

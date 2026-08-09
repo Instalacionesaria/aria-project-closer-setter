@@ -44,20 +44,29 @@ Agentes tienen la estructura hecha pero les falta backend o les falta configurac
 | Avanzar (6 salidas) | ✅ Persiste en Supabase y aplica tags en GHL |
 | Seguimientos | ✅ Automáticos y manuales, con su cola |
 
-## Setter — estructura sí, backend parcial
+## Setter — con backend real desde el 2026-08-08
 
 | Qué | Estado |
 |---|---|
-| Las 6 colas de Mi Día | ⚠️ La estructura está; parte de los datos siguen siendo semilla |
-| Pipeline de 7 etapas | ⚠️ Renderiza 2 columnas |
-| Avanzar (5 salidas) | ✅ Funciona, persiste en su store |
-| Cockpit de comisiones | ⚠️ Los dos tramos calculan de verdad; las "diferidas" salen de una base de referencia |
-| Cola de urgentes | ⏸ **Vacía a propósito** — su auditor no existe |
+| Las 6 colas de Mi Día | ✅ Derivadas por query, cero flags, cero llamadas a GHL |
+| Pipeline de 7 etapas | ✅ Las 7 con datos reales; mover escribe Supabase + tags |
+| Avanzar (5 salidas) | ✅ Persiste en Supabase con `org_id`, autor y atribución |
+| Cockpit de comisiones | ✅ Calculado. LT de sus ventas, diferidas cruzando ventas HT atribuidas |
+| Cola de urgentes | ⏸ **Vacía a propósito** — su auditor no existe (Fase 2) |
 | Ficha | ✅ Compartida con el closer |
 
-**El latch de atribución** (`atribucionSetter`) es real y se enciende con la primera
-intervención manual. Lo que falta es cruzar los stores para sumar ventas HT reales de contactos
-marcados — requiere que el contacto del closer sepa qué setter lo originó.
+`api/setter/` pasó de **1 archivo a 5**: `avanzar`, `mi-dia`, `pipeline`, `inicio`, `urgentes`. Y
+`urgentes` pasó de 1 llamada a GHL cada 60 s a **0**: sus contactos ya están en la caché.
+
+**El latch de atribución** se persiste en `closer_contactos.atribucion_setter_id` (migración
+`032`). Antes vivía solo en el browser —seis escrituras, cero lecturas— así que moría al
+refrescar; es lo que destrabó las comisiones diferidas.
+
+> **Falta lo que depende de GHL**: los workflows `🟨 04.1/04.2` que aplican `zona_setter` siguen en
+> borrador, así que **hay cero contactos de setter en producción**. El módulo está construido y
+> verificado con contactos de prueba; su primer dato real llega cuando esos workflows se publiquen.
+> Y faltan tres tags de etapa (`setter_nuevo`, `setter_en_calificacion`, `setter_calificado`) más
+> el de venta low-ticket: hasta que existan, la etapa se guarda en Supabase y el tag no sale.
 
 ## Auditoría de Agentes — cableada, esperando datos
 
@@ -203,10 +212,9 @@ vivas, sin usarse:
   enlaces, los mapas de comisiones y el `linkPersonal` de ejemplo. Las funciones que las producen
   siguen ahí, vacías. Lo que queda en el localStorage de quien ya usó la app **no se limpia solo**:
   si alguien ve todavía "Ariel C." o un link a `pay.example.com`, es su blob viejo.
-- **El porcentaje de comisión sigue en localStorage.** Las **filas** ya salen de los usuarios reales
-  de la empresa con rol closer/setter, pero el `%` que se les asigna vive en `settingsStore`, o sea
-  por navegador y por usuario. Dos admins pueden ver porcentajes distintos del mismo closer. Hay
-  que mudarlo a `closer_org_config` — es la deuda más concreta que dejó el Bloque F.
+> **El % de comisión salió del localStorage el 2026-08-08**: vive en `closer_comisiones`
+> (migración `033`), por empresa y por `usuario_id`. Dos sesiones distintas ven el mismo valor, y
+> renombrar a un usuario ya no le borra su comisión.
 
 ### Lo que se construyó y nunca se ejercitó (y lo que eso costó)
 

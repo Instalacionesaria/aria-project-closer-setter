@@ -42,6 +42,9 @@ const CONTACTO = "integracion_test_no_existe_en_ghl";
 describeSi("integración — Supabase real, GHL en stub", () => {
   let db: typeof import("./repo").db;
   let registrarSeguimiento: typeof import("./seguimientos").registrarSeguimiento;
+  let credenciales: Awaited<ReturnType<typeof import("./credenciales").resolverCredenciales>>;
+
+  let activar: typeof import("./credenciales").activar;
 
   beforeAll(async () => {
     // El modo se fija ANTES de importar: el selector del adapter lo lee al construirse.
@@ -53,14 +56,31 @@ describeSi("integración — Supabase real, GHL en stub", () => {
      * Desde el 2026-08-07 `db()` saca la organización del contexto y lanza si no hay ninguna.
      * Este test corre fuera de todo handler, así que la abre él mismo — contra la empresa
      * principal, que es donde vive el contacto de prueba.
+     *
+     * ── `conCredenciales` y NO `activar` (2026-08-08) ─────────────────
+     *
+     * Acá decía `activar(await resolverCredenciales(ORG_PRINCIPAL))`, y **los seis tests fallaban
+     * con "db() sin empresa activa"**. Es la trampa que `credenciales.ts` documenta: `activar()`
+     * usa `enterWith`, que fija el contexto de la cadena de ejecución ACTUAL — llamado dentro de
+     * una función `async`, el contexto muere con la continuación de esa función y no llega a
+     * quien la esperaba. Un `beforeAll` es exactamente ese caso.
+     *
+     * `conCredenciales` usa `run`, que abre el contexto alrededor de una función y lo cierra al
+     * salir. Por eso cada test se envuelve con `enEmpresa()` en vez de heredar del hook.
+     *
+     * **Esto llevaba roto desde la migración multi-empresa y nadie lo vio**, porque el script
+     * para correr esta suite no existía. Es literalmente el patrón de D36: lo que se construye y
+     * no se ejercita, no está construido.
      */
-    const { activar, resolverCredenciales } = await import("./credenciales");
+    const cred = await import("./credenciales");
     const { ORG_PRINCIPAL } = await import("./repo");
-    activar(await resolverCredenciales(ORG_PRINCIPAL));
+    activar = cred.activar;
+    credenciales = await cred.resolverCredenciales(ORG_PRINCIPAL);
   });
 
   afterAll(async () => {
-    if (!db) return;
+    if (!db || !credenciales) return;
+    activar(credenciales);
     // Orden obligado: los eventos referencian el seguimiento con `no action`, así que hay
     // que sacarlos primero o el borrado del seguimiento falla — en silencio, porque
     // supabase-js no lanza. Por eso se verifica el resultado en vez de confiar.
@@ -76,6 +96,8 @@ describeSi("integración — Supabase real, GHL en stub", () => {
   });
 
   it("registra un seguimiento manual y lo deja fuera de la cola de hoy", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const r = await registrarSeguimiento({
       ghlContactId: CONTACTO,
       situacion: "dudando",
@@ -93,17 +115,23 @@ describeSi("integración — Supabase real, GHL en stub", () => {
   });
 
   it("la tarea del día queda completada — va a Completadas Hoy", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const { data } = await db().from("closer_contacto_tarea").select("completada_dia").eq("ghl_contact_id", CONTACTO).single();
     const { data: hoy } = await db().rpc("closer_hoy_org", { p_org_id: ORG_PRINCIPAL_ID });
     expect(data?.completada_dia).toBe(hoy);
   });
 
   it("la nota se persiste, para poder leerla el día del seguimiento", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const { data } = await db().from("closer_seguimientos").select("nota").eq("ghl_contact_id", CONTACTO).eq("estado", "pendiente").single();
     expect(data?.nota).toBe("Nota de la prueba de integración.");
   });
 
   it("el stub registra la intención de los tres efectos, sin aplicarlos", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const { data } = await db().from("closer_ghl_outbox").select("operacion, args, estado").eq("ghl_contact_id", CONTACTO);
     const ops = (data ?? []).map((o) => o.operacion).sort();
 
@@ -111,7 +139,17 @@ describeSi("integración — Supabase real, GHL en stub", () => {
     expect((data ?? []).every((o) => o.estado === "omitido_stub")).toBe(true);
 
     const aplicar = (data ?? []).find((o) => o.operacion === "aplicar_tag");
-    expect(aplicar?.args?.tags).toEqual(["seguimiento", "seguimiento_manual"]);
+    /**
+     * Los TRES tags, no dos.
+     *
+     * La aserción esperaba `["seguimiento", "seguimiento_manual"]` y llevaba tiempo desactualizada:
+     * falta `bot_desactivado_postcall`, que `aplicarEfectosGhl` agrega en **toda** salida menos
+     * No-show (doc §8.6 — cualquier resultado del closer prueba que ya hubo llamada de venta).
+     *
+     * No se descubrió antes porque el script para correr esta suite no existía. Es el mismo patrón
+     * que D36: lo que se construye y no se ejercita, no está construido — acá aplicado a un test.
+     */
+    expect(aplicar?.args?.tags).toEqual(["seguimiento", "seguimiento_manual", "bot_desactivado_postcall"]);
 
     // El campo lleva el LABEL exacto del dropdown de GHL, no el slug interno.
     const campo = (data ?? []).find((o) => o.operacion === "escribir_campo");
@@ -120,6 +158,8 @@ describeSi("integración — Supabase real, GHL en stub", () => {
   });
 
   it("un segundo seguimiento reemplaza al primero, dejando uno solo abierto", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     await registrarSeguimiento({
       ghlContactId: CONTACTO,
       situacion: "muy_interesado",
@@ -137,6 +177,8 @@ describeSi("integración — Supabase real, GHL en stub", () => {
   });
 
   it("la serie automática NO genera fila en la cola, aunque esté pendiente", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const { data } = await db().from("closer_seguimientos_de_hoy").select("*").eq("ghl_contact_id", CONTACTO);
     expect(data ?? []).toHaveLength(0);
   });
@@ -163,6 +205,8 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
   let ghlReal: typeof import("./ghl/real").ghlReal;
   let db: typeof import("./repo").db;
   let registrarSeguimiento: typeof import("./seguimientos").registrarSeguimiento;
+  let activar: typeof import("./credenciales").activar;
+  let credenciales: Awaited<ReturnType<typeof import("./credenciales").resolverCredenciales>>;
 
   const BASE = "https://services.leadconnectorhq.com";
   const cab = () => ({
@@ -173,6 +217,10 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
 
   beforeAll(async () => {
     process.env.GHL_MODO = "real";
+    const cred = await import("./credenciales");
+    const { ORG_PRINCIPAL } = await import("./repo");
+    activar = cred.activar;
+    credenciales = await cred.resolverCredenciales(ORG_PRINCIPAL);
     ({ ghlReal } = await import("./ghl/real"));
     ({ db } = await import("./repo"));
     ({ registrarSeguimiento } = await import("./seguimientos"));
@@ -203,12 +251,16 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
   }, 30_000);
 
   it("el contacto de prueba nace con zona_closer y sin seguimiento", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const c = await ghlReal.obtenerContacto(contactoId);
     expect(c?.tags).toContain("zona_closer");
     expect(c?.tags ?? []).not.toContain("seguimiento_manual");
   });
 
   it("registrar un seguimiento manual aplica los tags EN GHL de verdad", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const r = await registrarSeguimiento({
       ghlContactId: contactoId,
       situacion: "dudando",
@@ -230,6 +282,8 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
   }, 30_000);
 
   it("y escribe la situación en el custom field, con el label exacto del dropdown", async () => {
+    // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
+    activar(credenciales);
     const c = await ghlReal.obtenerContacto(contactoId);
     const valor = c?.customFields?.["contact.nivel_de_inters_seguimiento"] ?? c?.customFields?.["nivel_de_inters_seguimiento"];
     expect(valor).toBe("Dudando");
@@ -240,6 +294,11 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
 describeSi("integración — lectura de GHL real", () => {
   it("lee un contacto real del territorio del closer", async () => {
     process.env.GHL_MODO = "real";
+    const cred = await import("./credenciales");
+    const { ORG_PRINCIPAL } = await import("./repo");
+    // La empresa se abre DESPUÉS de resolverla, y dentro del propio test: el contexto de
+    // `enterWith` no cruza el borde de una función async (ver el `beforeAll` del primer bloque).
+    cred.activar(await cred.resolverCredenciales(ORG_PRINCIPAL));
     const { ghlReal } = await import("./ghl/real");
 
     const conexion = await ghlReal.verificarConexion();
@@ -272,6 +331,8 @@ describeSi("integración — lectura de GHL real", () => {
  */
 describeEscritura("integración — crear empresa (escribe en SOFIA)", () => {
   it("el INSERT de /api/admin/empresas entra y el slug repetido da 23505", async () => {
+    // Este test usa `dbSinScope()` —está creando la empresa, así que no hay ninguna activa
+    // todavía— y por eso no necesita abrir contexto.
     const { randomUUID } = await import("node:crypto");
     const { dbSinScope } = await import("./db");
 

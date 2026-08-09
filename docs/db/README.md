@@ -17,7 +17,7 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-Van de la `001` a la **`031`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
+Van de la `001` a la **`033`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
 esquema base (`001`–`005`, aplicadas el 2026-07-25); de la `006` en adelante **el encabezado de
 cada archivo explica por qué existe** —esa es la fuente— y el tema al que pertenecen está
 documentado en el `docs/` correspondiente:
@@ -31,7 +31,7 @@ documentado en el `docs/` correspondiente:
 | `017` | `closer_plantillas` — plantillas de WhatsApp aprobadas | [08-MENSAJERIA](../08-MENSAJERIA.md) § Plantillas |
 
 Las `018`–`027` son la **capa multi-empresa**, y conviene leerlas en orden porque cada una
-depende de la anterior. Las `028`–`030` son del auditor de dos carriles:
+depende de la anterior. Las `028`–`031` son del auditor; las `032`–`033`, del setter con backend real:
 
 | Migración | Qué agrega |
 |---|---|
@@ -49,6 +49,8 @@ depende de la anterior. Las `028`–`030` son del auditor de dos carriles:
 | `029` | `closer_analisis_agente.alarmas text[]` — qué señal del nivel 0 adelantó el análisis. Sin default: `null` = salió por el debounce normal, y no es lo mismo que `{}` |
 | `030` | `acompanamiento` entra al CHECK de `criterio`. Es la dimensión de **calidad** del carril amarillo, no un octavo criterio de fallo |
 | `031` | `nivel`, `destacado` y `evidencia` en `closer_analisis_agente` — el veredicto de tres niveles. `fallo` queda como proyección de `nivel`, y un CHECK impide que se contradigan. Backfill parcial: solo las de `fallo = true` son rojas sin ambigüedad |
+| `032` | `closer_avances.rol` con un CHECK compuesto (rol, salida) — el Avanzar del setter entra a la misma tabla, y un par inválido no se puede escribir. Más `closer_contactos.atribucion_setter_id`, el latch que estaba solo en el browser |
+| `033` | `closer_comisiones (org_id, usuario_id, tipo, pct)` — el % sale del localStorage. Indexada por id y no por nombre: con la clave vieja, renombrar a alguien le borraba su comisión en silencio |
 
 | Archivo | Qué hace | Por qué existe |
 |---|---|---|

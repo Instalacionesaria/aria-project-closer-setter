@@ -56,6 +56,19 @@ formulario — Instagram no tiene formulario, es DM directo.
 
 ## Avanzar — las cinco salidas
 
+Desde el 2026-08-08 escriben en Supabase (`POST /api/setter/avanzar`). Antes eran una mutación de
+`useState`: se perdían al refrescar, no las veía otro usuario, y no entraban a ninguna métrica.
+
+> **Dos salidas no mandan tag a GHL, y es correcto.** `Agendó` porque el swap de territorio lo
+> hace el WF 04.1 cuando la cita existe de verdad —aplicarlo desde acá dejaría un lead en la cola
+> del closer sin nada agendado—, y `Venta LT` porque no existe todavía un literal para ella: el
+> único candidato es `derivado_lt`, que significa *derivado* a low-ticket, un ruteo y no una venta
+> cobrada. Las dos se registran igual en la base, con su monto y su detalle.
+>
+> Y tres de las cinco **no escriben custom field**: los vocabularios del setter no están en los
+> dropdowns de GHL —ofrece `Transferencia/Tarjeta` contra `Contado/Splitwise`— y escribir un valor
+> fuera de la lista devuelve 200 y lo descarta. El dato vive en `closer_avances.detalle`.
+
 | Salida | Detalle que pide |
 |---|---|
 | **Agendó** | Solo manual, con selector de slots |
@@ -75,11 +88,21 @@ Comisiones del mes en dos tramos, cada uno con su porcentaje configurable en Aju
 - **Diferidas** = bruto de ventas HT originadas × % diferida
 
 El hero es la suma. No puede mostrar $0 mientras haya ventas reales, porque literalmente se
-calcula sumándolas.
+calcula sumándolas — y **sin % cargado no muestra $0 sino `—`**, porque un cero afirmaría que esa
+persona no ganó nada cuando lo que pasa es que nadie configuró su comisión.
+
+Los porcentajes viven en `closer_comisiones`, por empresa y **por `usuario_id`**. Hasta el
+2026-08-08 vivían en `localStorage` indexados por nombre: dos admins veían números distintos del
+mismo closer, y renombrar a alguien le borraba su comisión sin que nada fallara.
 
 **"Agendas generadas" está separada en dos tarjetas**: *automáticas* (las agendó el bot) y
 *generadas por vos*. La corrección es de producto, no cosmética: lo que agendó el bot solo no
 es mérito del setter.
+
+> Las *automáticas* y el *show rate* **todavía no se pueden medir**, y la tarjeta lo dice en vez
+> de mostrar un número: `closer_citas` no guarda quién creó la cita, y GHL nunca marca `showed`.
+> El motivo viaja del servidor en `cockpit.sinDato`, así que el día que se puedan medir la vista
+> no hay que tocarla.
 
 Sin anillo de meta en v1.
 
@@ -89,10 +112,12 @@ Sin anillo de meta en v1.
 Avanzar, resolver una intervención, fijar o completar una tarea, o un toggle de bot con autor
 real (nunca `Sistema`) — y ya no se apaga.
 
-> **Límite honesto:** el latch existe y es real, pero las "diferidas" del cockpit todavía
-> salen de una base de referencia, no de cruzar los stores para sumar ventas HT reales de
-> contactos marcados. Esa integración cruzada requiere que el contacto del closer sepa qué
-> setter lo originó, y es un trabajo de arquitectura aparte.
+> **Resuelto el 2026-08-08.** El latch se persiste en `closer_contactos.atribucion_setter_id`
+> (migración `032`), así que las "diferidas" ya no salen de una base de referencia: el cockpit
+> cruza las ventas HT del closer contra los contactos que el setter originó.
+>
+> Se escribe con guard de "solo si está vacío": el segundo setter que toque el contacto no le
+> roba la atribución al primero, que es quien lo originó y lo que la comisión diferida paga.
 
 ## Diferencias de comportamiento que conviene tener presentes
 

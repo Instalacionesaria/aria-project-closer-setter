@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integracion": "node scripts/integracion.mjs",
     "typecheck": "tsc -b"
   },
   "dependencies": {

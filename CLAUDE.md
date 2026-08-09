@@ -87,6 +87,10 @@ Estas seis ya rompieron producción. No son teóricas.
 
 Antes de dar algo por hecho: `npx tsc -b`, `npm test -- --run` y `npm run build` limpios.
 
+Contra la base real: `npm run test:integracion` (agregá `-- --escribir` para las escrituras). Es
+la suite que **no** corre en `npm test` — y estuvo rota meses porque el script no existía, así que
+conviene correrla al cerrar cualquier cosa que toque Supabase.
+
 Después de desplegar, confirmar que el deploy quedó **Ready** y que cambió el `data-dpl-id` —
 un check verde de GitHub no significa que se construyó, y Vercel puede seguir sirviendo un
 build viejo.

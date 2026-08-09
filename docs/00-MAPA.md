@@ -37,6 +37,9 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Qué significa que un análisis salga verde? | [07-AUDITOR-IA](07-AUDITOR-IA.md) § El veredicto de tres niveles |
 | ¿Por qué el botón atrás me saca de la app? | [10-ESTADO](10-ESTADO.md) § Huecos conocidos |
 | ¿Por qué dice que use una sola pestaña? | [09-DECISIONES](09-DECISIONES.md) D37 |
+| ¿Dónde se guarda el % de comisión de cada persona? | [09-DECISIONES](09-DECISIONES.md) D41 |
+| ¿Por qué el Avanzar del setter va a la tabla del closer? | [09-DECISIONES](09-DECISIONES.md) D39 |
+| ¿Cómo corro la prueba contra la base real? | `npm run test:integracion` — ver [09-DECISIONES](09-DECISIONES.md) D42 |
 | ¿Dónde están las credenciales de un cliente? ¿Cómo se rotan? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Credenciales |
 | Agregué un endpoint y explota con "sin empresa activa" | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Capa 1 |
 | ¿De qué empresa es este webhook? ¿Por qué hay filas con `org_id` nulo? | [12-MULTIEMPRESA](12-MULTIEMPRESA.md) § Webhooks |
