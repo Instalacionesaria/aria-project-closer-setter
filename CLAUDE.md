@@ -34,6 +34,7 @@ leo esto".
 | [09-DECISIONES](docs/09-DECISIONES.md) | El **porqué** de lo que no es obvio |
 | [10-ESTADO](docs/10-ESTADO.md) | Qué existe, qué está a medias, qué bloquea |
 | [db/README](docs/db/README.md) | Esquema y cómo correr migraciones |
+| [TAGS_CC_GHL](docs/TAGS_CC_GHL.md) | **La lista operativa de tags para pasarle a GHL**: cuál falta, quién lo aplica y qué desbloquea. Sin número a propósito |
 
 Los **literales de GHL** que el código usa de verdad están en `src/lib/ghl/contrato.ts`, cada
 uno con su fuente y su nivel de confianza. Si un documento y ese archivo se contradicen, gana
