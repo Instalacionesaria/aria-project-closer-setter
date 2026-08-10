@@ -200,6 +200,12 @@ vivas, sin usarse:
 - **La bandeja de sugerencias se borró** pero la clave `sugerencias` sigue en los blobs de
   localStorage de cada usuario. Se dejó de leer, no se borró: lo que el equipo había mandado sigue
   ahí si algún día hace falta.
+- **La caché de tags se releía sola a partir del 2026-08-10.** Antes de ese día `closer_contactos.tags`
+  solo se refrescaba por webhook (un contacto por evento) o apretando "Sincronizar CRM". Medido:
+  **10 de 22 contactos divergían** de GHL, siempre faltando tags. Lo cierra el cron
+  `/api/territorio-respaldo` (`:10` cada 2 h), que además es la única vía por la que van a aparecer
+  los contactos del Setter cuando se publiquen los `🟨 04.1/04.2`. Queda por verificar su **primera
+  corrida real**: la dispara Vercel, no se puede forzar desde acá sin `CRON_SECRET`.
 - **El checklist de alta existe y es derivado** (2026-08-08, plan §4.1). Botón **Alta** en cada
   tarjeta de Ajustes › Empresas → `GET /api/admin/alta`. Diez ítems calculados del estado real, con
   tres estados (`listo` / `falta` / `sin_dato`). Lo que todavía **no** se puede dar por verificado es

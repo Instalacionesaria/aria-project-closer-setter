@@ -43,6 +43,26 @@ intervalos corriendo. Al volver el foco, cada uno dispara una vez de inmediato.
 | `inicio` | 60 s | Tab Inicio | Métricas del cockpit |
 | `setterUrgentes` | 60 s | Módulo Setter | Cola roja del setter |
 
+Esos son los relojes del **browser**. Del lado del servidor hay cuatro crons de Vercel, que corren
+aunque no haya nadie con la app abierta:
+
+| Cron | Cada | Qué hace |
+|---|---|---|
+| `/api/closer/citas-respaldo` | `:25` y `:55` | Reconcilia `closer_citas` y refresca los contactos con cita próxima |
+| `/api/territorio-respaldo` | `:10` cada 2 h | **Relee los tags de la caché**, mantiene `congelado` y la pertenencia a territorio |
+| `/api/auditor-amarillo` | 21:00 UTC | El carril amarillo: como máximo un patrón por empresa y por día |
+| `/api/meta-respaldo` | 06:20 UTC | Métricas de Meta por empresa con credenciales |
+
+El de territorio se agregó el **2026-08-10**, y por un agujero medido: se compararon los tags de los
+22 contactos de la caché contra GHL y **10 divergían**, siempre en la misma dirección —faltaban en
+la caché—. `sincronizarTerritorio()` era lo único que relee el conjunto y corría **solo cuando
+alguien apretaba "Sincronizar CRM"**. El webhook refresca un contacto por evento, que tapa el caso
+frecuente; un tag aplicado por un workflow que no nos dispara webhook no tenía ninguna vía de entrar.
+
+Para el Setter era decisivo: sus contactos llegan por ese barrido y por ninguna otra, así que el día
+que se publiquen los workflows `🟨 04.1/04.2` los contactos con `zona_setter` no habrían aparecido
+hasta que alguien apretara el botón — con Mi Día y el Pipeline vacíos y ninguna señal de por qué.
+
 Notar qué **no** está en esa tabla:
 
 - **El Pipeline no tiene reloj.** Se pide al montar, al recuperar el foco, y después de cada
@@ -165,6 +185,7 @@ Así, en cualquier orden de llegada queda exactamente una fila, con la hora buen
 | Enviar un mensaje | 1 · **0 si la ventana de 24 h está cerrada** (se corta antes) |
 | Sincronizar CRM (manual) | 2 + 1 por contacto activo. Los congelados cuestan 0 |
 | Cron de citas (:25, :55) | 1 + 1 por contacto nuevo descubierto, **por empresa activa** |
+| Cron de territorio (:10 cada 2 h) | 2 + 1 por contacto activo, por empresa. Con tope 100: ~1.224 al día por empresa, **0,6 %** del presupuesto |
 | Cron de Meta (06:20 UTC) | 4 a la Graph API por empresa con credenciales — un nivel cada una |
 | Chat, Mi Día, Pipeline, Inicio | **0** — todo sale de la caché |
 | Estadísticas | **0** a GHL: es agregación por query sobre Supabase |
@@ -181,9 +202,14 @@ llamada al modelo, y se factura contra la key de **cada empresa**, no contra una
 
 ## Congelados
 
-Un contacto que perdió `zona_closer` queda `congelado`: **visible y movible, pero inerte** —
-ni una llamada más de GHL por él. Se detecta por ausencia en el barrido por tag, así que
-recuperar el tag lo descongela solo, sin costar una llamada por contacto.
+Un contacto que perdió **su** territorio —`zona_closer` o `zona_setter`, según de quién sea— queda
+`congelado`: **visible y movible, pero inerte** — ni una llamada más de GHL por él. Se detecta por
+ausencia en el barrido por tag, así que recuperar el tag lo descongela solo, sin costar una llamada
+por contacto.
+
+Eso vale **si el barrido corre**. Hasta el 2026-08-10 corría solo a mano, así que un contacto podía
+quedarse del lado equivocado durante días: accionable sin territorio, o inerte habiéndolo
+recuperado. Lo mantiene el cron `/api/territorio-respaldo`.
 
 Los dos guards del congelamiento por ausencia son innegociables: solo se congela si la lista
 **no vino truncada** y **no vino vacía**. Un 429 de GHL que devolviera lista vacía congelaría

@@ -23,6 +23,9 @@
     },
     "api/auditor-amarillo.ts": {
       "maxDuration": 300
+    },
+    "api/territorio-respaldo.ts": {
+      "maxDuration": 300
     }
   },
   "crons": [
@@ -37,6 +40,10 @@
     {
       "path": "/api/auditor-amarillo",
       "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/territorio-respaldo",
+      "schedule": "10 */2 * * *"
     }
   ],
   "rewrites": [
