@@ -185,6 +185,71 @@ en vez de ≤1 s. Cada uno es un workflow con acción Webhook apuntando a
 
 ---
 
+## Los scopes de la Private Integration
+
+El PIT que nos da el cliente sale de una **Private Integration**, y ahí hay ~150 scopes para tildar.
+**Hacen falta 10.** No son una estimación: son exactamente los endpoints que el código llama, y la
+lista de abajo se generó grepeando `api/_lib/ghl/` y `api/closer/`.
+
+| Scope (como se ve en GHL) | Para qué lo usamos |
+|---|---|
+| `contacts.readonly` | Leer un contacto (`GET /contacts/{id}`), buscarlos por tag (`POST /contacts/search`) y leer sus notas |
+| `contacts.write` | Aplicar y quitar tags, escribir la nota `[IA]` del auditor, y escribir los custom fields de las subcategorías de Avanzar |
+| `conversations.readonly` | Encontrar la conversación de un contacto (`GET /conversations/search`) |
+| `conversations/message.readonly` | Leer los mensajes de esa conversación — es lo que alimenta el Chat y lo que audita la IA |
+| `conversations/message.write` | Enviar un mensaje de WhatsApp desde el compositor (`POST /conversations/messages`) |
+| `calendars/events.readonly` | Traer las citas del calendario. Lo usa el cron de citas y la sonda del checklist de alta |
+| `opportunities.readonly` | Encontrar la oportunidad de un contacto para poder fijarle el valor |
+| `opportunities.write` | Escribir el **Opportunity Value** al registrar una Venta |
+| `locations/customFields.readonly` | Traducir el nombre de un custom field a su `id`. La API v2 exige el id, no el nombre |
+| `locations/tags.readonly` | El diagnóstico: verificar que los tags del contrato existan de verdad en la subcuenta |
+
+Los dos últimos son los que menos parecen necesarios y son los que evitan los dos bugs más
+molestos: sin `customFields.readonly` **no se puede escribir ningún custom field** (hay que resolver
+el nombre a un id primero), y sin `tags.readonly` el diagnóstico no puede decir "este tag del
+contrato no existe en tu cuenta" — que es el error que no se nota, porque GHL acepta un tag
+inexistente sin quejarse.
+
+### Más scopes no dan más funcionalidad
+
+Es la pregunta que más se repite y la respuesta es contraintuitiva: **tildar los 150 no le agrega
+nada a la plataforma**. Comando Central no descubre capacidades ni explora la cuenta — llama a una
+lista fija de endpoints, la de arriba. Un scope que no se usa es una puerta abierta que nadie
+atraviesa.
+
+Y sí importa que estén de más, por dos motivos concretos:
+
+- **El PIT es un solo string** y puede hacer todo lo que sus scopes permitan. Esta app renderiza
+  conversaciones de GHL —texto de terceros— en el mismo origen, así que todo lo que llega al browser
+  hay que darlo por leíble. Un PIT filtrado con `payments/orders.write` o `users.write` tildados es
+  un problema de otra magnitud que uno que solo puede leer contactos.
+- **Un scope de más no falla nunca**, así que no se descubre. Uno de menos falla con **401/403 en la
+  llamada concreta**, y eso se ve: aparece en el detalle del efecto, en el diagnóstico y en el
+  checklist de alta. O sea que **quedarse corto es barato de diagnosticar y pasarse no se nota**.
+
+La recomendación, entonces: **tildar exactamente esos 10**. Si mañana el producto necesita otro, va
+a fallar diciendo cuál, y agregarlo es un tilde.
+
+### Lo que explícitamente NO hace falta
+
+Vale decirlo porque son los que uno tilda "por si acaso" y son justo los caros si el token se filtra:
+
+| Scope | Por qué no |
+|---|---|
+| `users.write` / `users.readonly` | Nunca tocamos usuarios de GHL. Los del panel viven en `closer_usuarios`, en nuestra base |
+| `payments/*`, `products/*`, `invoices/*` | El dinero se registra en `closer_avances`; lo único que escribimos en GHL es el Opportunity Value |
+| `workflows.readonly` | No listamos workflows. Los dispara GHL por tag, y el único caso donde metemos un contacto en uno usa `contacts.write` |
+| `socialplanner/*`, `blogs/*`, `emails/*`, `funnels/*`, `store/*`, `courses/*`, `medias/*` | Nada de eso existe en el producto |
+| `locations.readonly` | No leemos la subcuenta en sí. El `locationId` lo carga el admin en Ajustes |
+| `calendars.write` / `calendars/events.write` | **Nunca creamos ni movemos una cita.** El contacto agenda por el booking link; nosotros solo leemos. Es una decisión de diseño, no una omisión |
+
+### Un pendiente, para cuando existan las plantillas
+
+`closer_plantillas` tiene un camino que mete al contacto en un workflow de GHL
+(`POST /contacts/{id}/workflow/{id}`) para que ese workflow mande la plantilla de WhatsApp. **Hoy no
+hay ninguna plantilla cargada** (0 filas), así que ese camino está dormido. Cuando se use, va con
+`contacts.write` — el mismo que ya está en la lista. No hay que tildar nada nuevo.
+
 ## Lo que hay que configurar en GHL
 
 Lo que sigue es lo único que falta del lado de la subcuenta. **Los tags los define el código**: son

@@ -49,6 +49,7 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Qué está construido y qué falta? | [10-ESTADO](10-ESTADO.md) |
 | ¿Cómo corro una migración? ¿Qué tablas hay? | [db/README](db/README.md) |
 | ¿Qué tags le tengo que pedir a GHL? ¿Cuáles faltan crear? | [LISTA-TAGS](LISTA-TAGS.md) |
+| ¿Qué scopes tildo en la Private Integration de GHL? | [03-INTEGRACION-GHL § Los scopes](03-INTEGRACION-GHL.md#los-scopes-de-la-private-integration) |
 | ¿Quién aplica este tag: GHL o nosotros? | [LISTA-TAGS](LISTA-TAGS.md) |
 | ¿Dónde pego el prompt del agente de GHL? | En **Ajustes › Credenciales**. Ver [07-AUDITOR-IA](07-AUDITOR-IA.md) |
 | ¿Cómo despliego? ¿Cómo trabajo en este repo? | [../CLAUDE.md](../CLAUDE.md) |
