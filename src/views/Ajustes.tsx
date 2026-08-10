@@ -301,9 +301,11 @@ function CatalogRow({ link, onEdit, onDelete }: { link: CatalogLink; onEdit: () 
 const PESTANAS = [
   { key: "cuenta", label: "Mi cuenta", icon: User },
   { key: "operacion", label: "Operación", icon: SlidersHorizontal, soloAdmin: true },
-  { key: "usuarios", label: "Usuarios", icon: Users, soloAdmin: true },
   { key: "credenciales", label: "Credenciales", icon: KeyRound, soloAdmin: true },
   { key: "empresas", label: "Empresas", icon: Building2, soloAdmin: true, soloSuper: true },
+  // Usuarios va a la derecha de Empresas (pedido de Fabio, 2026-08-10). Para un admin no-super,
+  // Empresas se filtra y Usuarios queda último igual — el filtro preserva este orden.
+  { key: "usuarios", label: "Usuarios", icon: Users, soloAdmin: true },
 ] as const;
 
 type Pestana = (typeof PESTANAS)[number]["key"];

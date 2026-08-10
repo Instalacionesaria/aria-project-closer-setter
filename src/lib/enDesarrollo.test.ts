@@ -60,7 +60,9 @@ describe("enDesarrollo · §8", () => {
 
   /** Las cuatro de Adquisición, fijadas aparte: el plan de lanzamiento pide que no se activen. */
   it("las cuatro de Adquisición siguen en desarrollo", () => {
-    for (const clave of ESPERADAS.filter((c) => c.startsWith("ai."))) {
+    // Era `startsWith("ai.")` y ninguna clave empieza así: el for no iteraba y el test
+    // pasaba sin verificar nada. Las claves empiezan con `acquisition.`.
+    for (const clave of ESPERADAS.filter((c) => c.startsWith("acquisition."))) {
       expect(estaEnDesarrollo(clave), `${clave} no debería activarse todavía`).toBe(true);
     }
   });

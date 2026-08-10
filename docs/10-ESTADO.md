@@ -131,7 +131,7 @@ real**. Es lo que falta para arrancar los auditores de voz.
 | Qué | Nota |
 |---|---|
 | Auditor de chat del setter | La rúbrica de pre-agenda es distinta; no es "el mismo con otro contexto" |
-| Auditores de voz (×2) | **Habilitados el 2026-08-10** (`AUDITOR_VOZ_HABILITADO`): tarjetas abiertas, prompts contando en el checklist. La fuente ya existe (`closer_llamadas.turnos` guarda la transcripción). Lo que falta es el **motor**: nada toma hoy una transcripción y la somete a una rúbrica — el analizador audita chat. Rúbrica de voz + alimentador son el siguiente paso, con la rúbrica aprobada por Fabio antes de codear |
+| Auditores de voz (×2) | **Funcionando desde el 2026-08-10**: el webhook de llamadas analiza toda contestada con transcripción (`analizadorVoz.ts`, migración `038`). Mismos criterios que el chat de su territorio, prompt de voz si está cargado, rojo → nota `[IA]` + Auditoría (sin tag, decisión de Fabio). **Nunca corrió sobre una llamada real**: las 3 que hay cayeron en buzón — la primera contestada es la verificación pendiente |
 | Reproducir el audio de una llamada | `grabacion_url` se guarda y viaja; falta el reproductor |
 | Reintentar un mensaje fallido | — |
 | Sales calls en el tab Llamada | Nadie graba ni transcribe las reuniones del closer |

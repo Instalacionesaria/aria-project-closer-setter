@@ -17,7 +17,12 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AUDITORES_ACTIVOS, type AgenteTextoId } from "../_lib/analizador.js";
+import {
+  AGENTES_CON_AUDITOR,
+  AUDITORES_ACTIVOS,
+  type AgenteTextoId,
+  type AgenteAuditableId,
+} from "../_lib/analizador.js";
 import { cargarPromptAgente } from "../_lib/promptAgente.js";
 import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
@@ -91,7 +96,8 @@ function urlDeGhl(ghlContactId: string): string | null {
  * manos del humano que lo tomó. Que es exactamente lo que "resolver por humano" significa.
  */
 async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
-  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
+  const cuerpo =
+    (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
   const { ghlContactId } = cuerpo as Record<string, unknown>;
   if (typeof ghlContactId !== "string" || !ghlContactId) {
     return res.status(400).json({ ok: false, error: "Falta ghlContactId." });
@@ -99,7 +105,10 @@ async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
 
   const { data, error } = await db()
     .from("closer_hallazgo_agente")
-    .update({ estado: "resuelto_por_humano", resuelto_el: new Date().toISOString() })
+    .update({
+      estado: "resuelto_por_humano",
+      resuelto_el: new Date().toISOString(),
+    })
     .eq("ghl_contact_id", ghlContactId)
     .eq("estado", "activo")
     .select("id");
@@ -132,9 +141,13 @@ async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
      * intención queda anotada en el outbox y nada llega a GHL. Se reportan separados para que la
      * UI no diga "listo" cuando lo único que pasó fue que se guardó la intención.
      */
-    tagQuitado = r.ok ? { ok: true, aplicado: r.aplicado } : { ok: false, error: r.error };
+    tagQuitado = r.ok
+      ? { ok: true, aplicado: r.aplicado }
+      : { ok: false, error: r.error };
     if (!r.ok) {
-      console.error(`[alertas] no se pudo quitar ${TAGS_BOT.botPausadoFallo.valor} de ${ghlContactId}: ${r.error}`);
+      console.error(
+        `[alertas] no se pudo quitar ${TAGS_BOT.botPausadoFallo.valor} de ${ghlContactId}: ${r.error}`,
+      );
     }
   } catch (e) {
     /**
@@ -142,7 +155,9 @@ async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
      * resolvió nada. Se reporta en la respuesta para que la UI pueda decir la verdad completa
      * —"resuelto, pero el tag no se pudo quitar"— en vez de elegir entre dos medias verdades.
      */
-    console.error(`[alertas] excepción al quitar el tag de ${ghlContactId}: ${(e as Error).message}`);
+    console.error(
+      `[alertas] excepción al quitar el tag de ${ghlContactId}: ${(e as Error).message}`,
+    );
     tagQuitado = { ok: false, error: (e as Error).message };
   }
 
@@ -177,7 +192,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const dias = Math.min(Math.max(Number(req.query.dias) || DIAS_POR_DEFECTO, 1), 365);
+    const dias = Math.min(
+      Math.max(Number(req.query.dias) || DIAS_POR_DEFECTO, 1),
+      365,
+    );
     const desde = new Date(Date.now() - dias * 86_400_000).toISOString();
 
     const { data, error } = await db()
@@ -203,7 +221,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from("closer_contactos")
         .select("ghl_contact_id, nombre")
         .in("ghl_contact_id", ids);
-      for (const f of (filas ?? []) as { ghl_contact_id: string; nombre: string | null }[]) {
+      for (const f of (filas ?? []) as {
+        ghl_contact_id: string;
+        nombre: string | null;
+      }[]) {
         if (f.nombre) nombres.set(f.ghl_contact_id, f.nombre);
       }
     }
@@ -215,7 +236,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .order("aplicado_el", { ascending: false })
       .limit(1000);
     const ultimoAjuste = new Map<string, string>();
-    for (const a of (ajustesData ?? []) as { agente_id: string; error_code: string; aplicado_el: string }[]) {
+    for (const a of (ajustesData ?? []) as {
+      agente_id: string;
+      error_code: string;
+      aplicado_el: string;
+    }[]) {
       const clave = `${a.agente_id}::${a.error_code}`;
       if (!ultimoAjuste.has(clave)) ultimoAjuste.set(clave, a.aplicado_el);
     }
@@ -242,13 +267,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         promptSeccion: h.prompt_seccion,
         correccionTipo: h.correccion_tipo,
         correccion: h.correccion,
-        promptRef: h.fragmento_prompt ? { archivo: vigente.ruta, seccion: h.prompt_seccion } : null,
+        promptRef: h.fragmento_prompt
+          ? { archivo: vigente.ruta, seccion: h.prompt_seccion }
+          : null,
         /**
          * El prompt cambió desde que se detectó esto: el fragmento citado puede ya no
          * existir, y pegar la corrección sería reemplazar algo que no está.
          */
         promptDesactualizado: Boolean(
-          h.fragmento_prompt && vigente.presente && h.prompt_hash && h.prompt_hash !== vigente.hash,
+          h.fragmento_prompt &&
+          vigente.presente &&
+          h.prompt_hash &&
+          h.prompt_hash !== vigente.hash,
         ),
         textoDe: h.detectado_el,
         ajustadoEl,
@@ -269,7 +299,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     for (const [clave, patron] of patrones) {
       if (!patron.ajustadoEl) continue;
       const posteriores = hallazgos
-        .filter((h) => `${h.agente_id}::${h.error_code}` === clave && h.detectado_el > patron.ajustadoEl!)
+        .filter(
+          (h) =>
+            `${h.agente_id}::${h.error_code}` === clave &&
+            h.detectado_el > patron.ajustadoEl!,
+        )
         .map((h) => h.detectado_el)
         .sort();
       patron.reincidenteDesde = posteriores[0] ?? null;
@@ -288,7 +322,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       estado: h.estado,
       evidencia:
         h.evidencia_usuario || h.evidencia_ia
-          ? { tipo: "chat" as const, mensajeUsuario: h.evidencia_usuario ?? "", mensajeIa: h.evidencia_ia ?? "" }
+          ? {
+              tipo: "chat" as const,
+              mensajeUsuario: h.evidencia_usuario ?? "",
+              mensajeIa: h.evidencia_ia ?? "",
+            }
           : undefined,
       ghlUrl: urlDeGhl(h.ghl_contact_id),
     }));
@@ -303,7 +341,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .limit(5000);
     const analisisPorAgente: Record<string, number> = {};
     for (const a of (analisis ?? []) as { agente_id: string }[]) {
-      analisisPorAgente[a.agente_id] = (analisisPorAgente[a.agente_id] ?? 0) + 1;
+      analisisPorAgente[a.agente_id] =
+        (analisisPorAgente[a.agente_id] ?? 0) + 1;
     }
 
     return res.status(200).json({
@@ -311,7 +350,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ventanaDias: dias,
       // De la misma constante que usa el analizador, para que los dos endpoints no puedan
       // decir cosas distintas sobre qué agentes tienen auditor.
-      agentesConAuditor: AUDITORES_ACTIVOS,
+      agentesConAuditor: AGENTES_CON_AUDITOR,
       analisisPorAgente,
       patrones: [...patrones.values()],
       casos,

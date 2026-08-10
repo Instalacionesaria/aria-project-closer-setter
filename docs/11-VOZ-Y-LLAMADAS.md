@@ -125,10 +125,12 @@ al mismo endpoint y la vista no cambia.
 
 ## Lo que falta
 
-- **Los dos auditores de voz.** Ya tienen materia prima: `turnos` guarda `transcript_object`
-  entero justamente para que puedan atribuir cada frase, igual que hace `autoria.ts` con el
-  chat. Falta la rúbrica — y falta una llamada **contestada**: las tres que hay cayeron en
-  buzón, así que todavía nadie vio una transcripción real.
+- ~~**Los dos auditores de voz.**~~ **Existen desde el 2026-08-10** (`analizadorVoz.ts`): el
+  webhook audita toda llamada contestada con transcripción, con los criterios del territorio y el
+  prompt de voz si está cargado. Lo que sigue faltando es **una llamada contestada real**: las
+  tres que hay cayeron en buzón, así que la forma de `transcript_object` (`{role, content}`) está
+  validada solo contra un fixture sintético — la primera contestada es la prueba de fuego, y los
+  turnos malformados se descartan con validación defensiva en vez de explotar.
 - **Reproducir el audio.** `grabacion_url` se guarda y viaja; el botón "Escuchar audio" del tab
   todavía no tiene reproductor.
 - **`extracciones` y `herramientas`** se guardan y no los lee nadie. Se guardan porque son el

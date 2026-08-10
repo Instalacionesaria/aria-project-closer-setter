@@ -17,7 +17,7 @@ funciones de `api/` y el cliente nunca toca las tablas directo.
 
 ## Migraciones
 
-Van de la `001` a la **`037`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
+Van de la `001` a la **`038`**, todas aplicadas en SOFIA. La tabla de abajo detalla solo el
 esquema base (`001`–`005`, aplicadas el 2026-07-25); de la `006` en adelante **el encabezado de
 cada archivo explica por qué existe** —esa es la fuente— y el tema al que pertenecen está
 documentado en el `docs/` correspondiente:
@@ -57,6 +57,7 @@ un llamador distraído escribiera en la empresa principal sin fallar:
 | `035` | `closer_registrar_seguimiento` **sin ningún default**. Tenía `p_org_id DEFAULT '…0001'` y `p_autor_nombre DEFAULT 'Usuario Activo'`: un olvido escribía en ARIA firmado por nadie. Ahora falla ruidoso |
 | `036` | Baja de `closer_conexiones` — el almacén de credenciales de antes del multi-empresa, con cero filas y cero lectores. Dos puertas para el mismo PIT, una sin efecto |
 | `037` | La contracción: se van `closer_hoy_org()`, `closer_dia_org(timestamptz)`, `closer_auditor_claim(text,int)` y `closer_usuarios.rol`. Las sobrecargas viejas no fallaban, **resolvían** a la empresa principal |
+| `038` | Los `agente_id` de voz entran a las 3 tablas del auditor (CHECK ampliado a los 4). El CHECK de `criterio` no se toca: la voz reusa los criterios de su territorio |
 
 | Archivo | Qué hace | Por qué existe |
 |---|---|---|

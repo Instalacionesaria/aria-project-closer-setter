@@ -28,7 +28,12 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { AUDITORES_ACTIVOS, type AgenteTextoId } from "../_lib/analizador.js";
+import {
+  AGENTES_CON_AUDITOR,
+  AUDITORES_ACTIVOS,
+  type AgenteTextoId,
+  type AgenteAuditableId,
+} from "../_lib/analizador.js";
 import { db } from "../_lib/repo.js";
 import { env } from "../_lib/env.js";
 import { ghl } from "../_lib/ghl/index.js";
@@ -40,7 +45,7 @@ const DIAS_VENTANA = 30;
 
 /** Lo que consume la vista. Espeja `AgentInfo` sin importarlo: `api/` no depende del front. */
 export interface AgenteTextoMetricas {
-  id: AgenteTextoId;
+  id: AgenteAuditableId;
   metric: string | null;
   delta: { text: string; up: boolean } | null;
   subtext: string | null;
@@ -71,10 +76,14 @@ export interface AgenteTextoMetricas {
   verdes: number | null;
 }
 
-const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0);
+const pct = (num: number, den: number) =>
+  den > 0 ? Math.round((num / den) * 100) : 0;
 
 /** "▲ +4 pts" / "▼ -2 pts". Sin período anterior no hay delta que mostrar. */
-function armarDelta(actual: number, previo: number | null): { text: string; up: boolean } | null {
+function armarDelta(
+  actual: number,
+  previo: number | null,
+): { text: string; up: boolean } | null {
   if (previo === null) return null;
   const d = actual - previo;
   if (d === 0) return { text: "0 pts", up: true };
@@ -106,7 +115,7 @@ async function citasEnVentana(desdeDias: number, hastaDias: number) {
  * sobre análisis que nunca la afirmaron. Si no hay ninguno con nivel, devuelve `null` — que la
  * vista lee como "todavía no hay nada que contar", distinto de "conté y dieron cero".
  */
-async function verdesDe(agenteId: AgenteTextoId): Promise<number | null> {
+async function verdesDe(agenteId: AgenteAuditableId): Promise<number | null> {
   const desde = new Date(Date.now() - DIAS_VENTANA * 86_400_000).toISOString();
 
   const { data, error } = await db()
@@ -117,12 +126,17 @@ async function verdesDe(agenteId: AgenteTextoId): Promise<number | null> {
     .gte("analizado_el", desde);
 
   if (error || !data || data.length === 0) return null;
-  return (data as { nivel: string }[]).filter((a) => a.nivel === "verde").length;
+  return (data as { nivel: string }[]).filter((a) => a.nivel === "verde")
+    .length;
 }
 
 /** Sentimiento y volumen de un agente, de la vista que agrega los últimos 30 días. */
-async function sentimientoDe(agenteId: AgenteTextoId) {
-  const { data, error } = await db().from("closer_agentes_texto_30d").select("*").eq("agente_id", agenteId).maybeSingle();
+async function sentimientoDe(agenteId: AgenteAuditableId) {
+  const { data, error } = await db()
+    .from("closer_agentes_texto_30d")
+    .select("*")
+    .eq("agente_id", agenteId)
+    .maybeSingle();
   if (error || !data) return null;
   return {
     conversaciones: Number(data.conversaciones ?? 0),
@@ -136,12 +150,15 @@ async function sentimientoDe(agenteId: AgenteTextoId) {
 }
 
 /** Semanas realmente medidas, para el sparkline. */
-async function historialDe(agenteId: AgenteTextoId) {
+async function historialDe(agenteId: AgenteAuditableId) {
   const { data, error } = await db()
     .from("closer_analisis_agente")
     .select("analizado_el, sentimiento")
     .eq("agente_id", agenteId)
-    .gte("analizado_el", new Date(Date.now() - 12 * 7 * 86_400_000).toISOString());
+    .gte(
+      "analizado_el",
+      new Date(Date.now() - 12 * 7 * 86_400_000).toISOString(),
+    );
 
   if (error || !data?.length) return [];
 
@@ -158,7 +175,20 @@ async function historialDe(agenteId: AgenteTextoId) {
     porSemana.set(clave, acc);
   }
 
-  const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const MESES = [
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+  ];
   return [...porSemana.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([clave, acc]) => {
@@ -193,8 +223,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     ]);
 
     /** Se presentó = GHL lo marcó como `showed`. No-show y cancelada no cuentan. */
-    const presentadas = (l: typeof citas) => l.filter((c) => c.appointmentStatus === "showed").length;
-    const vigentes = (l: typeof citas) => l.filter((c) => c.appointmentStatus !== "cancelled").length;
+    const presentadas = (l: typeof citas) =>
+      l.filter((c) => c.appointmentStatus === "showed").length;
+    const vigentes = (l: typeof citas) =>
+      l.filter((c) => c.appointmentStatus !== "cancelled").length;
 
     /**
      * ¿Alguien está registrando la asistencia?
@@ -212,12 +244,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
      * es un hecho derivado que alimenta el Show rate, CLAUDE.md §3).
      */
     const hayAsistenciaRegistrada = citas.some(
-      (c) => c.appointmentStatus === "showed" || c.appointmentStatus === "noshow",
+      (c) =>
+        c.appointmentStatus === "showed" || c.appointmentStatus === "noshow",
     );
 
     const agentes: AgenteTextoMetricas[] = [];
 
-    for (const id of ["lead-flow-ai", "appointment-flow-ai"] as const) {
+    for (const id of AGENTES_CON_AUDITOR) {
       const agregado = await sentimientoDe(id);
       const conversaciones = agregado?.conversaciones ?? 0;
 
@@ -226,7 +259,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       let delta: { text: string; up: boolean } | null = null;
       let agendadas: number | null = null;
 
-      if (id === "lead-flow-ai") {
+      if (id === "lead-flow-voz" || id === "appointment-flow-voz") {
+        /**
+         * La métrica de voz es % de llamadas VERDES sobre las analizadas — el único denominador
+         * que existe: las citas de GHL miden al agente de chat post-agenda, no a una llamada.
+         * Sin análisis todavía, null: la tarjeta muestra el vacío honesto, no un 0%.
+         */
+        const verdesVoz = await verdesDe(id);
+        const analizadas = agregado?.analisis ?? 0;
+        if (analizadas > 0 && verdesVoz !== null) {
+          const tasa = pct(verdesVoz, analizadas);
+          metric = `${tasa}%`;
+          subtext = `${verdesVoz} de ${analizadas} llamadas auditadas salieron verdes`;
+          delta = armarDelta(tasa, null);
+        }
+      } else if (id === "lead-flow-ai") {
         /**
          * Su trabajo es llevar el lead a la cita: cuántas de las conversaciones que atendió
          * terminaron agendando. Sin análisis todavía no hay denominador — y una tasa sobre
@@ -248,24 +295,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           metric = `${tasa}%`;
           subtext = `${agendadas} de ${totalCitas} se presentaron`;
           const prevTotal = vigentes(citasPrevias);
-          delta = armarDelta(tasa, prevTotal > 0 ? pct(presentadas(citasPrevias), prevTotal) : null);
+          delta = armarDelta(
+            tasa,
+            prevTotal > 0 ? pct(presentadas(citasPrevias), prevTotal) : null,
+          );
         }
         // Sin asistencia registrada, "Agendadas" sí se sabe: son las citas vigentes.
         agendadas = agendadas ?? (totalCitas > 0 ? totalCitas : null);
       }
 
+      const esVoz = id === "lead-flow-voz" || id === "appointment-flow-voz";
       agentes.push({
         id,
         metric,
         delta,
         subtext,
         sentiment: agregado?.analisis ? agregado.sentiment : null,
-        ops: [
-          { label: "Conversaciones", value: conversaciones > 0 ? String(conversaciones) : null },
-          { label: "Agendadas", value: agendadas !== null ? String(agendadas) : null },
-          // Pendiente de que Fabio defina qué cuenta. Ver cabecera.
-          { label: "Sin Respuesta", value: null },
-        ],
+        ops: esVoz
+          ? [
+              // Para voz, "conversaciones" son llamadas analizadas. Las demás cajas todavía no
+              // tienen fuente y van null: la vista no las renderiza (regla 1).
+              {
+                label: "Llamadas auditadas",
+                value: agregado?.analisis ? String(agregado.analisis) : null,
+              },
+              { label: "Agendadas", value: null },
+              { label: "Sin Respuesta", value: null },
+            ]
+          : [
+              {
+                label: "Conversaciones",
+                value: conversaciones > 0 ? String(conversaciones) : null,
+              },
+              {
+                label: "Agendadas",
+                value: agendadas !== null ? String(agendadas) : null,
+              },
+              // Pendiente de que Fabio defina qué cuenta. Ver cabecera.
+              { label: "Sin Respuesta", value: null },
+            ],
         history: await historialDe(id),
         analisis: agregado?.analisis ?? 0,
         verdes: await verdesDe(id),
@@ -281,7 +349,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
        * analizador y que repite `/api/agentes/alertas`: un solo lugar donde se decide, para
        * que dos endpoints no puedan decir cosas distintas sobre lo mismo.
        */
-      agentesConAuditor: AUDITORES_ACTIVOS,
+      agentesConAuditor: AGENTES_CON_AUDITOR,
       /**
        * Se dice explícitamente para que "sin métrica de show-up" no se lea como un bug del
        * endpoint: es que nadie está marcando la asistencia en GHL.

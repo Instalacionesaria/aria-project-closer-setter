@@ -153,9 +153,15 @@ describe("cargarPromptAgente · el prompt sale de la empresa activa", () => {
   });
 
   describe("estadoDeLosPrompts · lo que reporta el diagnóstico", () => {
-    it("trae los dos agentes de texto sin exponer el contenido", async () => {
+    it("trae los cuatro agentes sin exponer el contenido", async () => {
+      // Los de voz entraron el 2026-08-10, cuando `analizadorVoz.ts` les dio consumidor.
       const estado = await conCredenciales(empresa({ promptLeadTexto: "secreto del setter" }), async () => estadoDeLosPrompts());
-      expect(Object.keys(estado).sort()).toEqual(["appointment-flow-ai", "lead-flow-ai"]);
+      expect(Object.keys(estado).sort()).toEqual([
+        "appointment-flow-ai",
+        "appointment-flow-voz",
+        "lead-flow-ai",
+        "lead-flow-voz",
+      ]);
       expect(estado["lead-flow-ai"].presente).toBe(true);
       expect(estado["appointment-flow-ai"].presente).toBe(false);
       // El contenido NO viaja: solo presencia, hash, líneas y de dónde salió.

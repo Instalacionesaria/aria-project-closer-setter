@@ -2329,6 +2329,26 @@ function CallCard({ call }: { call: CallRecord }) {
             </>
           ) : call.contestada ? (
             <>
+              {/**
+                * El veredicto del AUDITOR — distinto del sentimiento de la plataforma, que viaja
+                * al lado del resumen. Sin análisis no se renderiza nada: un verde no medido sería
+                * un dato falso (regla 1).
+                */}
+              {call.veredicto && (
+                <div
+                  className={cn(
+                    "rounded-lg border px-3 py-2 text-xs leading-relaxed",
+                    call.veredicto.nivel === "rojo" && "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+                    call.veredicto.nivel === "amarillo" && "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+                    call.veredicto.nivel === "verde" && "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+                  )}
+                >
+                  <span className="font-semibold uppercase text-[10px] tracking-wider">
+                    Auditor IA · {call.veredicto.nivel}
+                  </span>
+                  {call.veredicto.motivo && <p className="mt-0.5 text-foreground">{call.veredicto.motivo}</p>}
+                </div>
+              )}
               {call.resumenIA && (
                 <div>
                   <div className="flex items-center gap-2 mb-1.5">

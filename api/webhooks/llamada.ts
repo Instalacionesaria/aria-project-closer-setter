@@ -10,13 +10,15 @@
  * header —una URL se copia, se pega en un chat, queda en logs de proxies— así que el diseño
  * compensa por el lado del daño posible, no por el de la probabilidad:
  *
- *   1. **Token PROPIO** (`LLAMADAS_TOKEN`), distinto de `WEBHOOK_SECRET`. Ese otro protege
- *      un endpoint que aplica tags, escribe notas en GHL y dispara al auditor (dinero real).
- *      Si esta URL se filtra, no puede tocar nada de eso.
- *   2. **El endpoint es INERTE.** Guarda el cuerpo crudo y responde 200. No llama a GHL, no
- *      llama al modelo, no escribe en ninguna otra tabla, no dispara ningún efecto. El peor
- *      caso de un token filtrado es que alguien meta filas de basura en la bandeja.
- *   3. Rotar es cambiar una variable de entorno y volver a pegar la URL en Assistable.
+ *   1. **Token PROPIO** (`LLAMADAS_TOKEN` / `assistable_token` por empresa), distinto de
+ *      `WEBHOOK_SECRET`.
+ *   2. **La dedupe por `call_id` acota el gasto.** Desde el 2026-08-10 este endpoint SÍ llama
+ *      al modelo (el auditor de voz), así que la inercia dejó de ser el argumento — lo que lo
+ *      reemplaza es que un `call_id` repetido no se re-analiza nunca (`analizarLlamada` consulta
+ *      antes de gastar), y un payload inventado sin transcripción se corta en los portones
+ *      gratis. El peor caso de un token filtrado es una inferencia por call_id falso, con la
+ *      basura visible en la bandeja y en Auditoría.
+ *   3. Rotar es un clic en Ajustes › Credenciales › Webhooks y volver a pegar la URL.
  *
  * ## De inerte a conectado (2026-08-06)
  *
@@ -31,9 +33,13 @@
  * antes de parsear, y si el parseo falla el payload queda igual — se pierde la fila, nunca
  * el dato.
  *
- * El endpoint dejó de ser inerte, pero no mucho: escribe dos tablas nuestras y sigue sin
- * llamar a GHL, sin llamar al modelo y sin disparar efectos. El peor caso de un token
- * filtrado sigue siendo basura en dos tablas.
+ * ## De conectado a auditor (2026-08-10)
+ *
+ * Tras archivar la fila, si la llamada fue **contestada y tiene transcripción**, se analiza acá
+ * mismo con el auditor de voz (`analizadorVoz.ts`): mismo modelo y misma rúbrica-molde que el
+ * chat, con el prompt del agente si está cargado. El resultado viaja en la respuesta
+ * (`analisisVoz`) y es best-effort declarado: un análisis fallido nunca le cuesta el 200 a un
+ * evento que ya se guardó.
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
@@ -43,6 +49,7 @@ import { parsearLlamada, redactarSecretos, type PayloadLlamada } from "../../src
 import type { CallOrigin } from "../../src/lib/closerStore.js";
 import { activar } from "../_lib/credenciales.js";
 import { atribuirPorToken, guardarHuerfano } from "../_lib/ruteoWebhook.js";
+import { analizarLlamada, type ResultadoVoz } from "../_lib/analizadorVoz.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   /**
@@ -166,6 +173,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
+  /**
+   * El auditor de voz corre DESPUÉS de archivar y solo si la fila quedó en la base: si el
+   * análisis explota, la llamada ya está a salvo y el reintento de Assistable la encuentra
+   * analizable (la dedupe por call_id evita pagar dos veces). `analizarLlamada` nunca lanza.
+   */
+  let analisisVoz: ResultadoVoz | null = null;
+  if (archivada && fila) {
+    analisisVoz = await analizarLlamada(fila);
+  }
+
   return res.status(200).json({
     ok: true,
     guardado: !duplicado,
@@ -174,6 +191,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // haría que una llamada perdida se vea igual que una archivada (regla 2).
     archivada: Boolean(archivada),
     ...(motivo ? { motivo } : {}),
+    // Qué hizo el auditor de voz con esta llamada. `null` = ni se intentó (no archivada).
+    analisisVoz,
     callId: callId || null,
     contactId: String(cuerpo.contact_id ?? cuerpo.contactId ?? "") || null,
   });

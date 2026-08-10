@@ -22,6 +22,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db } from "../_lib/repo.js";
 import { aCallRecord, type FilaLlamada } from "../../src/lib/assistable.js";
+import { AGENTES_VOZ } from "../../src/lib/auditores.js";
 import { env } from "../_lib/env.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
@@ -77,6 +78,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    * Importa que quede bien: `callsIASummary` toma el primero de la lista como "último
    * resultado", y el tab Perfil lo muestra como tal.
    */
+  /**
+   * El veredicto del auditor de voz, si esta llamada ya se analizó. `conversation_id` guarda el
+   * `call_id` (una llamada es una conversación completa), así que el join es un `IN` puntual —
+   * dos queries y no un join SQL por el mismo motivo que `setter/inicio.ts`: no hay FK declarada.
+   */
+  const veredictos = new Map<string, { nivel: "verde" | "amarillo" | "rojo"; motivo: string | null }>();
+  if (filas.length > 0) {
+    const { data: analisis } = await db()
+      .from("closer_analisis_agente")
+      .select("conversation_id, nivel, motivo")
+      .in("agente_id", AGENTES_VOZ as readonly string[])
+      .in("conversation_id", filas.map((f) => f.call_id))
+      .not("nivel", "is", null);
+    for (const a of (analisis ?? []) as { conversation_id: string; nivel: string; motivo: string | null }[]) {
+      veredictos.set(a.conversation_id, {
+        nivel: a.nivel as "verde" | "amarillo" | "rojo",
+        motivo: a.motivo,
+      });
+    }
+  }
+
   const ordenadas = filas
     .slice()
     .sort((a, b) => cuando(b).localeCompare(cuando(a)))
@@ -85,7 +107,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
      * point-free le entregaría el índice como zona horaria. TypeScript lo agarra, pero el
      * siguiente parámetro opcional que gane esta función puede no tener un tipo que lo delate.
      */
-    .map((f) => aCallRecord(f, env.zonaHoraria()));
+    .map((f) => {
+      const r = aCallRecord(f, env.zonaHoraria());
+      const v = veredictos.get(f.call_id);
+      return v ? { ...r, veredicto: v } : r;
+    });
 
   return res.status(200).json({
     ok: true,

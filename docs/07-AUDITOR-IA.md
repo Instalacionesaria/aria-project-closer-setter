@@ -411,29 +411,38 @@ inventar un fragmento que no existe.
 
 ---
 
-## Los auditores de voz están BLOQUEADOS
+## El auditor de VOZ (encendido el 2026-08-10)
 
-**Decisión de Fabio, 2026-08-08**: los agentes de llamadas todavía no están en funcionamiento, así
-que su auditor está apagado.
+Cada llamada **contestada y con transcripción** que entra por el webhook de llamadas se audita en
+el acto (`api/_lib/analizadorVoz.ts`). Es el mismo motor del chat con otro medio:
 
-Desbloquear es **cambiar un valor**: `AUDITOR_VOZ_HABILITADO` en `src/lib/auditores.ts`. No hay que
-tocar la UI, ni el catálogo, ni el analizador.
+- **Mismo modelo, mismos parámetros, mismo esquema de veredicto** — la llamada al modelo, el parseo
+  y la derivación del nivel son literalmente las mismas funciones (`evaluarConversacion` con el
+  parámetro `encuadre`).
+- **Los mismos criterios del territorio** (los de la `034`): `app_flow_voz` se juzga con los 7 del
+  closer, `lead_flow_voz` con los del setter. El trabajo juzgado no cambia por el canal — cambia
+  cómo se lee la evidencia, y eso vive en `MEDIO_VOZ`: muletillas y errores de ASR no son fallos
+  del agente, un corte puede ser la línea, la llamada ya terminó.
+- **El prompt del agente, si está cargado** (`prompt_appointment_voz` / `prompt_lead_voz`): la
+  corrección cita el fragmento exacto. Si no está, audita igual "de forma general" y la corrección
+  sale como instrucción autónoma — la misma rama sin-prompt del chat.
 
-Vive en `src/lib/` y no en `api/` porque lo leen los dos lados: el backend para no gastar una
-llamada al modelo, la vista para explicar por qué la tarjeta está bloqueada. Dos constantes, una
-por lado, se separan — y ese día la pantalla diría "activo" mientras el cron no corre.
+Lo que lo hace distinto del chat, con motivo:
 
-Es una constante del código y **no** una variable de entorno, por el mismo motivo que el modelo en
-la `028`: encender un auditor que gasta plata tiene que aparecer en un diff que alguien mire.
+| Chat | Voz | Por qué |
+|---|---|---|
+| Debounce de 5 mensajes | **Sin debounce**: 1 análisis por llamada | Una llamada ya es una conversación completa |
+| Candado `closer_auditor_claim` | **Dedupe por `call_id`** | El claim es por contacto: chat y voz se pisarían |
+| El rojo aplica `bot_pausado_fallo` → Urgentes | **El rojo NO aplica tag**: nota `[IA] [llamada]` + Auditoría | La llamada ya terminó, y el tag pausaría al agente de CHAT del contacto (decisión de Fabio, 2026-08-10) |
+| `disparo: webhook` | `disparo: llamada` | Para poder separarlos en las métricas |
 
-> **Lo único apagado es el análisis.** El webhook de Assistable sigue recibiendo y guardando en
-> `closer_webhook_inbox` y `closer_llamadas`, `redactarSecretos()` sigue corriendo antes del
-> INSERT, y el tab **Llamada** de la ficha sigue mostrando transcripción, resumen, sentimiento,
-> duración y grabación. El día que se desbloquee hay material real esperando.
+Un `origen` sin agente identificado (`voz_ia`, `sales_call`) **no se audita**: imputar fallos "al
+más parecido" es peor que no auditar. El veredicto se ve en la tarjeta del agente en Auditoría y
+como chip en el tab **Llamada** de la ficha.
 
-En la tarjeta, "bloqueado" y "sin auditor" se ven **distinto**: el primero lleva panel ámbar con
-candado y su motivo, el segundo el panel gris de siempre. Y no está atenuado — una tarjeta gris se
-lee como deshabilitada por un bug, y esto es una decisión que hay que poder defender.
+`AUDITOR_VOZ_HABILITADO` (`src/lib/auditores.ts`) sigue siendo el interruptor único, constante del
+código y no variable de entorno, por el motivo de la `028`: encender un auditor que gasta plata
+tiene que aparecer en un diff que alguien mire.
 
 ## Los cuatro auditores
 

@@ -185,6 +185,12 @@ export interface CallRecord {
   aMejorar?: string[];
   /** Ausente = sin audio (buzón de voz / no contestó) — el reproductor no se renderiza. */
   audioUrl?: string;
+  /**
+   * El veredicto del AUDITOR de voz sobre esta llamada (no confundir con `resumenIA`/`sentimiento`,
+   * que son de la plataforma de llamadas). Ausente = todavía no se analizó, que no es lo mismo que
+   * "salió bien" — por eso el chip no se renderiza en vez de mostrar un verde no medido.
+   */
+  veredicto?: { nivel: "verde" | "amarillo" | "rojo"; motivo: string | null };
 }
 
 /**

@@ -65,7 +65,7 @@ import { ghl } from "./ghl/index.js";
 import { cargarPromptAgente, type PromptAgente } from "./promptAgente.js";
 import { credencialesActivas } from "./credenciales.js";
 import { alarmasDe, type Alarma } from "./auditor/heuristicas.js";
-import { auditorHabilitado, elRojoApagaElBot, type NivelVeredicto } from "../../src/lib/auditores.js";
+import { AGENTES_VOZ, AUDITOR_VOZ_HABILITADO, auditorHabilitado, elRojoApagaElBot, type AgenteVozId, type NivelVeredicto } from "../../src/lib/auditores.js";
 import { db, orgActiva } from "./repo.js";
 import {
   contactosConTag,
@@ -97,7 +97,7 @@ export const ESFUERZO_AUDITOR = "high";
 export const TAG_FALLO = "bot_pausado_fallo";
 
 /** Prefijo de la nota, para poder releerla después sin confundirla con notas humanas. */
-const PREFIJO_NOTA = "[IA]";
+export const PREFIJO_NOTA = "[IA]";
 
 /** Solo se manda al modelo la cola de la conversación — lo viejo no explica el fallo de hoy. */
 const MAX_MENSAJES = 40;
@@ -120,10 +120,19 @@ export type Territorio = "closer" | "setter";
 /**
  * Los ids que usa la pestaña Auditoría de Agentes. Son los de Fabio (`AgentInfo.id`) y
  * NO se tocan: cada territorio audita a un agente distinto y su resultado va a su tarjeta.
- * Los agentes de VOZ (`lead-flow-voz`, `appointment-flow-voz`) no salen de acá — todavía no
- * tienen fuente: GHL no expone las llamadas ni sus transcripciones (§53.4).
+ *
+ * Los agentes de VOZ ya no salen de acá (la premisa "no tienen fuente" murió con el webhook de
+ * Assistable): su motor vive en `analizadorVoz.ts` y sus ids en `AGENTES_VOZ` (`src/lib/auditores`).
+ * La persistencia acepta a los cuatro vía `AgenteAuditableId`.
  */
 export type AgenteTextoId = "lead-flow-ai" | "appointment-flow-ai";
+
+/**
+ * Todo agente cuyo análisis puede persistirse. Es la unión texto + voz, y existe para que
+ * `guardarAnalisis`/`guardarHallazgos`/`patronesConocidos`/`cargarPromptAgente` sirvan a los dos
+ * motores sin duplicarse — el CHECK de la `038` es su espejo en Postgres.
+ */
+export type AgenteAuditableId = AgenteTextoId | AgenteVozId;
 
 /**
  * Qué agentes tienen auditor CABLEADO hoy. Un solo lugar, para que los endpoints no diverjan.
@@ -137,6 +146,20 @@ export type AgenteTextoId = "lead-flow-ai" | "appointment-flow-ai";
  * contacto y no hizo falta una línea nueva.
  */
 export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = ["appointment-flow-ai", "lead-flow-ai"];
+
+/**
+ * TODO agente con auditor cableado — texto y voz. Es lo que los endpoints devuelven como
+ * `agentesConAuditor` y lo que enciende las tarjetas de la vitrina.
+ *
+ * Vive aparte de `AUDITORES_ACTIVOS` a propósito: esa lista es SOLO de texto (la itera el carril
+ * amarillo, que audita conversaciones de chat, y la parsea un test de coherencia por regex), y
+ * meterle ids de voz habría mandado al cron amarillo a buscar mensajes de un agente que no
+ * escribe mensajes. La voz entra y sale de acá con su propio flag.
+ */
+export const AGENTES_CON_AUDITOR: readonly AgenteAuditableId[] = [
+  ...AUDITORES_ACTIVOS,
+  ...(AUDITOR_VOZ_HABILITADO ? AGENTES_VOZ : []),
+];
 
 /**
  * Qué hace el agente en cada etapa. Desde el 2026-08-08 **sí** cambia la rúbrica: cada territorio
@@ -203,24 +226,26 @@ export const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteText
  * sección habría garantizado que las dos divergieran en la regla de atribución, que es justo la
  * que no puede divergir.
  */
-function rubricaDe(criterios: string): string {
-  return `Sos un auditor de calidad de agentes de IA que atienden conversaciones de venta por
-WhatsApp. Tu trabajo tiene dos salidas distintas y no hay que mezclarlas:
+/**
+ * Lo que cambia entre auditar un CHAT y auditar una LLAMADA. Todo lo demás de la rúbrica —
+ * criterios, severidad, corrección, error_code, niveles, sentimiento— es idéntico a propósito:
+ * "presión por agendar" es el mismo fallo dicho por WhatsApp o por teléfono, y partir los
+ * patrones por canal solo repartiría los "×N casos" del técnico en dos mitades más chicas.
+ */
+export interface MedioRubrica {
+  /** Qué atiende el agente auditado ("conversaciones de venta por WhatsApp" / "llamadas…"). */
+  descripcion: string;
+  /** La sección CÓMO LEER EL TRANSCRIPT: autores/roles y sus reglas de atribución. */
+  comoLeer: string;
+  /** Qué consecuencia tiene requiere_intervencion=true, para calibrar la vara. */
+  consecuenciaIntervencion: string;
+  /** La sección CUÁNDO NO SE AUDITA, con las condiciones propias del medio. */
+  noAuditable: string;
+}
 
-  A. INTERVENCIÓN: ¿hay que apagar al agente y que un humano tome esta conversación AHORA?
-     Esto le corta el bot a una persona real y le suma una tarea urgente al closer. Se
-     reserva para daño en curso.
-  B. HALLAZGOS: ¿qué le pasa al AGENTE que se pueda corregir en su prompt? Esto no
-     interrumpe a nadie: alimenta la lista de trabajo del técnico.
-
-Una conversación puede tener hallazgos sin necesitar intervención, y puede necesitar
-intervención sin que el agente haya hecho nada mal.
-
-──────────────────────────────────────────────────────────────────────
-CÓMO LEER EL TRANSCRIPT
-──────────────────────────────────────────────────────────────────────
-
-Cada línea viene con fecha, hora y AUTOR REAL:
+const MEDIO_CHAT: MedioRubrica = {
+  descripcion: "conversaciones de venta por WhatsApp",
+  comoLeer: `Cada línea viene con fecha, hora y AUTOR REAL:
 
   CONTACTO ............... la persona. Es a quien se atiende.
   AGENTE IA .............. el agente automático que estás auditando.
@@ -236,7 +261,31 @@ falta para entender la conversación, pero no lo reportes como falla suya ni pro
 corregir su prompt por eso.
 
 Un texto entre corchetes como [nota de voz sin transcripción] es un mensaje que existió pero
-cuyo contenido no tenemos. No supongas qué decía.
+cuyo contenido no tenemos. No supongas qué decía.`,
+  consecuenciaIntervencion: `Esto le corta el bot a una persona real y le suma una tarea urgente al closer. Se
+     reserva para daño en curso.`,
+  noAuditable: `  · No hay ninguna línea "AGENTE IA". Sin agente no hay nada que auditar, y bajo ninguna
+    circunstancia eso es una falla del agente: es la ausencia de un agente.
+  · Más de la mitad de los mensajes son [audio]/[imagen] sin texto.
+  · Hay menos de dos intercambios reales (menos de 2 del contacto o menos de 2 del agente).`,
+};
+
+export function rubricaDe(criterios: string, medio: MedioRubrica = MEDIO_CHAT): string {
+  return `Sos un auditor de calidad de agentes de IA que atienden ${medio.descripcion}. Tu trabajo tiene dos salidas distintas y no hay que mezclarlas:
+
+  A. INTERVENCIÓN: ¿hay que apagar al agente y que un humano tome esta conversación AHORA?
+     ${medio.consecuenciaIntervencion}
+  B. HALLAZGOS: ¿qué le pasa al AGENTE que se pueda corregir en su prompt? Esto no
+     interrumpe a nadie: alimenta la lista de trabajo del técnico.
+
+Una conversación puede tener hallazgos sin necesitar intervención, y puede necesitar
+intervención sin que el agente haya hecho nada mal.
+
+──────────────────────────────────────────────────────────────────────
+CÓMO LEER EL TRANSCRIPT
+──────────────────────────────────────────────────────────────────────
+
+${medio.comoLeer}
 
 ──────────────────────────────────────────────────────────────────────
 PRECONDICIÓN — CUÁNDO NO SE AUDITA
@@ -247,10 +296,7 @@ devolvé auditable=false con el motivo, hallazgos vacíos, requiere_intervencion
 más. No fuerces un veredicto.
 
 No es auditable cuando:
-  · No hay ninguna línea "AGENTE IA". Sin agente no hay nada que auditar, y bajo ninguna
-    circunstancia eso es una falla del agente: es la ausencia de un agente.
-  · Más de la mitad de los mensajes son [audio]/[imagen] sin texto.
-  · Hay menos de dos intercambios reales (menos de 2 del contacto o menos de 2 del agente).
+${medio.noAuditable}
 
 ──────────────────────────────────────────────────────────────────────
 LOS CRITERIOS
@@ -378,7 +424,7 @@ amable, y otra puede tener un contacto molesto sin que el agente haya hecho nada
 }
 
 /** Los siete criterios del CLOSER: post-agenda, confirmar y acompañar hasta la llamada. */
-const CRITERIOS_CLOSER = `1. FRUSTRACIÓN NO MANEJADA  (frustracion)
+export const CRITERIOS_CLOSER = `1. FRUSTRACIÓN NO MANEJADA  (frustracion)
    Disparo: el contacto expresa fastidio, queja, reproche o enojo, y la respuesta siguiente
    del AGENTE IA lo ignora, lo repite con otras palabras, o sigue con su guion.
    Descartes: · el agente reconoció el fastidio y cambió de enfoque, aunque no lo resolviera;
@@ -446,7 +492,7 @@ const CRITERIOS_CLOSER = `1. FRUSTRACIÓN NO MANEJADA  (frustracion)
  * `sin_derivacion`) y uno se comparte tal cual (`dato_faltante`), porque significa lo mismo en las
  * dos etapas.
  */
-const CRITERIOS_SETTER = `1. CALIFICACIÓN SALTADA  (calificacion_saltada)
+export const CRITERIOS_SETTER = `1. CALIFICACIÓN SALTADA  (calificacion_saltada)
    Disparo: el agente empujó a agendar SIN haber preguntado nada que permita calificar —
    facturación, etapa del negocio, capacidad de inversión. Agendar a ciegas le llena la agenda
    al closer de gente que no puede comprar, que es el costo más caro de este embudo.
@@ -801,7 +847,7 @@ const normalizarErrorCode = (crudo: string): string =>
     .slice(0, 48);
 
 /** Patrones ya vistos, para que el modelo reuse el código en vez de inventar uno por caso. */
-async function patronesConocidos(agenteId: AgenteTextoId): Promise<string> {
+export async function patronesConocidos(agenteId: AgenteAuditableId): Promise<string> {
   const { data } = await db()
     .from("closer_hallazgo_agente")
     .select("error_code, titulo")
@@ -852,6 +898,12 @@ export async function evaluarConversacion(opts: {
   territorio: Territorio;
   prompt: PromptAgente;
   patrones: string;
+  /**
+   * El motor de VOZ pasa su propio contexto y su propia rúbrica (mismo molde, otro medio) y
+   * reusa todo lo demás: la llamada al modelo, el parseo, la normalización y la derivación del
+   * nivel. Sin esto, `analizadorVoz.ts` habría duplicado las 150 líneas más delicadas del módulo.
+   */
+  encuadre?: { contexto: string; rubrica: string };
 }): Promise<ResultadoEvaluacion> {
   if (!opts.transcript.trim()) return { ok: false, motivo: "transcript vacío" };
 
@@ -889,7 +941,7 @@ export async function evaluarConversacion(opts: {
     model: modelo,
     max_tokens: 8000,
     system: [
-      { type: "text" as const, text: TERRITORIOS[opts.territorio].contexto },
+      { type: "text" as const, text: opts.encuadre?.contexto ?? TERRITORIOS[opts.territorio].contexto },
       {
         type: "text" as const,
         text: opts.prompt.presente
@@ -898,7 +950,7 @@ export async function evaluarConversacion(opts: {
       },
       {
         type: "text" as const,
-        text: RUBRICAS[opts.territorio],
+        text: opts.encuadre?.rubrica ?? RUBRICAS[opts.territorio],
         /**
          * ── El breakpoint va ACÁ, no al final (2026-08-07) ─────────────
          *
@@ -990,15 +1042,14 @@ ${opts.patrones}
    * decide si hay hallazgos: un veredicto que reportó algo observable no es verde por más que el
    * modelo lo haya etiquetado así.
    */
-  const nivel: NivelVeredicto | null = !auditable
-    ? null
-    : requiereIntervencion
-    ? "rojo"
-    : hallazgos.length > 0
-      ? "amarillo"
-      : crudo.nivel === "amarillo"
-        ? "amarillo"
-        : "verde";
+  // La escalera vive en `derivarNivel` (única derivación, regla 3) — acá era una copia inline
+  // que hoy coincidía y mañana no.
+  const nivel = derivarNivel({
+    auditable,
+    requiereIntervencion,
+    hallazgos: hallazgos.length,
+    nivelDelModelo: crudo.nivel,
+  });
 
   /**
    * `destacado` y `evidencia` viajan juntos o no viajan. Un mérito afirmado sin la línea que lo
@@ -1066,14 +1117,16 @@ export function derivarNivel(e: {
 /* ================================================================== */
 
 /** Persiste el veredicto. Devuelve el id del análisis, o null si no se pudo guardar. */
-async function guardarAnalisis(e: {
-  agenteId: AgenteTextoId;
+export async function guardarAnalisis(e: {
+  agenteId: AgenteAuditableId;
   ghlContactId: string;
   conversationId: string | null;
   veredicto: Veredicto;
   iaEnCache: number;
   promptHash: string;
-  disparo: "webhook" | "manual" | "linea_base";
+  // `llamada` es el disparo del motor de voz (la columna no tiene CHECK; las vistas de 30 días
+  // solo excluyen `linea_base`, así que la voz entra a las métricas sola).
+  disparo: "webhook" | "manual" | "linea_base" | "llamada";
   /** Las señales del nivel 0 que lo adelantaron, si lo adelantaron. */
   alarmas?: Alarma[];
 }): Promise<string | null> {
@@ -1129,9 +1182,9 @@ async function guardarAnalisis(e: {
   }
 }
 
-async function guardarHallazgos(
+export async function guardarHallazgos(
   analisisId: string,
-  agenteId: AgenteTextoId,
+  agenteId: AgenteAuditableId,
   ghlContactId: string,
   hallazgos: Hallazgo[],
   promptHash: string,
@@ -1308,6 +1361,13 @@ export async function decidirAnalisis(ghlContactId: string): Promise<DecisionAud
     .from("closer_analisis_agente")
     .select("ia_cache_al_analizar")
     .eq("ghl_contact_id", ghlContactId)
+    /**
+     * Solo los análisis de CHAT cuentan como línea base (2026-08-10). Sin este filtro, la primera
+     * llamada de voz analizada del contacto —que guarda `ia_cache_al_analizar: null`— se volvía
+     * "el análisis más reciente" y reseteaba la línea base a 0: el chat se re-analizaba de más en
+     * cada mensaje. La unidad de este debounce son mensajes de chat; la voz no participa.
+     */
+    .in("agente_id", AUDITORES_ACTIVOS as readonly string[])
     .order("analizado_el", { ascending: false })
     .limit(1)
     .maybeSingle();

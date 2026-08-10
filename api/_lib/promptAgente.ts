@@ -46,7 +46,7 @@
 
 import { createHash } from "node:crypto";
 import { credencialesActivas } from "./credenciales.js";
-import type { AgenteTextoId } from "./analizador.js";
+import type { AgenteAuditableId } from "./analizador.js";
 
 export interface PromptAgente {
   /** El texto del prompt. Vacío si la empresa no cargó ninguno. */
@@ -86,15 +86,23 @@ export interface PromptAgente {
  * `appointment-flow-ai` y su columna dice `prompt_appointment_texto`. El `-ai` del id significa
  * "el agente de IA" y el `_texto` de la columna significa "chat, no voz" — no son lo mismo.
  */
-const CAMPOS: Record<AgenteTextoId, "promptAppointmentTexto" | "promptLeadTexto"> = {
+/**
+ * Los cuatro, desde el 2026-08-10: los campos de voz esperaban en `Credenciales` a que existiera
+ * su consumidor (`analizadorVoz.ts`), y este mapa era lo único que faltaba ampliar.
+ */
+const CAMPOS: Record<AgenteAuditableId, "promptAppointmentTexto" | "promptLeadTexto" | "promptAppointmentVoz" | "promptLeadVoz"> = {
   "appointment-flow-ai": "promptAppointmentTexto",
   "lead-flow-ai": "promptLeadTexto",
+  "appointment-flow-voz": "promptAppointmentVoz",
+  "lead-flow-voz": "promptLeadVoz",
 };
 
 /** El nombre de la columna, solo para decírselo a un humano. */
-const COLUMNAS: Record<AgenteTextoId, string> = {
+const COLUMNAS: Record<AgenteAuditableId, string> = {
   "appointment-flow-ai": "prompt_appointment_texto",
   "lead-flow-ai": "prompt_lead_texto",
+  "appointment-flow-voz": "prompt_appointment_voz",
+  "lead-flow-voz": "prompt_lead_voz",
 };
 
 const AUSENTE = (ruta: string): PromptAgente => ({
@@ -106,7 +114,7 @@ const AUSENTE = (ruta: string): PromptAgente => ({
 });
 
 /** Cómo se le nombra la fuente a un humano. Sin empresa activa lo dice, en vez de mentir. */
-function referencia(agenteId: AgenteTextoId, nombreEmpresa: string | null): string {
+function referencia(agenteId: AgenteAuditableId, nombreEmpresa: string | null): string {
   const col = `closer_org_config.${COLUMNAS[agenteId]}`;
   return nombreEmpresa ? `${col} · ${nombreEmpresa}` : `${col} (sin empresa activa)`;
 }
@@ -132,11 +140,11 @@ function referencia(agenteId: AgenteTextoId, nombreEmpresa: string | null): stri
 const cache = new Map<string, PromptAgente>();
 
 /** La clave del caché: empresa + agente. Fuera de contexto, `sin-empresa`. */
-function clave(agenteId: AgenteTextoId): string {
+function clave(agenteId: AgenteAuditableId): string {
   return `${credencialesActivas()?.orgId ?? "sin-empresa"}:${agenteId}`;
 }
 
-export function cargarPromptAgente(agenteId: AgenteTextoId): PromptAgente {
+export function cargarPromptAgente(agenteId: AgenteAuditableId): PromptAgente {
   const cacheado = cache.get(clave(agenteId));
   if (cacheado) return cacheado;
 
@@ -179,10 +187,10 @@ export function _limpiarCachePrompt(): void {
   cache.clear();
 }
 
-/** Estado de los dos prompts, para el endpoint de diagnóstico. Sin exponer el contenido. */
+/** Estado de los cuatro prompts, para el endpoint de diagnóstico. Sin exponer el contenido. */
 export function estadoDeLosPrompts(): Record<string, { presente: boolean; ruta: string; hash: string; lineas: number }> {
   const salida: Record<string, { presente: boolean; ruta: string; hash: string; lineas: number }> = {};
-  for (const id of Object.keys(CAMPOS) as AgenteTextoId[]) {
+  for (const id of Object.keys(CAMPOS) as AgenteAuditableId[]) {
     const p = cargarPromptAgente(id);
     salida[id] = { presente: p.presente, ruta: p.ruta, hash: p.hash, lineas: p.lineas };
   }

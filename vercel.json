@@ -6,6 +6,9 @@
     "api/webhooks/ghl.ts": {
       "maxDuration": 60
     },
+    "api/webhooks/llamada.ts": {
+      "maxDuration": 60
+    },
     "api/closer/analizar.ts": {
       "maxDuration": 60
     },
