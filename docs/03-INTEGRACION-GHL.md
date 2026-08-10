@@ -287,6 +287,15 @@ sale de Ajustes › Credenciales › Webhooks.
 > `contact.id` en ese orden. El `evento` en el cuerpo también funciona (webhook premium, o pruebas
 > por curl) y la URL gana si vienen los dos.
 
+**Las 8 URLs ya vienen armadas**: en Ajustes › Credenciales › Webhooks, el botón *"Ver los 8
+eventos"* despliega una por evento con su botón de copiar y una línea que dice qué hace cada una.
+No hay que componerlas a mano. El catálogo vive en `src/lib/ghl/eventosWebhook.ts` — es el MISMO
+del que el handler deriva su tipo y su guard, y un test de paridad lo ata al `switch`, así que el
+panel no puede ofrecer un evento que el servidor no entienda.
+
+⚠️ **La URL base sin `?evento=` se recibe y NO se procesa** — queda cruda en el inbox, sin error
+visible. Por eso el panel no ofrece copiar la base: era el único error silencioso de esa pantalla.
+
 ### 3. Lo que él nos manda a nosotros
 
 **Los prompts de los dos agentes de texto**, tal cual están en GHL: Appointment Flow AI

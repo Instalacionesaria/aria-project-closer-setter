@@ -33,6 +33,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Check,
+  ChevronDown,
   ClipboardCheck,
   Copy,
   Eye,
@@ -70,6 +71,7 @@ import {
   type Rol,
   type UsuarioAdmin,
 } from "../lib/api";
+import { EVENTOS_WEBHOOK, urlDeEvento } from "../lib/ghl/eventosWebhook";
 
 const ETIQUETA_ROL: Record<Rol, string> = {
   super_admin: "Super admin",
@@ -1241,10 +1243,20 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
             </p>
           )}
 
-          <CampoCopiable
-            etiqueta={w.secretoEnLaUrl ? "URL (con el token adentro)" : "URL"}
-            valor={w.url}
-          />
+          {/**
+           * GHL no recibe la URL base: recibe UNA POR WORKFLOW, con su `?evento=`. La base pegada
+           * tal cual se guarda cruda y no se procesa — no falla, no avisa. Por eso acá no hay un
+           * "Copiar" de la base: hay un desplegable con las 8 completas, cada una copiable.
+           * Assistable sí usa una sola URL (el token va adentro), así que conserva su campo.
+           */}
+          {w.clave === "ghl" ? (
+            <UrlsPorEvento urlBase={w.url} />
+          ) : (
+            <CampoCopiable
+              etiqueta={w.secretoEnLaUrl ? "URL (con el token adentro)" : "URL"}
+              valor={w.url}
+            />
+          )}
           {/* Cuando el token va en la URL no hay un segundo valor: sería la misma cosa dos veces. */}
           {w.secreto && (
             <CampoCopiable
@@ -1255,6 +1267,72 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
         </div>
       ))}
     </section>
+  );
+}
+
+/**
+ * Las 8 URLs del webhook de GHL, una por evento, desplegables.
+ *
+ * La lista sale de `EVENTOS_WEBHOOK` — el MISMO catálogo del que el handler deriva su tipo y su
+ * guard, así que no puede ofrecer un evento que el servidor no entienda (regla 3; el test de
+ * paridad ata la última copia, que es el switch).
+ *
+ * Cerrado por defecto: ocho bloques de URL a la vista convertirían la tarjeta en una pared, y el
+ * caso común es venir a copiar una o dos. El estado no se persiste a propósito — es un
+ * desplegable, no una preferencia.
+ */
+function UrlsPorEvento({ urlBase }: { urlBase: string }) {
+  const [abierto, setAbierto] = useState(false);
+
+  return (
+    <div className="space-y-1">
+      <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        URLs por evento — una por workflow
+      </label>
+      {/**
+       * La base se muestra pero NO tiene botón de copiar, a propósito: pegada sin `?evento=` el
+       * evento se guarda crudo y no se procesa, sin error visible. Un botón de copiar acá sería
+       * una invitación al único error silencioso de esta pantalla.
+       */}
+      <div className="flex items-center gap-2">
+        <code className="flex-1 min-w-0 font-mono text-[11px] bg-muted/50 rounded px-2.5 py-1.5 break-all text-muted-foreground">
+          {urlBase}
+          <span className="text-foreground font-medium">?evento=…</span>
+        </code>
+        <button
+          onClick={() => setAbierto((a) => !a)}
+          className="h-8 px-2.5 rounded-md border border-border text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 shrink-0"
+        >
+          <ChevronDown
+            className={cn(
+              "w-3.5 h-3.5 transition-transform",
+              abierto && "rotate-180",
+            )}
+          />
+          {abierto ? "Ocultar" : `Ver los ${EVENTOS_WEBHOOK.length} eventos`}
+        </button>
+      </div>
+
+      {abierto && (
+        <div className="space-y-3 pt-2">
+          <p className="text-[11px] text-amber-700 dark:text-amber-400">
+            Un workflow por evento, cada uno con su URL. La URL sin{" "}
+            <code>?evento=</code> se recibe pero no se procesa.
+          </p>
+          {EVENTOS_WEBHOOK.map((e) => (
+            <div key={e.evento} className="space-y-1">
+              <CampoCopiable
+                etiqueta={e.titulo}
+                valor={urlDeEvento(urlBase, e.evento)}
+              />
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {e.descripcion}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

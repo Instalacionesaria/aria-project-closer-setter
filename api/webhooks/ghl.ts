@@ -44,27 +44,20 @@ import {
   registrarEventoSistema,
 } from "../_lib/ingesta.js";
 
-/** Eventos que este endpoint entiende. Cualquier otro se guarda sin interpretar. */
-export type EventoGhl =
-  | "contacto.zona_closer"
-  | "contacto.actualizado"
-  | "mensaje.entrante"
-  | "mensaje.saliente"
-  | "cita.agendada"
-  | "cita.cancelada"
-  | "serie.toque"
-  | "serie.agotada";
+/**
+ * Eventos que este endpoint entiende. Cualquier otro se guarda sin interpretar.
+ *
+ * ── El tipo y el guard salen del catálogo, no de listas propias (2026-08-10) ──
+ *
+ * Acá vivían DOS copias de los 8 strings —el tipo y el array— sin nada que las comparara, y el
+ * panel de Ajustes › Webhooks necesitaba una tercera para mostrar las URLs completas. Ahora las
+ * tres cosas derivan de `EVENTOS_WEBHOOK` (`src/lib/ghl/eventosWebhook.ts`), y un test de paridad
+ * verifica contra ESTE fuente que cada entrada del catálogo tenga su `case` en el switch de abajo
+ * — que es la única lista que no se puede derivar.
+ */
+import { EVENTOS_CONOCIDOS, type EventoGhl } from "../../src/lib/ghl/eventosWebhook.js";
 
-const EVENTOS_CONOCIDOS: readonly string[] = [
-  "contacto.zona_closer",
-  "contacto.actualizado",
-  "mensaje.entrante",
-  "mensaje.saliente",
-  "cita.agendada",
-  "cita.cancelada",
-  "serie.toque",
-  "serie.agotada",
-];
+export type { EventoGhl };
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") {
