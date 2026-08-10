@@ -1246,8 +1246,8 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
           {/**
            * GHL no recibe la URL base: recibe UNA POR WORKFLOW, con su `?evento=`. La base pegada
            * tal cual se guarda cruda y no se procesa — no falla, no avisa. Por eso acá no hay un
-           * "Copiar" de la base: hay un desplegable con las 8 completas, cada una copiable.
-           * Assistable sí usa una sola URL (el token va adentro), así que conserva su campo.
+           * "Copiar" de la base: hay un desplegable con las completas, una por evento del catálogo.
+           * El webhook de llamadas sí usa una sola URL (el token va adentro), así que conserva su campo.
            */}
           {w.clave === "ghl" ? (
             <UrlsPorEvento urlBase={w.url} />
@@ -1271,13 +1271,13 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
 }
 
 /**
- * Las 8 URLs del webhook de GHL, una por evento, desplegables.
+ * Las URLs del webhook de GHL, una por evento del catálogo, desplegables.
  *
  * La lista sale de `EVENTOS_WEBHOOK` — el MISMO catálogo del que el handler deriva su tipo y su
  * guard, así que no puede ofrecer un evento que el servidor no entienda (regla 3; el test de
  * paridad ata la última copia, que es el switch).
  *
- * Cerrado por defecto: ocho bloques de URL a la vista convertirían la tarjeta en una pared, y el
+ * Cerrado por defecto: tantos bloques de URL a la vista convertirían la tarjeta en una pared, y el
  * caso común es venir a copiar una o dos. El estado no se persiste a propósito — es un
  * desplegable, no una preferencia.
  */

@@ -260,10 +260,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     /* ── 4. Los prompts de los agentes ──────────────────────────────── */
     /**
-     * Los cuatro se reportan siempre, y cada uno dice si su agente está **habilitado**. Un prompt
-     * de voz faltante no es lo mismo que uno de texto: los auditores de voz están bloqueados por
-     * `AUDITOR_VOZ_HABILITADO`, así que cargarlo hoy no cambiaría nada. Marcarlo como pendiente
-     * mandaría a pedirle al cliente un texto que nadie va a usar.
+     * Los cuatro se reportan siempre, y cada uno dice si su agente está **habilitado** — la
+     * respuesta sale de `auditorHabilitado()`, así que este checklist siguió solo cuando la voz
+     * se encendió (2026-08-10): desde entonces los cuatro prompts cuentan, y uno vacío es `falta`.
+     * Si algún día un agente vuelve a bloquearse, su prompt vuelve a `sin_dato` sin tocar esto.
      */
     for (const p of PROMPTS) {
       const contenido = fila[p.columna] as string | null;

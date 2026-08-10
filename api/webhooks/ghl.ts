@@ -240,6 +240,12 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
      * contacto en GHL con `zona_closer` y verlo aparecer en la herramienta.
      */
     case "contacto.zona_closer":
+    /**
+     * El espejo del setter (2026-08-10). Existía solo el del closer porque el módulo Setter no
+     * tenía backend cuando se escribió esto; ahora sus contactos entran por el barrido de cada
+     * 2 h, y este evento les da la misma inmediatez que ya tenía el closer.
+     */
+    case "contacto.zona_setter":
     case "contacto.actualizado": {
       // Se reporta lo que REALMENTE pasó, no lo que se intentó: `sincronizarContacto`
       // devuelve false cuando GHL no encuentra el contacto (id equivocado, contacto
@@ -252,6 +258,9 @@ async function procesar(evento: string, contactId: string, cuerpo: Record<string
       // y contaminando la tabla.
       if (ok && evento === "contacto.zona_closer") {
         await registrarEventoSistema(contactId, "entro_zona_closer", "Entró a territorio del closer");
+      }
+      if (ok && evento === "contacto.zona_setter") {
+        await registrarEventoSistema(contactId, "entro_zona_setter", "Entró a territorio del setter");
       }
 
       return ok

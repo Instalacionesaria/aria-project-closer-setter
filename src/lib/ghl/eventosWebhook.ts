@@ -63,6 +63,12 @@ export const EVENTOS_WEBHOOK = [
       "Refresca el contacto en la caché al instante y anota «Entró a territorio del closer» en su historial.",
   },
   {
+    evento: "contacto.zona_setter",
+    titulo: "Entró a zona del setter",
+    descripcion:
+      "Refresca el contacto en la caché al instante y anota «Entró a territorio del setter» en su historial. Sin él, el lead aparece recién con el barrido de cada 2 h.",
+  },
+  {
     evento: "contacto.actualizado",
     titulo: "Contacto actualizado",
     descripcion:

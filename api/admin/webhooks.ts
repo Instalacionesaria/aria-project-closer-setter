@@ -76,12 +76,12 @@ const WEBHOOKS = [
   {
     clave: "llamadas",
     columna: "assistable_token",
-    titulo: "Webhook de llamadas (Assistable)",
+    titulo: "Webhook para llamadas",
     ruta: "/api/webhooks/llamada",
     /** Assistable no permite headers. La URL ES la credencial. */
     enLaUrl: true,
     envGlobal: "LLAMADAS_TOKEN",
-    donde: "En Assistable, el campo de URL del webhook. Pegar la URL completa, con el token.",
+    donde: "En la plataforma del agente de llamadas, el campo de URL del webhook. Pegar la URL completa, con el token.",
   },
 ] as const;
 
@@ -250,6 +250,6 @@ async function rotar(req: VercelRequest, res: VercelResponse, ctx: Contexto) {
      * Se dice explícitamente que el anterior ya no sirve. La UI lo repite al lado del botón: sin
      * ese aviso, rotar y no volver a pegarlo en GHL corta la ingesta en silencio.
      */
-    aviso: `El secreto anterior dejó de funcionar. Hay que pegar el nuevo en ${w.enLaUrl ? "Assistable" : "GHL"}.`,
+    aviso: `El secreto anterior dejó de funcionar. Hay que pegar el nuevo en ${w.enLaUrl ? "la plataforma de llamadas" : "GHL"}.`,
   });
 }

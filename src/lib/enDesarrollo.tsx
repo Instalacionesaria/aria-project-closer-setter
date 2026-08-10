@@ -96,9 +96,14 @@ const SECCIONES: Record<ClaveEnDesarrollo, Seccion> = {
       "juzga calificar y agendar, no confirmar y acompañar.",
     enDesarrollo: false,
   },
+  /**
+   * **Encendida el 2026-08-10**, junto con `AUDITOR_VOZ_HABILITADO`. El test de coherencia compara
+   * contra ese flag (los ids de voz no pueden entrar a `AUDITORES_ACTIVOS`: su tipo es
+   * `AgenteTextoId`), así que apagar uno sin el otro sigue fallando la suite.
+   */
   "ci.auditor_voz": {
     queVaAHacer: "Va a auditar las llamadas de los agentes de voz sobre su transcripción.",
-    enDesarrollo: true,
+    enDesarrollo: false,
   },
 };
 

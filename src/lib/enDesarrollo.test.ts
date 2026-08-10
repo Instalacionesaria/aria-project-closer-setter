@@ -42,11 +42,11 @@ describe("enDesarrollo · §8", () => {
    * muestra la sección completa sin un solo número, y eso es deliberado — anunciadas, no
    * simuladas.
    */
-  const ACTIVAS: ClaveEnDesarrollo[] = ["ci.auditor_setter"];
+  const ACTIVAS: ClaveEnDesarrollo[] = ["ci.auditor_setter", "ci.auditor_voz"];
   const BLOQUEADAS = ESPERADAS.filter((c) => !ACTIVAS.includes(c));
 
-  it("las cinco que quedan siguen bloqueadas", () => {
-    expect(BLOQUEADAS).toHaveLength(5);
+  it("las cuatro que quedan siguen bloqueadas", () => {
+    expect(BLOQUEADAS).toHaveLength(4);
     for (const clave of BLOQUEADAS) {
       expect(estaEnDesarrollo(clave), `${clave} debería estar en desarrollo`).toBe(true);
     }
@@ -133,10 +133,16 @@ describe("enDesarrollo · §8", () => {
       expect(estaEnDesarrollo("ci.auditor_setter")).toBe(!activos.includes("lead-flow-ai"));
     });
 
-    /** Los dos de voz: mientras ninguno esté activo, la clave sigue en desarrollo. */
-    it("los de voz están en desarrollo exactamente si no hay ninguno activo", () => {
-      const hayVoz = activos.some((a) => a.endsWith("-voz"));
-      expect(estaEnDesarrollo("ci.auditor_voz")).toBe(!hayVoz);
+    /**
+     * Los de voz se comparan contra SU flag (`AUDITOR_VOZ_HABILITADO`), no contra
+     * `AUDITORES_ACTIVOS`: los ids de voz no pueden entrar a esa lista — su tipo es
+     * `AgenteTextoId` — así que mirarla dejaría esta clave bloqueada para siempre.
+     */
+    it("los de voz están en desarrollo exactamente si su flag está apagado", () => {
+      const auditores = readFileSync(resolve(AQUI, "auditores.ts"), "utf8");
+      const flag = /export const AUDITOR_VOZ_HABILITADO = (true|false);/.exec(auditores);
+      expect(flag, "no se encontró AUDITOR_VOZ_HABILITADO en auditores.ts").not.toBeNull();
+      expect(estaEnDesarrollo("ci.auditor_voz")).toBe(flag![1] === "false");
     });
   });
 });

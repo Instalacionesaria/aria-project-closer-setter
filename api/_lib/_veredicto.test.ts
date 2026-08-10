@@ -110,14 +110,15 @@ describe("el bloqueo de los auditores de voz", () => {
   });
 
   /**
-   * Este test se cae **a propósito** el día que alguien encienda la voz, y ahí hay que actualizarlo
-   * a conciencia. Es lo que convierte "desbloquear es cambiar un valor" en algo verificable: si el
-   * flag cambia sin que nadie lo haya decidido, la suite lo dice.
+   * Este test se cayó a propósito el 2026-08-10, cuando Fabio pidió encender la voz para las
+   * pruebas de los agentes de llamadas, y se actualizó a conciencia — que es exactamente el
+   * mecanismo que estaba diseñado a cumplir. Si el flag vuelve a cambiar sin que nadie lo haya
+   * decidido, la suite lo vuelve a decir.
    */
-  it("hoy la voz está BLOQUEADA y el chat no", () => {
-    expect(AUDITOR_VOZ_HABILITADO).toBe(false);
-    expect(auditorHabilitado("lead-flow-voz")).toBe(false);
-    expect(auditorHabilitado("appointment-flow-voz")).toBe(false);
+  it("la voz está HABILITADA desde el 2026-08-10, igual que el chat", () => {
+    expect(AUDITOR_VOZ_HABILITADO).toBe(true);
+    expect(auditorHabilitado("lead-flow-voz")).toBe(true);
+    expect(auditorHabilitado("appointment-flow-voz")).toBe(true);
     expect(auditorHabilitado("appointment-flow-ai")).toBe(true);
     expect(auditorHabilitado("lead-flow-ai")).toBe(true);
   });

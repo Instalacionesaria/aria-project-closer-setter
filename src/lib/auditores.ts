@@ -10,20 +10,23 @@
 /**
  * ── El único valor que desbloquea los auditores de voz ────────────────
  *
- * Los agentes de llamadas **no están en funcionamiento** (decisión de Fabio, 2026-08-08). Poner
- * esto en `true` los enciende: no hay que tocar la UI, ni el catálogo, ni el analizador.
+ * **Encendido el 2026-08-10** (pedido de Fabio: empiezan las pruebas de los agentes de llamadas).
+ * Con esto en `true`: las tarjetas de voz dejan de decir "apagado a propósito", sus prompts cuentan
+ * en el checklist de alta, y el guard del analizador deja de frenarlos.
  *
- * Es una constante del código y **no** una variable de entorno, por el mismo motivo que el modelo
- * del auditor dejó de ser configurable en la `028`: `AUDITOR_SIN_PORTON_TAGS` demostró que un
- * comportamiento gobernado por una variable de entorno **se vuelve a encender solo** en cualquier
- * entorno donde la variable no esté — un preview, un clon local, un proyecto nuevo. Encender un
- * auditor que gasta plata tiene que aparecer en un diff que alguien mire.
+ * ── Lo que este flag NO crea, dicho de frente ─────────────────────────
  *
- * Lo que esto NO apaga: la ingesta. El webhook de Assistable sigue recibiendo y guardando, el tab
- * Llamada de la ficha sigue mostrando transcripción, resumen, sentimiento y grabación. **Lo único
- * apagado es el análisis**, así que el día que se desbloquee hay material real esperando.
+ * La ingesta ya funcionaba (el webhook de llamadas guarda transcripción, resumen, sentimiento y
+ * grabación, y el tab Llamada los muestra) y los dos prompts de voz ya se pueden pegar en
+ * Auditoría de Agentes › Prompts. Lo que **todavía no existe** es el motor que tome una
+ * transcripción de `closer_llamadas` y la someta a una rúbrica: el analizador de hoy audita
+ * conversaciones de chat. Hasta que ese alimentador exista, las tarjetas de voz muestran "sin
+ * auditor conectado" con su motivo — que es la verdad, no un bug.
+ *
+ * Sigue siendo constante del código y no variable de entorno, por el motivo de la `028`: encender
+ * un auditor que gasta plata tiene que aparecer en un diff que alguien mire.
  */
-export const AUDITOR_VOZ_HABILITADO = false;
+export const AUDITOR_VOZ_HABILITADO = true;
 
 /** Los dos agentes de voz. Se nombran acá para que el guard no dependa de un string suelto. */
 export const AGENTES_VOZ = ["lead-flow-voz", "appointment-flow-voz"] as const;

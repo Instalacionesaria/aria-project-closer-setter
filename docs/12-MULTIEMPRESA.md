@@ -268,7 +268,7 @@ tienen que estar para que la empresa opere, **derivados del estado real**.
 | Calendario de GHL | Aparte, porque falta aparte: sin él lo único que no anda es la Agenda |
 | Key de Anthropic | Propia, o el aviso de que audita con la global y el consumo lo pagamos nosotros |
 | Meta | Cuenta publicitaria **y** token. No bloquea: un closer trabaja sin Adquisición |
-| Los 4 prompts | Largo y hash. Los de voz salen `sin_dato`, no `falta`: su auditor está apagado |
+| Los 4 prompts | Largo y hash. Desde el 2026-08-10 los cuatro cuentan: los auditores de voz se habilitaron |
 | Webhook de GHL | URL y secreto **más al menos un evento recibido** |
 | Webhook de llamadas | Ídem, no bloqueante |
 | Usuarios | Cuántos, qué roles, y **si el admin ya entró alguna vez** |
