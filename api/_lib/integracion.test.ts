@@ -393,3 +393,74 @@ describeEscritura("integración — crear empresa (escribe en SOFIA)", () => {
     expect(errBorrar?.message ?? null).toBeNull();
   }, 30_000);
 });
+
+/* ══════════════════════ El checklist de alta (§4.1) ══════════════════════ */
+
+/**
+ * Se prueba acá y no en `_alta.test.ts` porque lo que hay que verificar **es el dato real**: que el
+ * checklist no diga "falta el PIT" sobre ARIA.
+ *
+ * Es el error que la primera versión del endpoint sí cometía. Leía `closer_org_config.ghl_pit_cifrado`
+ * y esa columna está vacía para ARIA: su PIT vive en la variable `GHL_PIT` desde antes del
+ * multi-empresa, y `resolverCredenciales()` lo resuelve con el fallback de la principal. El
+ * checklist habría marcado como incompleta a la única empresa que sin duda opera — y un checklist
+ * que se equivoca en el caso que todos conocen es un checklist que nadie vuelve a abrir.
+ *
+ * Un unit test con datos sintéticos no lo agarra: hay que preguntarle a la base cuál es el estado
+ * de verdad. Por eso vive en la suite de integración.
+ */
+describeSi("integración — el checklist de alta lee credenciales resueltas", () => {
+  it("ARIA resuelve su PIT aunque la columna esté vacía, y queda anotado como global", async () => {
+    const { resolverCredenciales } = await import("./credenciales.js");
+    const { dbSinScope } = await import("./db.js");
+
+    const cred = await resolverCredenciales(ORG_PRINCIPAL_ID);
+
+    // El PIT existe resuelto…
+    expect(cred.ghlPit, "ARIA sin PIT resuelto: el fallback de la principal se rompió").toBeTruthy();
+    expect(cred.ghlLocationId).toBeTruthy();
+
+    // …y la columna está vacía, que es justo lo que hacía fallar a la versión anterior.
+    const { data } = await dbSinScope()
+      .from("closer_org_config")
+      .select("ghl_pit_cifrado")
+      .eq("org_id", ORG_PRINCIPAL_ID)
+      .maybeSingle();
+    const enColumna = (data as { ghl_pit_cifrado: string | null } | null)?.ghl_pit_cifrado ?? null;
+
+    if (enColumna === null) {
+      /**
+       * Mientras siga así, `desdeEntorno` tiene que decirlo. Es lo que le permite al checklist
+       * distinguir "cargado por esta empresa" de "apoyado en una variable global" — las dos
+       * funcionan, y no son lo mismo.
+       */
+      expect(cred.desdeEntorno).toContain("GHL_PIT");
+    } else {
+      // Alguien cargó el PIT en la base: entonces NO puede venir del entorno.
+      expect(cred.desdeEntorno).not.toContain("GHL_PIT");
+    }
+  });
+
+  /**
+   * El otro lado de la moneda, y el bug que la `027` vino a cerrar: una empresa cliente **no** hereda
+   * las credenciales de ARIA. Si este test empieza a fallar, el fallback dejó de estar restringido a
+   * la principal y una empresa a medio configurar está operando contra la subcuenta de otra.
+   */
+  it("una empresa que no es la principal NO hereda el PIT global", async () => {
+    const { resolverCredenciales } = await import("./credenciales.js");
+    const { dbSinScope } = await import("./db.js");
+
+    const { data } = await dbSinScope()
+      .from("closer_org_config")
+      .select("org_id, nombre, ghl_pit_cifrado")
+      .eq("es_principal", false)
+      .limit(1);
+
+    const otra = (data ?? [])[0] as { org_id: string; nombre: string; ghl_pit_cifrado: string | null } | undefined;
+    if (!otra) return; // Todavía no hay una segunda empresa: nada que verificar.
+
+    const cred = await resolverCredenciales(otra.org_id);
+    expect(cred.desdeEntorno, `"${otra.nombre}" heredó una credencial global`).not.toContain("GHL_PIT");
+    if (!otra.ghl_pit_cifrado) expect(cred.ghlPit).toBeNull();
+  });
+});

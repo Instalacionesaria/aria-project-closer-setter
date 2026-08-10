@@ -1292,6 +1292,60 @@ export function desactivarEmpresa(orgId: string): Promise<RespuestaAdmin> {
   return pedirAdmin<RespuestaAdmin>(`/api/admin/empresas?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
 }
 
+/* ── §4.1 · El checklist de alta ── */
+
+/**
+ * Los tres estados de un ítem. **`sin_dato` no es un `falta`**: significa que no se pudo averiguar,
+ * y la vista lo pinta distinto porque manda a hacer algo distinto — revisar el entorno en vez de
+ * cargar una credencial.
+ */
+export type EstadoAlta = "listo" | "falta" | "sin_dato";
+
+export interface ItemAlta {
+  clave: string;
+  titulo: string;
+  estado: EstadoAlta;
+  /** Qué se comprobó. Siempre viene: un estado sin evidencia no se puede auditar. */
+  detalle: string;
+  /** Qué hacer. Solo cuando hay algo que hacer. */
+  accion?: string;
+  /** `true` = sin esto la empresa no opera. Los no bloqueantes no pintan rojo. */
+  bloqueante: boolean;
+}
+
+export interface AltaResponse {
+  ok: boolean;
+  error?: string;
+  empresa?: {
+    orgId: string;
+    nombre: string;
+    slug: string;
+    activa: boolean;
+    esPrincipal: boolean;
+    zonaHoraria: string;
+  };
+  /** Cuántas llamadas a GHL costó este checklist. La única pantalla del panel que gasta cuota. */
+  llamadasGhl?: number;
+  /** `false` = se pidió con `probar=0`, así que el ítem de GHL quedó en `sin_dato`. */
+  probada?: boolean;
+  /** `true` solo si **ningún** ítem bloqueante quedó fuera de `listo`. */
+  lista?: boolean;
+  faltantesBloqueantes?: string[];
+  items?: ItemAlta[];
+}
+
+/**
+ * El checklist de alta de una empresa, derivado del estado real.
+ *
+ * `probar: false` saltea la llamada de prueba a GHL. Sirve para mirar los otros ítems sin gastar
+ * cuota —por ejemplo al recargar varias empresas seguidas— y el ítem de GHL queda explícitamente
+ * en `sin_dato` en vez de asumir que las credenciales andan.
+ */
+export function fetchAlta(orgId: string, probar = true): Promise<AltaResponse> {
+  const q = new URLSearchParams({ orgId, ...(probar ? {} : { probar: "0" }) });
+  return pedirAdmin<AltaResponse>(`/api/admin/alta?${q}`);
+}
+
 /* ── §7.2 · Usuarios ── */
 
 export interface UsuarioAdmin {

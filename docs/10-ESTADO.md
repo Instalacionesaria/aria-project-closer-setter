@@ -200,6 +200,11 @@ vivas, sin usarse:
 - **La bandeja de sugerencias se borró** pero la clave `sugerencias` sigue en los blobs de
   localStorage de cada usuario. Se dejó de leer, no se borró: lo que el equipo había mandado sigue
   ahí si algún día hace falta.
+- **El checklist de alta existe y es derivado** (2026-08-08, plan §4.1). Botón **Alta** en cada
+  tarjeta de Ajustes › Empresas → `GET /api/admin/alta`. Diez ítems calculados del estado real, con
+  tres estados (`listo` / `falta` / `sin_dato`). Lo que todavía **no** se puede dar por verificado es
+  el camino HTTP completo: exige una sesión de `super_admin`, así que se confirma abriéndolo. La
+  derivación sí está verificada — 16 tests unitarios y 2 de integración contra producción.
 - ~~**`closer_conexiones` es un almacén de credenciales paralelo y muerto.**~~ **Resuelto el
   2026-08-08** (migración `036`): se borraron la tabla, `api/closer/conexiones.ts` y sus tres
   envoltorios en `src/lib/api.ts`. Tenía cero filas y cero lectores —`env.ts` no la consultaba

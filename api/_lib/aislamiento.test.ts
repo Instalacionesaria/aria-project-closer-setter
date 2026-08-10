@@ -92,6 +92,17 @@ const ESCOTILLA_AUTORIZADA = new Set([
    * empresa misma: scoparla con `db(orgId)` sería redundante con su propia clave primaria.
    */
   "admin/configuracion.ts",
+  /**
+   * El checklist de alta (§4.1). Solo `super_admin`, y **solo lee**: no tiene POST ni PUT.
+   *
+   * Necesita la escotilla por el mismo motivo que `admin/empresas.ts` —revisa el estado de una
+   * empresa que no es la propia— con una diferencia que vale la pena mirar: además de la base,
+   * habla con GHL **con las credenciales de la empresa objetivo**. Eso NO va con `activar()`, que
+   * dejaría esa empresa activa para el resto del request; va con `conCredenciales()`, que la abre
+   * y la cierra alrededor de la única llamada. El `activar(ctx.credenciales)` del handler fija la
+   * empresa propia como base, así que si la sonda se saltea, nada queda apuntando a la ajena.
+   */
+  "admin/alta.ts",
 ]);
 
 function archivosTs(raiz: string): string[] {

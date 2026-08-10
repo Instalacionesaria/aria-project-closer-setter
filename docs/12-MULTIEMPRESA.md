@@ -239,7 +239,7 @@ Cinco pestañas de **Ajustes** (no un módulo aparte del sidebar):
 | Operación | `admin` | Catálogo de enlaces, comisiones, parámetros del panel |
 | Usuarios | `admin` | Alta, roles, contraseñas temporales |
 | Credenciales | `admin` | Credenciales enmascaradas + **las URLs de webhook, que se copian** |
-| Empresas | `super_admin` | Alta, edición, baja lógica |
+| Empresas | `super_admin` | Alta, edición, baja lógica, **y el checklist de alta** |
 
 > **Dos cosas salieron de Credenciales el 2026-08-07.** Los **prompts** se mudaron a Auditoría de
 > Agentes › Prompts, habilitados para `tecnico`: quien mantiene el prompt del agente es el técnico,
@@ -256,6 +256,46 @@ porque confirmar que el id existe ya sería filtrar.
 
 `org_id` de un usuario **no es editable**. Moverlo de empresa con un PATCH sería la vía más
 silenciosa de darle acceso a otra.
+
+### El checklist de alta
+
+Cada tarjeta de Empresas tiene un botón **Alta** que abre `GET /api/admin/alta`: los diez ítems que
+tienen que estar para que la empresa opere, **derivados del estado real**.
+
+| Ítem | Cómo se verifica |
+|---|---|
+| PIT + Location ID de GHL | Una lectura de prueba a `/calendars/events`, que valida las tres credenciales de una vez |
+| Calendario de GHL | Aparte, porque falta aparte: sin él lo único que no anda es la Agenda |
+| Key de Anthropic | Propia, o el aviso de que audita con la global y el consumo lo pagamos nosotros |
+| Meta | Cuenta publicitaria **y** token. No bloquea: un closer trabaja sin Adquisición |
+| Los 4 prompts | Largo y hash. Los de voz salen `sin_dato`, no `falta`: su auditor está apagado |
+| Webhook de GHL | URL y secreto **más al menos un evento recibido** |
+| Webhook de llamadas | Ídem, no bloqueante |
+| Usuarios | Cuántos, qué roles, y **si el admin ya entró alguna vez** |
+
+Tres cosas que no son obvias:
+
+**Los estados son tres, no dos.** `listo`, `falta` y `sin_dato` — y el tercero es el que hace que
+sirva. Si la lectura de prueba no se pudo hacer, el ítem lo dice en vez de elegir entre los otros
+dos. Un `falta` inventado manda a cargar una credencial que ya estaba; un `listo` inventado es peor.
+Por lo mismo, **"lista para operar" exige que ningún bloqueante esté fuera de `listo`**: un
+`sin_dato` bloqueante tampoco la aprueba.
+
+**Un webhook con secreto no está listo.** Tener URL y secreto generados no dice nada sobre si el
+cliente los pegó en GHL — eso pasa de un lado donde no tenemos visibilidad. La única evidencia es un
+evento en `closer_webhook_inbox` con el `org_id` de esa empresa, y es lo que el ítem exige.
+
+**Lee las credenciales resueltas, no las columnas.** `resolverCredenciales()` aplica el fallback a
+las variables globales para la empresa principal, que es de donde salen hoy el PIT y el Location ID
+de ARIA. Mirar `closer_org_config` diría *"falta el PIT"* sobre la única empresa que sin duda opera
+—y un checklist que se equivoca en el caso que todos conocen es un checklist que nadie vuelve a
+abrir—. `desdeEntorno` distingue "cargado por esta empresa" de "apoyado en una variable global": las
+dos funcionan y no son lo mismo. Lo fija un test de integración, porque el dato que hay que
+verificar es el real.
+
+Se abre **una empresa a la vez**: el ítem de GHL cuesta una llamada a la API del cliente, así que
+traerlo para las cinco en cada render serían cinco llamadas cada vez que alguien entra a Ajustes. El
+panel dice cuántas costó, y `?probar=0` saltea la sonda dejando ese ítem en `sin_dato`.
 
 ### El selector de empresa del super admin
 

@@ -727,3 +727,46 @@ un solo lugar.
 `ZONA_HORARIA_ORG` sigue existiendo, pero como lo que su propio comentario anticipaba desde el día
 uno: **el default**, para el browser —que no tiene contexto de empresa y recibe la zona resuelta en
 cada respuesta— y para cuando no hay contexto. En `api/` no se usa.
+
+---
+
+## D45 · El checklist se deriva; una casilla que alguien marca no es evidencia
+
+El plan de lanzamiento pedía *"una vista que muestre por empresa qué está configurado y qué falta,
+derivado del estado real — no un documento aparte que se desactualiza"*. La parte que importa es la
+última: este proyecto ya pagó **tres veces** por afirmaciones que nadie verificó —los
+`docs/prompts/*.md` que no existían mientras el panel reportaba éxito, `closer_conexiones` que nadie
+leía, el alta de empresas que nadie ejercitó hasta que Fabio la apretó en producción (ver
+[D36](#d36--lo-que-se-construye-y-no-se-ejercita-no-está-construido))— y siempre por el mismo
+mecanismo.
+
+Tres decisiones dentro de esa:
+
+**Los estados son tres.** `listo`, `falta` y `sin_dato`. El tercero es el que hace que el checklist
+sea confiable: si la lectura de prueba no se pudo hacer —falta `CIFRADO_CLAVE`, por ejemplo— el ítem
+dice que no se sabe. Y "lista para operar" exige que **ningún** bloqueante esté fuera de `listo`, así
+que un `sin_dato` bloqueante tampoco aprueba. No saber no es estar bien, y ésta es la pantalla donde
+esa diferencia decide si se lanza una empresa.
+
+**Dos ítems no aceptan la presencia del campo como prueba**, porque son los dos que pueden decir
+verde sobre algo que no está:
+
+- Un **webhook** con URL y secreto generados no dice nada sobre si el cliente los pegó en GHL: eso
+  ocurre de un lado donde no tenemos ninguna visibilidad. La única evidencia es un evento recibido.
+- Un **admin** creado con su contraseña temporal no dice nada sobre si la recibió. La única evidencia
+  es `ultimo_acceso_el`.
+
+Las dos veces la tentación es la misma —"el campo tiene algo, poné verde"— y las dos veces el error
+se descubre el día del lanzamiento. Están fijadas con tests.
+
+**Lee las credenciales resueltas, no las columnas.** La primera versión leía `closer_org_config` y
+habría marcado *"falta el PIT"* sobre **ARIA**: su PIT vive en la variable `GHL_PIT` desde antes del
+multi-empresa, y `resolverCredenciales()` lo resuelve con el fallback de la principal. Un checklist
+que se equivoca en el caso que todos conocen es un checklist que nadie vuelve a abrir. Es el mismo
+error que `admin/webhooks.ts` casi cometió con el secreto —ahí también hay que mostrar el
+**efectivo**— y se cierra igual: `desdeEntorno` distingue "cargado por esta empresa" de "apoyado en
+una variable global", porque las dos funcionan y no son lo mismo.
+
+Eso último **no lo agarra un unit test**: con datos sintéticos las dos ramas se ven bien. Lo fija un
+test de integración que le pregunta a la base cuál es el estado de verdad, y que además verifica el
+otro lado —que una empresa cliente **no** herede el PIT global—, que es el bug que cerró la `027`.

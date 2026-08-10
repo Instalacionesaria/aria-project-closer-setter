@@ -30,7 +30,21 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Check, Copy, Eye, Loader2, Lock, Plus, RefreshCw, Save, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ClipboardCheck,
+  Copy,
+  Eye,
+  HelpCircle,
+  Loader2,
+  Lock,
+  Plus,
+  RefreshCw,
+  Save,
+  Trash2,
+  X,
+} from "lucide-react";
 import { cn } from "../lib/utils";
 import { useAuth } from "../lib/authStore";
 import {
@@ -38,6 +52,7 @@ import {
   crearUsuario,
   desactivarEmpresa,
   editarEmpresa,
+  fetchAlta,
   editarUsuario,
   eliminarUsuario,
   fetchConfiguracion,
@@ -48,7 +63,9 @@ import {
   regenerarPassword,
   rotarWebhook,
   type ConfiguracionResponse,
+  type AltaResponse,
   type EmpresaAdmin,
+  type ItemAlta,
   type WebhookEntrada,
   type Rol,
   type UsuarioAdmin,
@@ -64,7 +81,14 @@ const ETIQUETA_ROL: Record<Rol, string> = {
 };
 
 /** Las que ofrece el selector al crear. Cualquier otra igual se acepta escribiéndola. */
-const ZONAS = ["America/Lima", "America/Bogota", "America/Mexico_City", "America/Argentina/Buenos_Aires", "America/Santiago", "Europe/Madrid"];
+const ZONAS = [
+  "America/Lima",
+  "America/Bogota",
+  "America/Mexico_City",
+  "America/Argentina/Buenos_Aires",
+  "America/Santiago",
+  "Europe/Madrid",
+];
 
 /**
  * Lo que una sección le avisa al contenedor antes de que cambie de pestaña.
@@ -93,6 +117,169 @@ function useRetener(registrar: Retencion, motivo: () => string | null) {
   });
 }
 
+/* ═══════════════════════ El checklist de alta (§4.1) ═══════════════════════ */
+
+/**
+ * Lo que hay que tener cargado para que una empresa opere, **derivado del estado real**.
+ *
+ * No es una lista de casillas que alguien marca: cada ítem lo calcula `/api/admin/alta` mirando la
+ * base y, en el caso de GHL, haciendo una lectura de prueba. Por eso no puede quedar en verde algo
+ * que falta — que es lo que le pasa a cualquier checklist escrito a mano el primer día.
+ *
+ * ── Por qué se abre a pedido y no viene con el listado ─────────────────
+ *
+ * Porque el ítem de GHL **cuesta una llamada** a la API del cliente. Traerlo para las cinco
+ * empresas en cada render del panel serían cinco llamadas cada vez que alguien entra a Ajustes.
+ * Se pide cuando alguien lo abre, y el panel dice cuántas llamadas costó.
+ */
+
+/** Los tres estados, con su color y su ícono. `sin_dato` es ámbar y no rojo: no es un faltante. */
+const ESTILO_ALTA = {
+  listo: {
+    Icono: Check,
+    clase: "text-emerald-600 dark:text-emerald-400",
+    fondo: "bg-emerald-500/10",
+  },
+  falta: {
+    Icono: AlertTriangle,
+    /**
+     * `text-red-700` / `red-300` y no `text-destructive`: ese token no llega al contraste mínimo
+     * de WCAG AA en ninguno de los dos temas (3.76:1 en claro, 1.99:1 en oscuro). Medido, no
+     * estimado — mismo criterio que el aviso de pestaña única en `App.tsx`.
+     */
+    clase: "text-red-700 dark:text-red-300",
+    fondo: "bg-red-500/10",
+  },
+  sin_dato: {
+    Icono: HelpCircle,
+    clase: "text-amber-600 dark:text-amber-400",
+    fondo: "bg-amber-500/10",
+  },
+} as const;
+
+function FilaAlta({ item }: { item: ItemAlta }) {
+  const { Icono, clase, fondo } = ESTILO_ALTA[item.estado];
+  return (
+    <div className="flex gap-2.5 py-2">
+      <span
+        className={cn(
+          "shrink-0 w-5 h-5 rounded-full inline-flex items-center justify-center mt-0.5",
+          fondo,
+        )}
+      >
+        <Icono className={cn("w-3 h-3", clase)} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-medium">{item.titulo}</span>
+          {/* Solo se marca lo bloqueante que NO está: un verde no necesita la etiqueta. */}
+          {item.bloqueante && item.estado !== "listo" && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-red-500/10 text-red-700 dark:text-red-300">
+              Bloquea
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+          {item.detalle}
+        </p>
+        {item.accion && (
+          <p className="text-[11px] mt-1 leading-relaxed">{item.accion}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PanelAlta({ orgId }: { orgId: string }) {
+  const [datos, setDatos] = useState<AltaResponse | null>(null);
+  const [cargando, setCargando] = useState(true);
+
+  const cargar = useCallback(
+    async (probar: boolean) => {
+      setCargando(true);
+      setDatos(await fetchAlta(orgId, probar));
+      setCargando(false);
+    },
+    [orgId],
+  );
+
+  useEffect(() => {
+    void cargar(true);
+  }, [cargar]);
+
+  if (cargando && !datos) {
+    return (
+      <div className="border-t border-border/50 pt-3 mt-3">
+        <Cargando />
+      </div>
+    );
+  }
+  if (!datos?.ok) {
+    return (
+      <div className="border-t border-border/50 pt-3 mt-3">
+        <Aviso
+          tono="error"
+          texto={datos?.error ?? "No se pudo armar el checklist."}
+        />
+      </div>
+    );
+  }
+
+  const items = datos.items ?? [];
+  const pendientes = datos.faltantesBloqueantes?.length ?? 0;
+
+  return (
+    <div className="border-t border-border/50 pt-3 mt-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {/**
+         * El veredicto en una línea. **"Lista" exige que ningún bloqueante esté fuera de `listo`**,
+         * así que un `sin_dato` bloqueante tampoco la aprueba: no saber no es estar bien, y ésta es
+         * la pantalla donde esa diferencia decide si se lanza una empresa.
+         */}
+        {datos.lista ? (
+          <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400 inline-flex items-center gap-1.5">
+            <Check className="w-3.5 h-3.5" />
+            Lista para operar
+          </span>
+        ) : (
+          <span className="text-xs font-medium text-red-700 dark:text-red-300 inline-flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" />
+            {pendientes === 1
+              ? "1 cosa bloqueante"
+              : `${pendientes} cosas bloqueantes`}
+          </span>
+        )}
+        <div className="flex items-center gap-3">
+          {/* Se dice el costo: es la única pantalla del panel que gasta cuota de GHL. */}
+          <span className="text-[10px] text-muted-foreground">
+            {datos.llamadasGhl === 0
+              ? "sin llamadas a GHL"
+              : `${datos.llamadasGhl} llamada a GHL`}
+          </span>
+          <button
+            onClick={() => void cargar(true)}
+            disabled={cargando}
+            className="h-7 px-2 rounded-md text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5 disabled:opacity-40"
+          >
+            {cargando ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3 h-3" />
+            )}
+            Verificar de nuevo
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-1 divide-y divide-border/30">
+        {items.map((i) => (
+          <FilaAlta key={i.clave} item={i} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ══════════════════════════════ Empresas (§7.1) ══════════════════════════════ */
 
 export function SeccionEmpresas() {
@@ -101,10 +288,17 @@ export function SeccionEmpresas() {
   const [error, setError] = useState<string | null>(null);
   const [creando, setCreando] = useState(false);
   const [trabajando, setTrabajando] = useState<string | null>(null);
+  /**
+   * Cuál empresa tiene el checklist abierto. **Una sola a la vez**, y no un `Set`: el checklist
+   * gasta una llamada a GHL por empresa, así que abrir cuatro de golpe son cuatro llamadas. Que
+   * abrir una cierre la anterior hace que el costo sea siempre el mismo.
+   */
+  const [altaAbierta, setAltaAbierta] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     const r = await fetchEmpresas();
-    if (!r.ok) return setError(r.error ?? "No se pudieron cargar las empresas.");
+    if (!r.ok)
+      return setError(r.error ?? "No se pudieron cargar las empresas.");
     setError(null);
     setEmpresas(r.empresas ?? []);
   }, []);
@@ -145,7 +339,12 @@ export function SeccionEmpresas() {
   };
 
   const desactivar = async (e: EmpresaAdmin) => {
-    if (!confirm(`¿Desactivar "${e.nombre}"? Sus usuarios no van a poder entrar. Los datos quedan.`)) return;
+    if (
+      !confirm(
+        `¿Desactivar "${e.nombre}"? Sus usuarios no van a poder entrar. Los datos quedan.`,
+      )
+    )
+      return;
     setTrabajando(e.id);
     const r = await desactivarEmpresa(e.id);
     setTrabajando(null);
@@ -156,11 +355,15 @@ export function SeccionEmpresas() {
 
   return (
     <div className="space-y-4">
-      {error && <Aviso tono="error" texto={error} onCerrar={() => setError(null)} />}
+      {error && (
+        <Aviso tono="error" texto={error} onCerrar={() => setError(null)} />
+      )}
 
       <div className="flex justify-between items-center">
         <span className="text-xs text-muted-foreground">
-          {empresas ? `${empresas.length} ${empresas.length === 1 ? "empresa" : "empresas"}` : ""}
+          {empresas
+            ? `${empresas.length} ${empresas.length === 1 ? "empresa" : "empresas"}`
+            : ""}
         </span>
         <button
           onClick={() => setCreando(true)}
@@ -179,72 +382,112 @@ export function SeccionEmpresas() {
             <div
               key={e.id}
               className={cn(
-                "rounded-lg border border-border/50 bg-card p-4 flex items-center gap-4",
+                "rounded-lg border border-border/50 bg-card p-4",
                 !e.activa && "opacity-60",
               )}
             >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm truncate">{e.nombre}</span>
-                  {e.esPrincipal && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                      Principal
+              {/* La fila de siempre. El checklist, si está abierto, va DEBAJO — de ahí el wrapper. */}
+              <div className="flex items-center gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm truncate">
+                      {e.nombre}
                     </span>
-                  )}
-                  {!e.activa && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                      Desactivada
+                    {e.esPrincipal && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                        Principal
+                      </span>
+                    )}
+                    {!e.activa && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                        Desactivada
+                      </span>
+                    )}
+                    {empresaActiva?.id === e.id && (
+                      <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                        Estás acá
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                    <span>/{e.slug}</span>
+                    <span>
+                      {e.usuarios === 1
+                        ? "1 usuario"
+                        : `${e.usuarios} usuarios`}
                     </span>
-                  )}
-                  {empresaActiva?.id === e.id && (
-                    <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                      Estás acá
-                    </span>
-                  )}
+                    <span>{e.zonaHoraria}</span>
+                    {/* Sin subcuenta de GHL la empresa no puede operar: se dice, no se omite. */}
+                    {e.ghlLocationId ? (
+                      <span>GHL {e.ghlLocationId}</span>
+                    ) : (
+                      <span className="text-amber-600 dark:text-amber-400">
+                        Sin GHL
+                      </span>
+                    )}
+                    {/* §4.1: un `0%` medido y uno no medido no son el mismo hecho. Acá igual: */}
+                    {e.ultimoAcceso ? (
+                      <span>Último acceso {fecha(e.ultimoAcceso)}</span>
+                    ) : (
+                      <span className="opacity-60">Nadie entró todavía</span>
+                    )}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                  <span>/{e.slug}</span>
-                  <span>{e.usuarios === 1 ? "1 usuario" : `${e.usuarios} usuarios`}</span>
-                  <span>{e.zonaHoraria}</span>
-                  {/* Sin subcuenta de GHL la empresa no puede operar: se dice, no se omite. */}
-                  {e.ghlLocationId ? <span>GHL {e.ghlLocationId}</span> : <span className="text-amber-600 dark:text-amber-400">Sin GHL</span>}
-                  {/* §4.1: un `0%` medido y uno no medido no son el mismo hecho. Acá igual: */}
-                  {e.ultimoAcceso ? <span>Último acceso {fecha(e.ultimoAcceso)}</span> : <span className="opacity-60">Nadie entró todavía</span>}
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {/**
+                   * Alta: abre el checklist derivado. No se muestra un resumen en la fila porque
+                   * calcularlo cuesta una llamada a GHL por empresa (ver `PanelAlta`).
+                   */}
+                  <button
+                    onClick={() =>
+                      setAltaAbierta((a) => (a === e.id ? null : e.id))
+                    }
+                    title="Ver qué falta para que esta empresa opere"
+                    className={cn(
+                      "h-8 px-2.5 rounded-md text-xs inline-flex items-center gap-1.5",
+                      altaAbierta === e.id
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                  >
+                    <ClipboardCheck className="w-3.5 h-3.5" />
+                    Alta
+                  </button>
+                  {empresaActiva?.id !== e.id && (
+                    <button
+                      onClick={() => void verEmpresa(e)}
+                      title="Ver los datos de esta empresa"
+                      className="h-8 px-2.5 rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      Ver
+                    </button>
+                  )}
+                  {/* La principal no se toca: el trigger de la 018 lo impide y el botón tampoco está. */}
+                  {!e.esPrincipal &&
+                    (e.activa ? (
+                      <button
+                        onClick={() => void desactivar(e)}
+                        disabled={trabajando === e.id}
+                        title="Desactivar"
+                        className="h-8 w-8 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive inline-flex items-center justify-center disabled:opacity-40"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => void alternarActiva(e)}
+                        disabled={trabajando === e.id}
+                        className="h-8 px-2.5 rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
+                      >
+                        Reactivar
+                      </button>
+                    ))}
                 </div>
               </div>
 
-              <div className="flex items-center gap-1 shrink-0">
-                {empresaActiva?.id !== e.id && (
-                  <button
-                    onClick={() => void verEmpresa(e)}
-                    title="Ver los datos de esta empresa"
-                    className="h-8 px-2.5 rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground inline-flex items-center gap-1.5"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Ver
-                  </button>
-                )}
-                {/* La principal no se toca: el trigger de la 018 lo impide y el botón tampoco está. */}
-                {!e.esPrincipal &&
-                  (e.activa ? (
-                    <button
-                      onClick={() => void desactivar(e)}
-                      disabled={trabajando === e.id}
-                      title="Desactivar"
-                      className="h-8 w-8 rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive inline-flex items-center justify-center disabled:opacity-40"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => void alternarActiva(e)}
-                      disabled={trabajando === e.id}
-                      className="h-8 px-2.5 rounded-md text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40"
-                    >
-                      Reactivar
-                    </button>
-                  ))}
-              </div>
+              {altaAbierta === e.id && <PanelAlta orgId={e.id} />}
             </div>
           ))}
         </div>
@@ -263,7 +506,13 @@ export function SeccionEmpresas() {
   );
 }
 
-function ModalEmpresa({ onCerrar, onCreada }: { onCerrar: () => void; onCreada: () => void }) {
+function ModalEmpresa({
+  onCerrar,
+  onCreada,
+}: {
+  onCerrar: () => void;
+  onCreada: () => void;
+}) {
   const [nombre, setNombre] = useState("");
   const [slug, setSlug] = useState("");
   const [zona, setZona] = useState(ZONAS[0]);
@@ -283,7 +532,11 @@ function ModalEmpresa({ onCerrar, onCreada }: { onCerrar: () => void; onCreada: 
 
   const guardar = async () => {
     setGuardando(true);
-    const r = await crearEmpresa({ nombre: nombre.trim(), slug: slug.trim(), zonaHoraria: zona });
+    const r = await crearEmpresa({
+      nombre: nombre.trim(),
+      slug: slug.trim(),
+      zonaHoraria: zona,
+    });
     setGuardando(false);
     if (!r.ok) return setError(r.error ?? "No se pudo crear.");
     onCreada();
@@ -296,9 +549,17 @@ function ModalEmpresa({ onCerrar, onCreada }: { onCerrar: () => void; onCreada: 
       <div className="space-y-4">
         {error && <Aviso tono="error" texto={error} />}
         <Campo etiqueta="Nombre">
-          <input value={nombre} onChange={(e) => alNombre(e.target.value)} placeholder="Consultora Ejemplo" className={INPUT} />
+          <input
+            value={nombre}
+            onChange={(e) => alNombre(e.target.value)}
+            placeholder="Consultora Ejemplo"
+            className={INPUT}
+          />
         </Campo>
-        <Campo etiqueta="Identificador" ayuda="Minúsculas, sin espacios ni acentos. No se puede cambiar después.">
+        <Campo
+          etiqueta="Identificador"
+          ayuda="Minúsculas, sin espacios ni acentos. No se puede cambiar después."
+        >
           <input
             value={slug}
             onChange={(e) => {
@@ -309,8 +570,15 @@ function ModalEmpresa({ onCerrar, onCreada }: { onCerrar: () => void; onCreada: 
             className={INPUT}
           />
         </Campo>
-        <Campo etiqueta="Zona horaria" ayuda="Define qué es 'hoy' para los seguimientos de esta empresa.">
-          <select value={zona} onChange={(e) => setZona(e.target.value)} className={INPUT}>
+        <Campo
+          etiqueta="Zona horaria"
+          ayuda="Define qué es 'hoy' para los seguimientos de esta empresa."
+        >
+          <select
+            value={zona}
+            onChange={(e) => setZona(e.target.value)}
+            className={INPUT}
+          >
             {ZONAS.map((z) => (
               <option key={z} value={z}>
                 {z}
@@ -320,12 +588,17 @@ function ModalEmpresa({ onCerrar, onCreada }: { onCerrar: () => void; onCreada: 
         </Campo>
 
         <p className="text-xs text-muted-foreground border-l-2 border-border pl-3">
-          Nace activa pero <strong>sin credenciales</strong>: no va a poder hablar con GHL hasta que cargues su token en
-          Configuración. Es a propósito — una empresa a medio configurar no debe operar con las credenciales de otra.
+          Nace activa pero <strong>sin credenciales</strong>: no va a poder
+          hablar con GHL hasta que cargues su token en Configuración. Es a
+          propósito — una empresa a medio configurar no debe operar con las
+          credenciales de otra.
         </p>
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onCerrar} className="h-9 px-3 rounded-md text-sm text-muted-foreground hover:bg-accent">
+          <button
+            onClick={onCerrar}
+            className="h-9 px-3 rounded-md text-sm text-muted-foreground hover:bg-accent"
+          >
             Cancelar
           </button>
           <button
@@ -344,7 +617,13 @@ function ModalEmpresa({ onCerrar, onCreada }: { onCerrar: () => void; onCreada: 
 
 /* ══════════════════════════════ Usuarios (§7.2) ══════════════════════════════ */
 
-export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSuper: boolean; registrar?: Retencion }) {
+export function SeccionUsuarios({
+  esSuper,
+  registrar = SIN_RETENCION,
+}: {
+  esSuper: boolean;
+  registrar?: Retencion;
+}) {
   const { empresa: empresaActiva } = useAuth();
   const [usuarios, setUsuarios] = useState<UsuarioAdmin[] | null>(null);
   const [rolesOtorgables, setRolesOtorgables] = useState<Rol[]>([]);
@@ -352,12 +631,17 @@ export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSupe
   const [error, setError] = useState<string | null>(null);
   const [creando, setCreando] = useState(false);
   const [editando, setEditando] = useState<UsuarioAdmin | null>(null);
-  const [temporal, setTemporal] = useState<{ email: string; password: string; aviso: string } | null>(null);
+  const [temporal, setTemporal] = useState<{
+    email: string;
+    password: string;
+    aviso: string;
+  } | null>(null);
   const [trabajando, setTrabajando] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     const r = await fetchUsuariosAdmin();
-    if (!r.ok) return setError(r.error ?? "No se pudieron cargar los usuarios.");
+    if (!r.ok)
+      return setError(r.error ?? "No se pudieron cargar los usuarios.");
     setError(null);
     setUsuarios(r.usuarios ?? []);
     setRolesOtorgables(r.rolesQuePuedeOtorgar ?? []);
@@ -366,10 +650,14 @@ export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSupe
   useEffect(() => {
     void cargar();
     // El super admin necesita los nombres de las empresas para agrupar y para elegir destino.
-    if (esSuper) void fetchEmpresas().then((r) => setEmpresas(r.empresas ?? []));
+    if (esSuper)
+      void fetchEmpresas().then((r) => setEmpresas(r.empresas ?? []));
   }, [cargar, esSuper]);
 
-  const nombreEmpresa = useMemo(() => new Map(empresas.map((e) => [e.id, e.nombre])), [empresas]);
+  const nombreEmpresa = useMemo(
+    () => new Map(empresas.map((e) => [e.id, e.nombre])),
+    [empresas],
+  );
 
   /**
    * La contraseña temporal es el único dato de toda la app que no se puede volver a consultar.
@@ -383,13 +671,23 @@ export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSupe
   );
 
   const regenerar = async (u: UsuarioAdmin) => {
-    if (!confirm(`¿Generar una contraseña temporal para ${u.nombre}? Se le cierran todas las sesiones.`)) return;
+    if (
+      !confirm(
+        `¿Generar una contraseña temporal para ${u.nombre}? Se le cierran todas las sesiones.`,
+      )
+    )
+      return;
     setTrabajando(u.id);
     const r = await regenerarPassword(u.id);
     setTrabajando(null);
-    if (!r.ok || !r.passwordTemporal) return setError(r.error ?? "No se pudo regenerar.");
+    if (!r.ok || !r.passwordTemporal)
+      return setError(r.error ?? "No se pudo regenerar.");
     setError(null);
-    setTemporal({ email: u.email ?? u.nombre, password: r.passwordTemporal, aviso: r.aviso ?? "" });
+    setTemporal({
+      email: u.email ?? u.nombre,
+      password: r.passwordTemporal,
+      aviso: r.aviso ?? "",
+    });
     await cargar();
   };
 
@@ -403,7 +701,12 @@ export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSupe
   };
 
   const eliminar = async (u: UsuarioAdmin) => {
-    if (!confirm(`¿Borrar a ${u.nombre}? Si tiene trabajo registrado, se va a rechazar.`)) return;
+    if (
+      !confirm(
+        `¿Borrar a ${u.nombre}? Si tiene trabajo registrado, se va a rechazar.`,
+      )
+    )
+      return;
     setTrabajando(u.id);
     const r = await eliminarUsuario(u.id);
     setTrabajando(null);
@@ -415,12 +718,18 @@ export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSupe
 
   return (
     <div className="space-y-4">
-      {error && <Aviso tono="error" texto={error} onCerrar={() => setError(null)} />}
-      {temporal && <CartelPassword datos={temporal} onCerrar={() => setTemporal(null)} />}
+      {error && (
+        <Aviso tono="error" texto={error} onCerrar={() => setError(null)} />
+      )}
+      {temporal && (
+        <CartelPassword datos={temporal} onCerrar={() => setTemporal(null)} />
+      )}
 
       <div className="flex justify-between items-center">
         <span className="text-xs text-muted-foreground">
-          {usuarios ? `${usuarios.length} ${usuarios.length === 1 ? "usuario" : "usuarios"}` : ""}
+          {usuarios
+            ? `${usuarios.length} ${usuarios.length === 1 ? "usuario" : "usuarios"}`
+            : ""}
         </span>
         <button
           onClick={() => setCreando(true)}
@@ -436,10 +745,18 @@ export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSupe
       ) : (
         <div className="space-y-2">
           {usuarios.map((u) => (
-            <div key={u.id} className={cn("rounded-lg border border-border/50 bg-card p-4 flex items-center gap-4", !u.activo && "opacity-60")}>
+            <div
+              key={u.id}
+              className={cn(
+                "rounded-lg border border-border/50 bg-card p-4 flex items-center gap-4",
+                !u.activo && "opacity-60",
+              )}
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-sm truncate">{u.nombre}</span>
+                  <span className="font-medium text-sm truncate">
+                    {u.nombre}
+                  </span>
                   {u.esAdminPrincipal && (
                     <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                       Admin principal
@@ -463,9 +780,16 @@ export function SeccionUsuarios({ esSuper, registrar = SIN_RETENCION }: { esSupe
                 </div>
                 <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-4 gap-y-1">
                   <span>{u.email ?? "sin email"}</span>
-                  <span>{u.roles.map((r) => ETIQUETA_ROL[r] ?? r).join(" · ") || "sin rol"}</span>
+                  <span>
+                    {u.roles.map((r) => ETIQUETA_ROL[r] ?? r).join(" · ") ||
+                      "sin rol"}
+                  </span>
                   {esSuper && <span>{nombreEmpresa.get(u.orgId) ?? "—"}</span>}
-                  {u.ultimoAcceso ? <span>Entró {fecha(u.ultimoAcceso)}</span> : <span className="opacity-60">Nunca entró</span>}
+                  {u.ultimoAcceso ? (
+                    <span>Entró {fecha(u.ultimoAcceso)}</span>
+                  ) : (
+                    <span className="opacity-60">Nunca entró</span>
+                  )}
                 </div>
               </div>
 
@@ -547,11 +871,15 @@ function ModalUsuario({
   /** La empresa que el super admin está mirando. Crear en otra tiene que ser una decisión. */
   empresaPorDefecto: string | null;
   onCerrar: () => void;
-  onListo: (temporal: { email: string; password: string; aviso: string } | null) => void;
+  onListo: (
+    temporal: { email: string; password: string; aviso: string } | null,
+  ) => void;
 }) {
   const [nombre, setNombre] = useState(usuario?.nombre ?? "");
   const [email, setEmail] = useState(usuario?.email ?? "");
-  const [orgId, setOrgId] = useState(usuario?.orgId ?? empresaPorDefecto ?? empresas[0]?.id ?? "");
+  const [orgId, setOrgId] = useState(
+    usuario?.orgId ?? empresaPorDefecto ?? empresas[0]?.id ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
@@ -572,16 +900,27 @@ function ModalUsuario({
    * (`validarRoles` en `api/admin/usuarios.ts`). Esto de acá es lo que lo hace visible: que se
    * vea qué rol tiene y por qué no lo podés mover.
    */
-  const bloqueados = (usuario?.roles ?? []).filter((r) => !rolesOtorgables.includes(r));
-  const [elegidos, setElegidos] = useState<Rol[]>((usuario?.roles ?? []).filter((r) => rolesOtorgables.includes(r)));
+  const bloqueados = (usuario?.roles ?? []).filter(
+    (r) => !rolesOtorgables.includes(r),
+  );
+  const [elegidos, setElegidos] = useState<Rol[]>(
+    (usuario?.roles ?? []).filter((r) => rolesOtorgables.includes(r)),
+  );
   const roles = [...bloqueados, ...elegidos];
 
-  const alternarRol = (r: Rol) => setElegidos((rs) => (rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r]));
+  const alternarRol = (r: Rol) =>
+    setElegidos((rs) =>
+      rs.includes(r) ? rs.filter((x) => x !== r) : [...rs, r],
+    );
 
   const guardar = async () => {
     setGuardando(true);
     if (usuario) {
-      const r = await editarUsuario({ id: usuario.id, nombre: nombre.trim(), roles });
+      const r = await editarUsuario({
+        id: usuario.id,
+        nombre: nombre.trim(),
+        roles,
+      });
       setGuardando(false);
       if (!r.ok) return setError(r.error ?? "No se pudo guardar.");
       return onListo(null);
@@ -593,36 +932,65 @@ function ModalUsuario({
       ...(empresas.length > 0 ? { orgId } : {}),
     });
     setGuardando(false);
-    if (!r.ok || !r.passwordTemporal) return setError(r.error ?? "No se pudo crear.");
-    onListo({ email: email.trim(), password: r.passwordTemporal, aviso: r.aviso ?? "" });
+    if (!r.ok || !r.passwordTemporal)
+      return setError(r.error ?? "No se pudo crear.");
+    onListo({
+      email: email.trim(),
+      password: r.passwordTemporal,
+      aviso: r.aviso ?? "",
+    });
   };
 
-  const puede = nombre.trim().length > 0 && roles.length > 0 && (usuario !== null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()));
+  const puede =
+    nombre.trim().length > 0 &&
+    roles.length > 0 &&
+    (usuario !== null || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()));
 
   return (
-    <Modal titulo={usuario ? `Editar a ${usuario.nombre}` : "Nuevo usuario"} onCerrar={onCerrar}>
+    <Modal
+      titulo={usuario ? `Editar a ${usuario.nombre}` : "Nuevo usuario"}
+      onCerrar={onCerrar}
+    >
       <div className="space-y-4">
         {error && <Aviso tono="error" texto={error} />}
 
         <Campo etiqueta="Nombre">
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} className={INPUT} />
+          <input
+            value={nombre}
+            onChange={(e) => setNombre(e.target.value)}
+            className={INPUT}
+          />
         </Campo>
 
         {usuario ? (
           // El email es la identidad con la que entra: cambiarlo sería otra cuenta. Se muestra
           // pero no se edita, así queda claro que no es un olvido.
           <Campo etiqueta="Email">
-            <div className="h-9 flex items-center px-3 rounded-md bg-muted/40 text-sm text-muted-foreground">{usuario.email ?? "—"}</div>
+            <div className="h-9 flex items-center px-3 rounded-md bg-muted/40 text-sm text-muted-foreground">
+              {usuario.email ?? "—"}
+            </div>
           </Campo>
         ) : (
-          <Campo etiqueta="Email" ayuda="Con este entra. No se puede cambiar después.">
-            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nombre@empresa.com" className={INPUT} />
+          <Campo
+            etiqueta="Email"
+            ayuda="Con este entra. No se puede cambiar después."
+          >
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nombre@empresa.com"
+              className={INPUT}
+            />
           </Campo>
         )}
 
         {!usuario && empresas.length > 0 && (
           <Campo etiqueta="Empresa">
-            <select value={orgId} onChange={(e) => setOrgId(e.target.value)} className={INPUT}>
+            <select
+              value={orgId}
+              onChange={(e) => setOrgId(e.target.value)}
+              className={INPUT}
+            >
               {empresas.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.nombre}
@@ -666,12 +1034,16 @@ function ModalUsuario({
 
         {usuario?.esAdminPrincipal && (
           <p className="text-xs text-muted-foreground border-l-2 border-amber-500/40 pl-3">
-            Es el admin principal de su empresa: no se puede desactivar, borrar ni quitarle el rol de admin.
+            Es el admin principal de su empresa: no se puede desactivar, borrar
+            ni quitarle el rol de admin.
           </p>
         )}
 
         <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onCerrar} className="h-9 px-3 rounded-md text-sm text-muted-foreground hover:bg-accent">
+          <button
+            onClick={onCerrar}
+            className="h-9 px-3 rounded-md text-sm text-muted-foreground hover:bg-accent"
+          >
             Cancelar
           </button>
           <button
@@ -722,19 +1094,30 @@ function CartelPassword({
           <p className="text-sm font-medium text-amber-900 dark:text-amber-200">
             Contraseña temporal de {datos.email}
           </p>
-          <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">{datos.aviso}</p>
+          <p className="text-xs text-amber-800/80 dark:text-amber-300/80 mt-0.5">
+            {datos.aviso}
+          </p>
         </div>
-        <button onClick={onCerrar} className="text-amber-700 dark:text-amber-300 hover:opacity-70 shrink-0">
+        <button
+          onClick={onCerrar}
+          className="text-amber-700 dark:text-amber-300 hover:opacity-70 shrink-0"
+        >
           <X className="w-4 h-4" />
         </button>
       </div>
       <div className="flex items-center gap-2">
-        <code className="flex-1 font-mono text-sm bg-background/60 rounded px-3 py-2 select-all break-all">{datos.password}</code>
+        <code className="flex-1 font-mono text-sm bg-background/60 rounded px-3 py-2 select-all break-all">
+          {datos.password}
+        </code>
         <button
           onClick={() => void copiar()}
           className="h-9 px-3 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700 inline-flex items-center gap-1.5 shrink-0"
         >
-          {copiado ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copiado ? (
+            <Check className="w-3.5 h-3.5" />
+          ) : (
+            <Copy className="w-3.5 h-3.5" />
+          )}
           {copiado ? "Copiada" : "Copiar"}
         </button>
       </div>
@@ -775,9 +1158,12 @@ function SeccionWebhooks() {
 
   const rotar = async (clave: string, titulo: string) => {
     // Rotar corta la ingesta hasta que el cliente pegue el valor nuevo. Se pregunta.
-    if (!window.confirm(`Rotar el secreto de "${titulo}"?
+    if (
+      !window.confirm(`Rotar el secreto de "${titulo}"?
 
-El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del cliente.`)) return;
+El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del cliente.`)
+    )
+      return;
     setRotando(clave);
     setAviso(null);
     const r = await rotarWebhook(clave);
@@ -794,7 +1180,10 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
     return (
       <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm space-y-2">
         <p>{error}</p>
-        <button onClick={() => void cargar()} className="text-xs font-medium text-primary hover:underline">
+        <button
+          onClick={() => void cargar()}
+          className="text-xs font-medium text-primary hover:underline"
+        >
           Reintentar
         </button>
       </div>
@@ -812,7 +1201,8 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
     <section className="space-y-3">
       <h2 className="text-sm font-medium">Webhooks de entrada</h2>
       <p className="text-xs text-muted-foreground -mt-1">
-        Los generamos nosotros. Copiá y pegá del lado del cliente — no hay nada que completar acá.
+        Los generamos nosotros. Copiá y pegá del lado del cliente — no hay nada
+        que completar acá.
       </p>
 
       {aviso && (
@@ -823,7 +1213,10 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
       )}
 
       {webhooks.map((w) => (
-        <div key={w.clave} className="rounded-lg border border-border/50 bg-card p-3 space-y-2.5">
+        <div
+          key={w.clave}
+          className="rounded-lg border border-border/50 bg-card p-3 space-y-2.5"
+        >
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-medium">{w.titulo}</span>
             <button
@@ -831,7 +1224,11 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
               disabled={rotando === w.clave}
               className="text-[11px] font-medium text-muted-foreground hover:text-destructive inline-flex items-center gap-1 disabled:opacity-50"
             >
-              {rotando === w.clave ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              {rotando === w.clave ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3 h-3" />
+              )}
               Rotar
             </button>
           </div>
@@ -839,14 +1236,22 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
           {/* El secreto compartido no está roto, pero no es lo mismo que uno propio: se dice. */}
           {!w.propio && (
             <p className="text-[11px] text-amber-700 dark:text-amber-400">
-              Está usando el secreto compartido. Rotar le crea uno propio de esta empresa — y obliga a volver a
-              pegarlo del lado del cliente.
+              Está usando el secreto compartido. Rotar le crea uno propio de
+              esta empresa — y obliga a volver a pegarlo del lado del cliente.
             </p>
           )}
 
-          <CampoCopiable etiqueta={w.secretoEnLaUrl ? "URL (con el token adentro)" : "URL"} valor={w.url} />
+          <CampoCopiable
+            etiqueta={w.secretoEnLaUrl ? "URL (con el token adentro)" : "URL"}
+            valor={w.url}
+          />
           {/* Cuando el token va en la URL no hay un segundo valor: sería la misma cosa dos veces. */}
-          {w.secreto && <CampoCopiable etiqueta="Secreto (header x-webhook-secret)" valor={w.secreto} />}
+          {w.secreto && (
+            <CampoCopiable
+              etiqueta="Secreto (header x-webhook-secret)"
+              valor={w.secreto}
+            />
+          )}
         </div>
       ))}
     </section>
@@ -854,7 +1259,13 @@ El anterior deja de funcionar en el acto, y hay que pegar el nuevo del lado del 
 }
 
 /** Un valor de solo lectura con su botón de copiar. */
-function CampoCopiable({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+function CampoCopiable({
+  etiqueta,
+  valor,
+}: {
+  etiqueta: string;
+  valor: string;
+}) {
   const [copiado, setCopiado] = useState(false);
   const copiar = async () => {
     try {
@@ -868,7 +1279,9 @@ function CampoCopiable({ etiqueta, valor }: { etiqueta: string; valor: string })
   };
   return (
     <div className="space-y-1">
-      <label className="text-[10px] uppercase tracking-wider text-muted-foreground">{etiqueta}</label>
+      <label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+        {etiqueta}
+      </label>
       <div className="flex items-center gap-2">
         <code className="flex-1 min-w-0 font-mono text-[11px] bg-muted/50 rounded px-2.5 py-1.5 select-all break-all">
           {valor}
@@ -877,7 +1290,11 @@ function CampoCopiable({ etiqueta, valor }: { etiqueta: string; valor: string })
           onClick={() => void copiar()}
           className="h-8 px-2.5 rounded-md border border-border text-xs font-medium hover:bg-muted inline-flex items-center gap-1.5 shrink-0"
         >
-          {copiado ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+          {copiado ? (
+            <Check className="w-3.5 h-3.5" />
+          ) : (
+            <Copy className="w-3.5 h-3.5" />
+          )}
           {copiado ? "Copiada" : "Copiar"}
         </button>
       </div>
@@ -887,7 +1304,9 @@ function CampoCopiable({ etiqueta, valor }: { etiqueta: string; valor: string })
 
 /* ══════════════════════════ Configuración (§7.3) ══════════════════════════ */
 
-export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?: Retencion } = {}) {
+export function SeccionConfiguracion({
+  registrar = SIN_RETENCION,
+}: { registrar?: Retencion } = {}) {
   const [datos, setDatos] = useState<ConfiguracionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guardado, setGuardado] = useState(false);
@@ -898,7 +1317,8 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
 
   const cargar = useCallback(async () => {
     const r = await fetchConfiguracion();
-    if (!r.ok) return setError(r.error ?? "No se pudo cargar la configuración.");
+    if (!r.ok)
+      return setError(r.error ?? "No se pudo cargar la configuración.");
     setError(null);
     setDatos(r);
     setCambios({});
@@ -924,7 +1344,10 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
 
   const guardar = async () => {
     setGuardando(true);
-    const r = await guardarConfiguracion({ ...cambios, ...(borrar.length > 0 ? { borrar } : {}) });
+    const r = await guardarConfiguracion({
+      ...cambios,
+      ...(borrar.length > 0 ? { borrar } : {}),
+    });
     setGuardando(false);
     if (!r.ok) return setError(r.error ?? "No se pudo guardar.");
     setError(null);
@@ -933,7 +1356,8 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
     await cargar();
   };
 
-  if (datos === null) return error ? <Aviso tono="error" texto={error} /> : <Cargando />;
+  if (datos === null)
+    return error ? <Aviso tono="error" texto={error} /> : <Cargando />;
 
   const hayCambios = Object.keys(cambios).length > 0 || borrar.length > 0;
   const editar = (clave: string, valor: string) => {
@@ -945,10 +1369,14 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
 
   return (
     <div className="space-y-6">
-      {error && <Aviso tono="error" texto={error} onCerrar={() => setError(null)} />}
+      {error && (
+        <Aviso tono="error" texto={error} onCerrar={() => setError(null)} />
+      )}
 
       <div className="text-xs text-muted-foreground">
-        Configurando <strong className="text-foreground">{datos.empresa?.nombre}</strong> · {datos.empresa?.zonaHoraria}
+        Configurando{" "}
+        <strong className="text-foreground">{datos.empresa?.nombre}</strong> ·{" "}
+        {datos.empresa?.zonaHoraria}
       </div>
 
       {datos.puedeGuardarCifrado === false && (
@@ -962,17 +1390,25 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
       <section className="space-y-3">
         <h2 className="text-sm font-medium">Credenciales</h2>
         <p className="text-xs text-muted-foreground -mt-1">
-          Se muestran enmascaradas. Dejá un campo vacío para no tocarlo; escribí uno nuevo para reemplazarlo.
+          Se muestran enmascaradas. Dejá un campo vacío para no tocarlo; escribí
+          uno nuevo para reemplazarlo.
         </p>
         <div className="space-y-3">
           {(datos.credenciales ?? []).map((c) => {
             const marcada = borrar.includes(c.clave);
             return (
-              <div key={c.clave} className="rounded-lg border border-border/50 bg-card p-3">
+              <div
+                key={c.clave}
+                className="rounded-lg border border-border/50 bg-card p-3"
+              >
                 <div className="flex items-center justify-between gap-3 mb-2">
                   <label className="text-xs font-medium">
                     {c.etiqueta}
-                    {c.cifrado && <span className="ml-2 text-[10px] text-muted-foreground uppercase tracking-wider">cifrada</span>}
+                    {c.cifrado && (
+                      <span className="ml-2 text-[10px] text-muted-foreground uppercase tracking-wider">
+                        cifrada
+                      </span>
+                    )}
                   </label>
                   {c.cargada && !marcada && (
                     <button
@@ -983,7 +1419,12 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
                     </button>
                   )}
                   {marcada && (
-                    <button onClick={() => setBorrar((b) => b.filter((x) => x !== c.clave))} className="text-[11px] text-muted-foreground hover:text-foreground">
+                    <button
+                      onClick={() =>
+                        setBorrar((b) => b.filter((x) => x !== c.clave))
+                      }
+                      className="text-[11px] text-muted-foreground hover:text-foreground"
+                    >
                       Cancelar borrado
                     </button>
                   )}
@@ -991,15 +1432,26 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
                 <input
                   value={cambios[c.clave] ?? ""}
                   onChange={(e) => editar(c.clave, e.target.value)}
-                  disabled={marcada || (c.cifrado && datos.puedeGuardarCifrado === false)}
+                  disabled={
+                    marcada ||
+                    (c.cifrado && datos.puedeGuardarCifrado === false)
+                  }
                   /**
                    * Los tres estados del `valor` se muestran distinto: la máscara como
                    * placeholder, "sin cargar" cuando no hay nada, y el error de descifrado
                    * explícito — porque se arregla revisando la clave maestra, no cargándola
                    * de nuevo.
                    */
-                  placeholder={c.valor === "error" ? "No se pudo descifrar — revisá la clave maestra" : (c.valor ?? "Sin cargar")}
-                  className={cn(INPUT, marcada && "line-through opacity-50", c.valor === "error" && "border-destructive/50")}
+                  placeholder={
+                    c.valor === "error"
+                      ? "No se pudo descifrar — revisá la clave maestra"
+                      : (c.valor ?? "Sin cargar")
+                  }
+                  className={cn(
+                    INPUT,
+                    marcada && "line-through opacity-50",
+                    c.valor === "error" && "border-destructive/50",
+                  )}
                 />
               </div>
             );
@@ -1008,15 +1460,15 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
       </section>
 
       {/* ── Los prompts se fueron de acá (2026-08-07) ──────────────────────
-        *
-        * Estaban en esta misma pantalla, debajo de las credenciales. Se **mudaron** a Auditoría
-        * de Agentes › Prompts, que habilita `tecnico`: quien mantiene el prompt del agente es el
-        * técnico, y tenerlos acá obligaba a darle `admin` —o sea, acceso al PIT de GHL, a la key
-        * de Anthropic y al token de Meta— a alguien que solo necesita editar un texto.
-        *
-        * Es una mudanza, no una copia: no quedó ni el textarea de lectura. Dos campos editando el
-        * mismo dato es el patrón que este proyecto ya pagó caro.
-        */}
+       *
+       * Estaban en esta misma pantalla, debajo de las credenciales. Se **mudaron** a Auditoría
+       * de Agentes › Prompts, que habilita `tecnico`: quien mantiene el prompt del agente es el
+       * técnico, y tenerlos acá obligaba a darle `admin` —o sea, acceso al PIT de GHL, a la key
+       * de Anthropic y al token de Meta— a alguien que solo necesita editar un texto.
+       *
+       * Es una mudanza, no una copia: no quedó ni el textarea de lectura. Dos campos editando el
+       * mismo dato es el patrón que este proyecto ya pagó caro.
+       */}
 
       {/* Va DEBAJO de las credenciales y con su propio estado: no comparte el formulario porque
           no hay nada que guardar acá. Lo único que se hace es copiar y, si hace falta, rotar. */}
@@ -1034,7 +1486,11 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
           disabled={!hayCambios || guardando}
           className="h-9 px-4 rounded-md bg-primary text-primary-foreground text-sm font-medium disabled:opacity-40 inline-flex items-center gap-2"
         >
-          {guardando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+          {guardando ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Save className="w-3.5 h-3.5" />
+          )}
           Guardar cambios
         </button>
       </div>
@@ -1044,24 +1500,44 @@ export function SeccionConfiguracion({ registrar = SIN_RETENCION }: { registrar?
 
 /* ══════════════════════════════ Piezas ══════════════════════════════ */
 
-const INPUT = "flex h-9 w-full rounded-md border border-input bg-background dark:bg-secondary px-3 py-2 text-sm";
+const INPUT =
+  "flex h-9 w-full rounded-md border border-input bg-background dark:bg-secondary px-3 py-2 text-sm";
 
-function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string; children: React.ReactNode }) {
+function Campo({
+  etiqueta,
+  ayuda,
+  children,
+}: {
+  etiqueta: string;
+  ayuda?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-medium text-muted-foreground">{etiqueta}</label>
+      <label className="text-xs font-medium text-muted-foreground">
+        {etiqueta}
+      </label>
       {children}
       {ayuda && <p className="text-[11px] text-muted-foreground/80">{ayuda}</p>}
     </div>
   );
 }
 
-function Aviso({ tono, texto, onCerrar }: { tono: "error"; texto: string; onCerrar?: () => void }) {
+function Aviso({
+  tono,
+  texto,
+  onCerrar,
+}: {
+  tono: "error";
+  texto: string;
+  onCerrar?: () => void;
+}) {
   return (
     <div
       className={cn(
         "rounded-lg border p-3 text-xs flex items-start gap-2",
-        tono === "error" && "border-destructive/40 bg-destructive/10 text-destructive",
+        tono === "error" &&
+          "border-destructive/40 bg-destructive/10 text-destructive",
       )}
     >
       <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
@@ -1083,13 +1559,24 @@ function Cargando() {
   );
 }
 
-function Modal({ titulo, onCerrar, children }: { titulo: string; onCerrar: () => void; children: React.ReactNode }) {
+function Modal({
+  titulo,
+  onCerrar,
+  children,
+}: {
+  titulo: string;
+  onCerrar: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
       <div className="w-full max-w-md rounded-lg bg-card text-card-foreground border border-border/50 shadow-xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-border/50 sticky top-0 bg-card">
           <h3 className="font-semibold text-base">{titulo}</h3>
-          <button onClick={onCerrar} className="text-muted-foreground hover:text-foreground">
+          <button
+            onClick={onCerrar}
+            className="text-muted-foreground hover:text-foreground"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1114,5 +1601,9 @@ function aSlug(nombre: string): string {
 function fecha(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "2-digit" });
+  return d.toLocaleDateString("es-AR", {
+    day: "2-digit",
+    month: "short",
+    year: "2-digit",
+  });
 }
