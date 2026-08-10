@@ -141,6 +141,8 @@ async function salidaSeguimiento(a: {
     rol: "setter",
     // El latch: el setter que trabaja el lead queda atribuido, y no se lo pisa el siguiente.
     atribucionSetterId: ctx.usuarioId,
+    // Un setter tambien es "el usuario que registra": la columna se llama `closer_id` por historia.
+    closerId: ctx.usuarioId,
     autor: ctx.nombre,
     ghlContactId,
     situacion: situacion as never,

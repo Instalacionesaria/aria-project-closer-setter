@@ -299,13 +299,13 @@ Lo que costó tiempo, para que no cueste dos veces.
 | **`BEFORE UPDATE` triggers** abortaban el backfill que pedía la spec | Se usó `add column not null default '<ARIA>'`: sin UPDATE, sin disparar triggers, sin reescribir la tabla (PG 11+) |
 | **`enterWith()` dentro de `async`** no propaga el contexto al que espera | Se midió con un test dedicado. `exigir()` resuelve y el handler activa **síncronamente** |
 | **`cacheCampos` de GHL** estaba indexado sin la subcuenta | La clave lleva el `locationId`, y se lee DENTRO de la función y no al cargar el módulo |
-| **`rol` era `NOT NULL`** y bloqueaba el insert del super admin | `alter column rol drop not null`. La columna **no se dropeó** (D5): el contract va después |
+| **`rol` era `NOT NULL`** y bloqueaba el insert del super admin | `alter column rol drop not null`. La columna se dropeó en la **`037`** (2026-08-08), cuando el contract llegó: quedaba llena en 1 de 4 usuarios y `null` en el resto, con `roles[]` correcto en los cuatro |
 | **Un test se desplegó como endpoint** | Vercel convierte en función serverless todo `.ts` bajo `api/` y su único filtro es `/_`. Verificado leyendo la fuente de su CLI. Los tests de `api/` van con guion bajo |
 | **El test de aislamiento pasaba por un comentario** | Las nueve comprobaciones miran el fuente sin comentarios. Verificado saboteando el código |
 | **Un comentario mío describía mal el bug que arreglaba** | Corregido. La lista vieja **sí** incluía `admin`, y por eso rebotaba |
 | **`git checkout` sobre trabajo sin commitear** | Se perdió el bucle del cron y hubo que rehacerlo. No usar `git checkout` para revertir un sabotaje de prueba |
 | **Vercel activó su Security Checkpoint** por el volumen de `curl` | Los navegadores lo pasan solo. Verificar con el navegador, no con `curl` |
-| **Un segundo almacén de credenciales sin consumidores** | `closer_conexiones` guarda `ghl_calendar_id` y **nadie la lee**: `env.ts` no la consulta. Es el mismo modo de fallar que los prompts. El calendario se puso en `closer_org_config`, no ahí |
+| **Un segundo almacén de credenciales sin consumidores** | `closer_conexiones` guardaba `ghl_calendar_id` y **nadie la leía**: `env.ts` no la consultaba. Mismo modo de fallar que los prompts. El calendario se puso en `closer_org_config`; la tabla y su endpoint se borraron en la **`036`** |
 
 ### Bugs que la migración destapó y no había creado
 

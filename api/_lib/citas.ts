@@ -8,7 +8,7 @@
  * primero como una cita — y `sincronizarCitas` lo da de alta si el webhook no llegó.
  */
 
-import { hoyISO, sumarDias, ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { formateador, hoyISO, sumarDias } from "../../src/lib/fechas.js";
 import { env } from "./env.js";
 import { eventosDeCalendario, type EventoCalendario } from "./ghl/lectura.js";
 import { asegurarContacto } from "./ingesta.js";
@@ -25,9 +25,9 @@ import { sincronizarContacto } from "./contactos.js";
 export function fechaHoraOrg(iso: string): { fecha: string; hora: string } {
   const d = new Date(iso);
   return {
-    fecha: new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA_ORG }).format(d),
-    hora: new Intl.DateTimeFormat("es-PE", {
-      timeZone: ZONA_HORARIA_ORG,
+    fecha: formateador("en-CA", { timeZone: env.zonaHoraria() }).format(d),
+    hora: formateador("es-PE", {
+      timeZone: env.zonaHoraria(),
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
@@ -37,8 +37,8 @@ export function fechaHoraOrg(iso: string): { fecha: string; hora: string } {
 
 /** Offset (`-05:00`) de la zona de la organización para una fecha dada. */
 export function offsetOrg(iso: string): string {
-  const partes = new Intl.DateTimeFormat("en-US", {
-    timeZone: ZONA_HORARIA_ORG,
+  const partes = formateador("en-US", {
+    timeZone: env.zonaHoraria(),
     timeZoneName: "longOffset",
   }).formatToParts(new Date(`${iso}T12:00:00Z`));
   const nombre = partes.find((p) => p.type === "timeZoneName")?.value ?? "GMT-05:00";

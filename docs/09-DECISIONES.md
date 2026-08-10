@@ -521,8 +521,8 @@ migración `018` con el UUID escrito a mano. El panel se construyó, se document
 la primera vez que alguien apretó el botón fue Fabio, en producción.
 
 Es la **tercera** vez que este proyecto paga lo mismo: los `docs/prompts/*.md` que nunca existieron
-mientras el panel reportaba éxito, `closer_conexiones` como almacén de credenciales que nadie lee, y
-ahora esto. El patrón es idéntico —una escritura que se ve exitosa contra un camino que nunca se
+mientras el panel reportaba éxito, `closer_conexiones` como almacén de credenciales que nadie leía
+—borrada el 2026-08-08 en la `036`, junto con su endpoint y sus tres envoltorios— y ahora esto. El patrón es idéntico —una escritura que se ve exitosa contra un camino que nunca se
 recorrió— y contradice la regla 2 de `CLAUDE.md` de la forma más incómoda: no es que se reporte un
 éxito falso, es que **nadie preguntó**.
 
@@ -675,3 +675,55 @@ El script es un `.mjs` propio y no `INTEGRACION=1 vitest …` en el `package.jso
 `VAR=valor comando` es sintaxis de shell POSIX y **en PowerShell es un error de parseo** — este
 repo se desarrolla en Windows. La alternativa era sumar `cross-env`, una dependencia entera para
 exportar una variable.
+
+---
+
+## D43 · Un default plausible es peor que un parámetro faltante
+
+La Fase 5.2 salió a buscar código muerto y encontró algo distinto: **cuatro valores por defecto que
+tapaban el olvido de un llamador**, todos de la época de una sola empresa, todos vivos.
+
+| Dónde | Qué hacía | Cierre |
+|---|---|---|
+| `closer_registrar_seguimiento(p_org_id DEFAULT '…0001')` | Escribía en ARIA en silencio | `035` |
+| ídem, `p_autor_nombre DEFAULT 'Usuario Activo'` | Firmaba con un nombre que no es de nadie | `035` |
+| `CLOSER_POR_DEFECTO` en `seguimientos.ts` | Firmaba como Jorge Q. de ARIA | tipo obligatorio |
+| `closer_hoy_org()` / `closer_dia_org()` / `closer_auditor_claim(2 args)` | Resolvían a la empresa principal por sobrecarga | `037` |
+
+El tercero es el que enseña la lección. `closerId` era opcional con ese default, y **ninguno de los
+tres endpoints lo pasaba**: todo Avanzar y todo seguimiento —del closer y del setter, de cualquier
+empresa— escribía `cerrado_por`, `creado_por`, `completada_por` y `autor_usuario_id` apuntando a una
+persona de ARIA. No fallaba nada, porque la FK es al `id` solo y no al par `(org_id, id)`. Se
+descubrió mirando el default, no el bug: nadie iba a reportar "el historial dice Jorge".
+
+Se cerró antes de que hubiera daño —`closer_seguimientos` estaba en cero al revisar— y la forma de
+cerrarlo importa: `closerId: string` **obligatorio**, sin default. Los seis llamadores aparecieron
+como errores de compilación, que es la lista que hay que auditar. Un default no tiene lista.
+
+> La regla, para lo que venga: **un parámetro que identifica a una empresa o a una persona no lleva
+> valor por defecto.** Si falta, tiene que fallar. La `028` ya había tomado esta decisión con el
+> modelo del auditor y `db()` con la empresa activa; esto la extiende a los últimos rincones donde
+> el producto todavía se comportaba como si tuviera un cliente.
+
+## D44 · Un formateador izado a nivel de módulo congela la zona de la primera empresa
+
+Ocho archivos del backend importaban `ZONA_HORARIA_ORG` —`"America/Lima"`, una constante— mientras
+`env.zonaHoraria()` leía la zona real de la empresa activa hacía semanas. Una empresa en Bogotá o en
+Ciudad de México recibía fechas de Lima: el día equivocado durante las últimas horas de su jornada,
+que es exactamente el bug que `src/lib/fechas.ts` existe para matar, ahora entre empresas.
+
+El caso interesante es `analizador.ts`. Su formateador estaba **izado a nivel de módulo**, y eso es
+lo correcto para el costo —construir un `Intl.DateTimeFormat` no es gratis y el auditor formatea un
+sello por mensaje— y lo incorrecto para el multi-empresa: un módulo se carga una vez por instancia
+de lambda y esa instancia atiende a varias empresas. Un `const` de módulo no puede depender del
+request. Y esos sellos los lee el modelo para comparar horas entre líneas, así que el veredicto se
+calculaba sobre una conversación con los horarios corridos.
+
+Bajarlo adentro de la función arreglaba la corrección y perdía el costo. La salida es
+`formateador(locale, opciones)` en `fechas.ts`: **memoiza por combinación**, así que la zona entra
+como argumento en cada llamada y el objeto se construye una sola vez. Las dos cosas a la vez, y en
+un solo lugar.
+
+`ZONA_HORARIA_ORG` sigue existiendo, pero como lo que su propio comentario anticipaba desde el día
+uno: **el default**, para el browser —que no tiene contexto de empresa y recibe la zona resuelta en
+cada respuesta— y para cuando no hay contexto. En `api/` no se usa.

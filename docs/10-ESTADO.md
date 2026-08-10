@@ -200,11 +200,11 @@ vivas, sin usarse:
 - **La bandeja de sugerencias se borró** pero la clave `sugerencias` sigue en los blobs de
   localStorage de cada usuario. Se dejó de leer, no se borró: lo que el equipo había mandado sigue
   ahí si algún día hace falta.
-- **`closer_conexiones` es un almacén de credenciales paralelo y muerto.** La escribe y la lee solo
-  `api/closer/conexiones.ts`; `env.ts` no la consulta nunca, así que un admin podía guardar ahí su
-  calendario, ver el éxito, y nada lo leía. Es el mismo modo de fallar que tenían los prompts. Las
-  credenciales de verdad viven en `closer_org_config` y se editan en Ajustes › Credenciales — ese
-  panel y esa tabla habría que borrarlos.
+- ~~**`closer_conexiones` es un almacén de credenciales paralelo y muerto.**~~ **Resuelto el
+  2026-08-08** (migración `036`): se borraron la tabla, `api/closer/conexiones.ts` y sus tres
+  envoltorios en `src/lib/api.ts`. Tenía cero filas y cero lectores —`env.ts` no la consultaba
+  nunca— así que un admin podía guardar ahí su calendario, ver el éxito y que nada lo leyera. Las
+  credenciales viven en `closer_org_config`, cifradas y por empresa.
 - **`gerencia` en `settingsStore`** conserva el nombre viejo del módulo. **No renombrar**: es una
   clave de nivel 1 del JSON guardado, y renombrarla sin shim borra el objetivo de facturación de
   cada usuario — en silencio, porque el fallback no falla, sustituye.

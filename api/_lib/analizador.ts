@@ -58,7 +58,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { botAtendiendo, TAGS } from "../../src/lib/ghl/contrato.js";
 import { ETIQUETA_AUTOR, type AutorMensaje } from "../../src/lib/ghl/autoria.js";
-import { ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { formateador } from "../../src/lib/fechas.js";
 import { autorDeMensajeGhl } from "./autoria.js";
 import { env } from "./env.js";
 import { ghl } from "./ghl/index.js";
@@ -672,14 +672,25 @@ export interface MensajeClasificado {
   sinTexto: boolean;
 }
 
-const partesFechaHora = new Intl.DateTimeFormat("es-PE", {
-  timeZone: ZONA_HORARIA_ORG,
-  day: "2-digit",
-  month: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  hour12: false,
-});
+/**
+ * El sello va en la zona de la EMPRESA, no en la de Lima.
+ *
+ * Era un `const` a nivel de modulo, y ahi estaba el problema: el modulo se carga una vez por
+ * instancia y esa instancia audita conversaciones de varias empresas, asi que la zona de la
+ * primera quedaba congelada para todas. Estos sellos los lee el modelo para comparar horas entre
+ * lineas: una empresa en otra zona recibia la conversacion con los horarios corridos y el
+ * veredicto se calculaba sobre eso. `formateador()` memoiza por zona, asi que se resuelve por
+ * llamada sin volver a construir el objeto.
+ */
+const partesFechaHora = () =>
+  formateador("es-PE", {
+    timeZone: env.zonaHoraria(),
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
 
 /**
  * `dd/MM HH:mm` en la zona de la org, compuesto y rellenado a mano.
@@ -691,7 +702,7 @@ const partesFechaHora = new Intl.DateTimeFormat("es-PE", {
  * Del formateador se usa solo la conversión de zona horaria, que es lo que sí hace bien.
  */
 function selloDeTiempo(d: Date): string {
-  const p = Object.fromEntries(partesFechaHora.formatToParts(d).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(partesFechaHora().formatToParts(d).map((x) => [x.type, x.value]));
   const dd = (v: string | undefined) => String(v ?? "").padStart(2, "0");
   return `${dd(p.day)}/${dd(p.month)} ${dd(p.hour)}:${dd(p.minute)}`;
 }

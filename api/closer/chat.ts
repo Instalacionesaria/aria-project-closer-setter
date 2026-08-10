@@ -8,7 +8,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { formateador } from "../../src/lib/fechas.js";
 import { ventanaWhatsapp } from "../../src/lib/whatsapp.js";
 import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
@@ -58,9 +58,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         text: m.body,
         outgoing: m.direccion === "outbound",
         type: "whatsapp",
-        date: new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA_ORG }).format(d),
-        time: new Intl.DateTimeFormat("es-PE", {
-          timeZone: ZONA_HORARIA_ORG,
+        date: formateador("en-CA", { timeZone: env.zonaHoraria() }).format(d),
+        time: formateador("es-PE", {
+          timeZone: env.zonaHoraria(),
           hour: "2-digit",
           minute: "2-digit",
           hour12: false,

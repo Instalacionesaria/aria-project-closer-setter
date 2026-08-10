@@ -38,7 +38,8 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { hoyISO, ZONA_HORARIA_ORG } from "../src/lib/fechas.js";
+import { formateador, hoyISO } from "../src/lib/fechas.js";
+import { env } from "./_lib/env.js";
 import { offsetOrg } from "./_lib/citas.js";
 import { db, hoyOrg } from "./_lib/repo.js";
 import { activar } from "./_lib/credenciales.js";
@@ -49,7 +50,7 @@ type Periodo = "este_mes" | "mes_pasado" | "ultimos_3_meses";
 
 /** Fecha civil (YYYY-MM-DD) de un timestamp, en la zona de la empresa. */
 function diaOrg(iso: string): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA_ORG }).format(new Date(iso));
+  return formateador("en-CA", { timeZone: env.zonaHoraria() }).format(new Date(iso));
 }
 
 /**
@@ -261,7 +262,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       periodo,
       etiqueta,
       rango: { desde, hasta },
-      zonaHoraria: ZONA_HORARIA_ORG,
+      zonaHoraria: env.zonaHoraria(),
 
       embudo: {
         entraron: universo.length,

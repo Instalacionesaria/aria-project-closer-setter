@@ -21,7 +21,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { hoyISO, sumarDias, ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { hoyISO, sumarDias } from "../../src/lib/fechas.js";
 import { fechaHoraOrg, offsetOrg, sincronizarCitas } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
 import { ghl } from "../_lib/ghl/index.js";
@@ -129,7 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       hasta: ultimo,
       days: dias,
       calendarId: env.ghlCalendarioPorDefecto() ?? null,
-      zonaHoraria: ZONA_HORARIA_ORG,
+      zonaHoraria: env.zonaHoraria(),
       ghlModo: ghl().modo,
       fuente: refresco ? "ghl+cache" : "cache",
       count: citas.length,

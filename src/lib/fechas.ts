@@ -21,30 +21,76 @@
  */
 
 /**
- * Zona horaria de la organización. UTC-5 fijo, sin horario de verano — así que no hay
- * días de 23 o 25 horas y las diferencias en días son exactas.
+ * El **default** de zona horaria: el que se usa cuando no hay empresa de la cual leerla.
  *
- * Cuando exista `org_config` en la base, este valor se lee de ahí y esta constante pasa
- * a ser solo el default. Hasta entonces vive acá y en un solo lugar.
+ * ── Dejó de ser "la zona de la organización" (2026-08-08) ─────────────
+ *
+ * Nació como la zona única del producto, y su propio comentario anticipaba el cambio: *"cuando
+ * exista `org_config` en la base, este valor se lee de ahí y esta constante pasa a ser solo el
+ * default"*. `closer_org_config.zona_horaria` existe desde la `020` y `env.zonaHoraria()` la lee
+ * hace semanas — pero ocho archivos del backend seguían importando la constante, así que una
+ * empresa en Bogotá o en Ciudad de México recibía fechas de Lima. No fallaba: mostraba el día
+ * equivocado durante las últimas horas de su jornada, que es el bug que el encabezado de este
+ * archivo describe, ahora entre empresas.
+ *
+ * **En `api/` no se usa: ahí va `env.zonaHoraria()`**, que sale de la empresa activa. Acá queda
+ * para el browser —que no tiene contexto de empresa y recibe la zona resuelta en cada
+ * respuesta— y como fallback de `env.zonaHoraria()` cuando no hay contexto (un test, el arranque).
+ *
+ * UTC-5 fijo, sin horario de verano: no hay días de 23 ni de 25 horas, así que las diferencias en
+ * días son exactas.
  */
 export const ZONA_HORARIA_ORG = "America/Lima";
+
+/**
+ * Un `Intl.DateTimeFormat` por (locale, opciones), construido una sola vez.
+ *
+ * ── Por qué existe, y qué reemplaza ───────────────────────────────────
+ *
+ * Los formateadores estaban **izados a nivel de módulo** con `timeZone: ZONA_HORARIA_ORG`. Eso es
+ * lo correcto para el costo —construir un `Intl.DateTimeFormat` no es gratis y el auditor formatea
+ * un sello por mensaje— y lo incorrecto para el multi-empresa: un módulo se carga una vez por
+ * instancia de lambda y esa instancia atiende a varias empresas, así que la zona de la primera
+ * quedaba congelada para todas. Un `const` a nivel de módulo no puede depender del request.
+ *
+ * Bajarlos adentro de la función arreglaba la corrección y perdía el costo. Esto conserva las dos:
+ * la zona entra como argumento en cada llamada y el objeto se construye una sola vez por
+ * combinación distinta —que son un puñado, fijas en el código.
+ *
+ * La clave incluye las opciones porque dos formateadores de la misma zona con distinto esqueleto
+ * son objetos distintos; serializar el objeto es más barato que la construcción que evita.
+ */
+const formateadores = new Map<string, Intl.DateTimeFormat>();
+
+export function formateador(locale: string, opciones: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const clave = `${locale}|${JSON.stringify(opciones)}`;
+  let f = formateadores.get(clave);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, opciones);
+    formateadores.set(clave, f);
+  }
+  return f;
+}
 
 /** Fecha civil `YYYY-MM-DD`. Nunca lleva hora ni zona. */
 export type FechaISO = string;
 
-const FORMATO_ISO = new Intl.DateTimeFormat("en-CA", {
-  timeZone: ZONA_HORARIA_ORG,
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-});
-
 /**
- * El día que es HOY en la organización, sin importar dónde esté el browser.
+ * El día que es HOY en la empresa, sin importar dónde esté el browser.
  * `en-CA` es el locale que formatea como `YYYY-MM-DD`.
+ *
+ * `zona` es el segundo parámetro y no el primero por compatibilidad con los cuarenta llamadores
+ * que ya pasaban una fecha. En `api/` conviene pasar `env.zonaHoraria()`: los llamadores de allá
+ * usan esto **como fallback de `hoyOrg()`**, la función SQL que ya resuelve la zona de la empresa,
+ * y un fallback que cambia de zona horaria respecto de lo que reemplaza es un fallback que miente.
  */
-export function hoyISO(ahora: Date = new Date()): FechaISO {
-  return FORMATO_ISO.format(ahora);
+export function hoyISO(ahora: Date = new Date(), zona: string = ZONA_HORARIA_ORG): FechaISO {
+  return formateador("en-CA", {
+    timeZone: zona,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(ahora);
 }
 
 const dosDigitos = (n: number) => String(n).padStart(2, "0");

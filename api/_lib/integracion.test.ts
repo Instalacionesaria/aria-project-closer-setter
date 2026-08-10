@@ -39,6 +39,16 @@ const ORG_PRINCIPAL_ID = "00000000-0000-0000-0000-000000000001";
 /** Contacto de prueba, inexistente en GHL a propósito: nada que se le pueda enviar. */
 const CONTACTO = "integracion_test_no_existe_en_ghl";
 
+/**
+ * El closer con el que firma esta suite: Jorge Q., de la empresa principal.
+ *
+ * `registrarSeguimiento` dejo de aceptar `closerId` opcional (2026-08-08) justamente porque este
+ * uuid estaba escrito **dentro** de la libreria como default, firmando lo que registraba cualquier
+ * empresa. Aca es el valor correcto —la suite corre contra ARIA— y por eso vive aca, a la vista,
+ * en vez de aparecer por omision.
+ */
+const CLOSER_ARIA = "00000000-0000-0000-0000-0000000000c1";
+
 describeSi("integración — Supabase real, GHL en stub", () => {
   let db: typeof import("./repo").db;
   let registrarSeguimiento: typeof import("./seguimientos").registrarSeguimiento;
@@ -100,6 +110,7 @@ describeSi("integración — Supabase real, GHL en stub", () => {
     activar(credenciales);
     const r = await registrarSeguimiento({
       ghlContactId: CONTACTO,
+      closerId: CLOSER_ARIA,
       situacion: "dudando",
       modo: "manual",
       preset: "en_3_dias",
@@ -162,6 +173,7 @@ describeSi("integración — Supabase real, GHL en stub", () => {
     activar(credenciales);
     await registrarSeguimiento({
       ghlContactId: CONTACTO,
+      closerId: CLOSER_ARIA,
       situacion: "muy_interesado",
       modo: "automatico",
       idempotencyKey: `test-auto-${Date.now()}`,
@@ -242,10 +254,16 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
   }, 30_000);
 
   afterAll(async () => {
-    if (db) {
-      for (const t of ["closer_ghl_outbox", "closer_contacto_eventos", "closer_seguimientos", "closer_contacto_tarea"]) {
-        await db().from(t).delete().eq("ghl_contact_id", contactoId);
-      }
+    /**
+     * `activar()` acá por el mismo motivo que en cada `it`: usa `enterWith`, que muere con la
+     * continuación async del hook que lo llamó. Sin esta línea el hook tira "db() sin empresa
+     * activa" y **la limpieza no corre** — que en esta suite significa filas de prueba vivas en la
+     * base de producción y un contacto `@example.com` sin borrar en GHL. El `it` que falla se ve;
+     * un `afterAll` que falla deja basura.
+     */
+    activar(credenciales);
+    for (const t of ["closer_ghl_outbox", "closer_contacto_eventos", "closer_seguimientos", "closer_contacto_tarea"]) {
+      await db().from(t).delete().eq("ghl_contact_id", contactoId);
     }
     if (contactoId) await fetch(`${BASE}/contacts/${contactoId}`, { method: "DELETE", headers: cab() });
   }, 30_000);
@@ -263,6 +281,7 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
     activar(credenciales);
     const r = await registrarSeguimiento({
       ghlContactId: contactoId,
+      closerId: CLOSER_ARIA,
       situacion: "dudando",
       modo: "manual",
       preset: "en_3_dias",

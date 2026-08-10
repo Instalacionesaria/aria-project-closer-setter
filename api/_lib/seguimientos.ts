@@ -48,7 +48,6 @@ import { ghl } from "./ghl/index.js";
 import type { ResultadoGhl } from "./ghl/port.js";
 import { db, hoyOrg, orgActiva } from "./repo.js";
 
-const CLOSER_POR_DEFECTO = "00000000-0000-0000-0000-0000000000c1";
 /** Un solo closer mientras `zona_closer` sea territorio y no asignación (§50.7). */
 /**
  * Con quién se firma lo que escribe un camino de MÁQUINA.
@@ -497,7 +496,23 @@ export interface RegistrarSeguimientoInput {
   fechaPersonalizada?: string;
   nota?: string;
   idempotencyKey: string;
-  closerId?: string;
+  /**
+   * **El usuario que esta haciendo esto.** Obligatorio.
+   *
+   * -- Era opcional, con un default (2026-08-08) ----------------------
+   *
+   * Decia `closerId?: string` y caia a una constante del codigo: el uuid `...0000c1`, o sea
+   * "Jorge Q." de ARIA, de cuando el producto tenia un closer y una empresa. La consecuencia real:
+   * **ninguno de los tres endpoints lo pasaba**, asi que todo seguimiento y todo Avanzar --del
+   * closer y del setter, de cualquier empresa-- se firmaba con ese uuid. `cerrado_por`,
+   * `creado_por`, `completada_por` y `autor_usuario_id` apuntaban a una persona de otra empresa, y
+   * no fallaba nada: la FK es al id solo, no al par `(org_id, id)`.
+   *
+   * No habia dano en produccion --`closer_seguimientos` estaba en cero cuando se reviso-- asi que
+   * se cierra antes de que exista una fila que haya que corregir a mano. Obligatorio y sin default:
+   * si manana aparece un llamador nuevo, no compila hasta que diga quien es.
+   */
+  closerId: string;
   /** Quién lo registra. Del endpoint sale `ctx.nombre`; sin él se firma como `Sistema`. */
   autor?: string;
   /**
@@ -520,7 +535,7 @@ export interface ResultadoRegistro {
 }
 
 export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Promise<ResultadoRegistro> {
-  const closerId = input.closerId ?? CLOSER_POR_DEFECTO;
+  const closerId = input.closerId;
   const fechaObjetivo = resolverFechaObjetivo({ ...input, closerId });
   const esAutomatico = input.modo === "automatico";
 
@@ -601,7 +616,8 @@ export interface RegistrarResultadoInput {
   /** Texto exacto que se escribe en el Historial. */
   textoEvento: string;
   idempotencyKey: string;
-  closerId?: string;
+  /** El usuario que registra. Obligatorio, igual que en `RegistrarSeguimientoInput`. */
+  closerId: string;
   /** Quién lo registra. Del endpoint sale `ctx.nombre`; sin él se firma como `Sistema`. */
   autor?: string;
   /** `closer` por defecto. Ver `RegistrarSeguimientoInput.rol`. */
@@ -643,7 +659,7 @@ export interface ResultadoRegistroAvanzar {
 export async function registrarResultadoAvanzar(
   input: RegistrarResultadoInput,
 ): Promise<ResultadoRegistroAvanzar> {
-  const closerId = input.closerId ?? CLOSER_POR_DEFECTO;
+  const closerId = input.closerId;
   const ahora = new Date().toISOString();
   const advertencias: string[] = [];
 

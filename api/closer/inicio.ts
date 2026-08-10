@@ -16,16 +16,16 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { hoyISO, ZONA_HORARIA_ORG } from "../../src/lib/fechas.js";
+import { formateador, hoyISO } from "../../src/lib/fechas.js";
 import { offsetOrg } from "../_lib/citas.js";
 import { env } from "../_lib/env.js";
 import { db, hoyOrg } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
-/** Fecha civil (YYYY-MM-DD) de un timestamp, en la zona de la organización. */
-function diaLima(iso: string): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: ZONA_HORARIA_ORG }).format(new Date(iso));
+/** Fecha civil (YYYY-MM-DD) de un timestamp, en la zona de la EMPRESA activa. */
+function diaOrg(iso: string): string {
+  return formateador("en-CA", { timeZone: env.zonaHoraria() }).format(new Date(iso));
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -45,7 +45,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const inicioMesIso = `${hoy.slice(0, 7)}-01`;
     const desde = `${inicioMesIso}T00:00:00${offsetOrg(inicioMesIso)}`;
     const hasta = `${hoy}T23:59:59${offsetOrg(hoy)}`;
-    const nombreMes = new Intl.DateTimeFormat("es-PE", { timeZone: ZONA_HORARIA_ORG, month: "long" }).format(
+    const nombreMes = formateador("es-PE", { timeZone: env.zonaHoraria(), month: "long" }).format(
       new Date(`${hoy}T12:00:00Z`),
     );
 
@@ -94,10 +94,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const noShowPorContactoDia = new Set(
       (avances ?? [])
         .filter((a) => a.salida === "no_show")
-        .map((a) => `${a.ghl_contact_id}:${diaLima(a.created_at)}`),
+        .map((a) => `${a.ghl_contact_id}:${diaOrg(a.created_at)}`),
     );
     const ocurridas = pasadas.filter(
-      (c) => !noShowPorContactoDia.has(`${c.ghl_contact_id}:${diaLima(c.fecha_hora)}`),
+      (c) => !noShowPorContactoDia.has(`${c.ghl_contact_id}:${diaOrg(c.fecha_hora)}`),
     ).length;
 
     /**
@@ -125,7 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       comisionPct,
       comisionReal: comisionPct !== null ? Math.round(cashCollected * (comisionPct / 100)) : null,
       rango: { desde: inicioMesIso, hasta: hoy },
-      zonaHoraria: ZONA_HORARIA_ORG,
+      zonaHoraria: env.zonaHoraria(),
       ghlModo: env.ghlModo(),
       cashCollected,
       ventas: ventas.length,

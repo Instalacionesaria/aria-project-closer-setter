@@ -108,7 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (resultado === "seguimiento") {
-      return await registrarSalidaSeguimiento({ res, campos, texto, ghlContactId, idempotencyKey, nota, def, autor: ctx.nombre });
+      return await registrarSalidaSeguimiento({ res, campos, texto, ghlContactId, idempotencyKey, nota, def, autor: ctx.nombre, usuarioId: ctx.usuarioId });
     }
     return await registrarOtraSalida({
       res,
@@ -120,6 +120,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       resultado: resultado as ResultadoSinSeguimiento,
       def,
       autor: ctx.nombre,
+      usuarioId: ctx.usuarioId,
     });
   } catch (e) {
     if (e instanceof SeguimientoInvalidoError) return malo(res, e.message, e.codigo);
@@ -139,10 +140,14 @@ async function registrarSalidaSeguimiento(args: {
   idempotencyKey: string;
   nota?: string;
   def: ResultadoDef;
-  /** Quién lo registra: `ctx.nombre`. Explícito, para no volver a firmar con una constante. */
+  /**
+   * Quien lo registra: `ctx.nombre` para el historial y `ctx.usuarioId` para las columnas que
+   * apuntan a una persona. Los dos explicitos, para no volver a firmar con una constante.
+   */
   autor: string;
+  usuarioId: string;
 }) {
-  const { res, texto, ghlContactId, idempotencyKey, nota, def, autor } = args;
+  const { res, texto, ghlContactId, idempotencyKey, nota, def, autor, usuarioId } = args;
 
   const situacion = texto("situacion");
   const modo = texto("modo");
@@ -179,6 +184,7 @@ async function registrarSalidaSeguimiento(args: {
   const r = await registrarSeguimiento({
     // Quien lo registra es quien tiene la sesión, no un nombre fijo del código.
     autor,
+    closerId: usuarioId,
     ghlContactId,
     situacion: situacion as SituacionSeguimiento,
     modo: modo as ModoSeguimiento,
@@ -219,9 +225,11 @@ async function registrarOtraSalida(args: {
   nota?: string;
   resultado: ResultadoSinSeguimiento;
   def: ResultadoDef;
+  /** `ctx.nombre` para el historial; `ctx.usuarioId` para las columnas que apuntan a la persona. */
   autor: string;
+  usuarioId: string;
 }) {
-  const { res, campos, texto, ghlContactId, idempotencyKey, nota, resultado, def, autor } = args;
+  const { res, campos, texto, ghlContactId, idempotencyKey, nota, resultado, def, autor, usuarioId } = args;
 
   /* ── Monto ── */
   let monto: number | undefined;
@@ -273,6 +281,7 @@ async function registrarOtraSalida(args: {
 
   const r = await registrarResultadoAvanzar({
     autor,
+    closerId: usuarioId,
     ghlContactId,
     resultado,
     subcategoria,

@@ -15,7 +15,7 @@ import type { CallOrigin, CallRecord, Sentimiento } from "./closerStore";
 // Con extensión `.js` aunque sea un `.ts` y aunque el resto de `src/` no la use: este módulo
 // lo importan funciones de `api/`, donde un import sin extensión revienta en runtime con
 // `FUNCTION_INVOCATION_FAILED` sin decir cuál módulo. Vite lo resuelve igual.
-import { ZONA_HORARIA_ORG } from "./fechas.js";
+import { formateador, ZONA_HORARIA_ORG } from "./fechas.js";
 
 /* ────────────────────────── El payload, como llega ────────────────────────── */
 
@@ -224,14 +224,25 @@ const SENTIMIENTO_ASSISTABLE: Record<string, Sentimiento> = {
   negative: "negativo",
 };
 
-const PARTES_FECHA = new Intl.DateTimeFormat("es-PE", {
-  timeZone: ZONA_HORARIA_ORG,
+/**
+ * ── La zona entra por parámetro, no por constante (2026-08-08) ────────
+ *
+ * Este archivo vive en `src/` pero **solo corre en el servidor**: sus dos consumidores son
+ * `api/closer/llamadas.ts` y `api/webhooks/llamada.ts`. Así que la fecha de una llamada tiene que
+ * salir en la zona de la empresa, igual que el resto del backend.
+ *
+ * Lo que no puede hacer es importar `api/_lib/env.js`: sería una dependencia de `src/` hacia `api/`,
+ * y este módulo lo consume además un test de `src/`. La zona viaja como argumento, con el default
+ * para el único llamador que no tiene empresa activa —el test— y `env.zonaHoraria()` desde los dos
+ * endpoints. El default es explícito y no un descuido.
+ */
+const OPCIONES_FECHA = {
   day: "2-digit",
   month: "short",
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-});
+} as const;
 
 /**
  * `06 ago 19:44`.
@@ -243,11 +254,13 @@ const PARTES_FECHA = new Intl.DateTimeFormat("es-PE", {
  * Lleva la hora, no solo el día: un agente de voz reintenta varias veces la misma jornada, y
  * tres filas que dicen "06 ago" son indistinguibles entre sí.
  */
-export function fechaDeLlamada(iso: string | null): string {
+export function fechaDeLlamada(iso: string | null, zona: string = ZONA_HORARIA_ORG): string {
   if (!iso) return "Sin fecha";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "Sin fecha";
-  const p = Object.fromEntries(PARTES_FECHA.formatToParts(d).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(
+    formateador("es-PE", { timeZone: zona, ...OPCIONES_FECHA }).formatToParts(d).map((x) => [x.type, x.value]),
+  );
   const dd = (v: string | undefined) => String(v ?? "").padStart(2, "0");
   const mes = String(p.month ?? "").replace(".", "");
   return `${dd(p.day)} ${mes} ${dd(p.hour)}:${dd(p.minute)}`;
@@ -273,11 +286,11 @@ export function resultadoDeLlamada(contestada: boolean, motivo: string | null): 
  * grabación y sentimiento `neutral`; mandarlos sería ofrecer "escuchar el audio" de una
  * llamada que nadie atendió y un veredicto emocional sobre un silencio.
  */
-export function aCallRecord(f: FilaLlamada): CallRecord {
+export function aCallRecord(f: FilaLlamada, zona: string = ZONA_HORARIA_ORG): CallRecord {
   return {
     id: f.call_id,
     origin: f.origen,
-    fecha: fechaDeLlamada(f.inicio_el),
+    fecha: fechaDeLlamada(f.inicio_el, zona),
     duracion: duracionLlamada(f.duracion_segundos),
     contestada: f.contestada,
     resultado: resultadoDeLlamada(f.contestada, f.motivo_desconexion),

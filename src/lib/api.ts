@@ -1088,110 +1088,23 @@ export function fetchPerfil(ghlContactId: string): Promise<PerfilResponse> {
   return pedir<PerfilResponse>(porContacto(`/api/closer/perfil`, ghlContactId));
 }
 
-/* ================================================================== */
-/* Conexiones (Ajustes > credenciales)                                 */
-/* ================================================================== */
-
-export type ConexionCampo = "anthropicApiKey" | "ghlPit" | "ghlLocationId" | "ghlCalendarId";
+/* ==================================================================== */
+/* Conexiones (Ajustes > credenciales) — se fue el 2026-08-08            */
+/* ==================================================================== */
 
 /**
- * De dónde sale hoy la credencial.
+ * `fetchConexiones` / `guardarConexiones` / `borrarConexion` y sus siete tipos se eliminaron con
+ * `/api/closer/conexiones` y la tabla `closer_conexiones` (migración 036).
  *
- * `entorno` NO es lo mismo que `ninguno`: la app funciona perfectamente contra las variables de
- * Vercel, solo que cambiarlas exige un deploy. Mostrar "no configurada" en ese caso es el único
- * malentendido que este campo existe para evitar.
- */
-export type OrigenCredencial = "base" | "entorno" | "ninguno";
-
-/**
- * Estado de una credencial SECRETA.
+ * Era el panel de credenciales **de antes del multi-empresa**: una fila global, y su propio
+ * encabezado admitía que *"nadie las lee todavía: el backend sigue tomando todo de
+ * `process.env`"*. Nunca dejó de ser cierto. Lo reemplazó `/api/admin/configuracion`, que guarda
+ * las mismas cuatro credenciales **por empresa y cifradas con AES-256-GCM** (§5.1), y que sí las
+ * lee: `credenciales.ts` las resuelve en cada request.
  *
- * **No tiene `valor`, y esa ausencia es el punto.** El endpoint nunca devuelve el valor entero
- * de un secreto —la consulta selecciona solo las columnas `*_ultimos4`, así que el completo ni
- * siquiera entra al proceso del servidor— y el tipo replica esa garantía acá: `credenciales
- * .ghlPit.valor` no compila, con lo cual ningún componente puede pedirlo por accidente ni
- * "por si acaso". No es una precaución genérica: la app renderiza conversaciones de GHL en el
- * mismo origen, así que todo lo que llega al browser hay que darlo por leíble, y un PIT
- * filtrado es la subcuenta entera del cliente.
- *
- * (En el JSON el campo llega igual, con `null`. Se omite del tipo a propósito: leerlo no
- * aportaría nada y declararlo invitaría a intentarlo.)
+ * O sea que había dos escrituras posibles para el mismo PIT, una de las cuales no tenía efecto.
+ * Ver `settingsStore.tsx` y `docs/09-DECISIONES.md`.
  */
-export interface EstadoSecreto {
-  configurada: boolean;
-  /** Últimos 4 caracteres. `null` si no está configurada, o si sale del entorno. */
-  ultimos4: string | null;
-  origen: OrigenCredencial;
-}
-
-/**
- * Estado del único campo que NO es un secreto: el id del modelo (`claude-opus-5`). Es un
- * identificador público y la UI necesita mostrar cuál está puesto, así que este sí trae `valor`
- * entero — y por lo mismo el servidor rechaza que le peguen una key ahí.
- */
-/**
- * `claudeModel: EstadoModelo` se fue el 2026-08-08, junto con el tipo. El modelo del auditor es
- * constante del código desde la `028` y este panel prometía configurarlo por empresa.
- */
-export interface Credenciales {
-  anthropicApiKey: EstadoSecreto;
-  ghlPit: EstadoSecreto;
-  ghlLocationId: EstadoSecreto;
-  ghlCalendarId: EstadoSecreto;
-}
-
-export interface ConexionesResponse {
-  ok: boolean;
-  /** ISO de la última escritura, o `null` si nunca se guardó nada en la base. */
-  actualizadoEl: string | null;
-  credenciales: Credenciales;
-}
-
-export interface GuardarConexionesResponse extends ConexionesResponse {
-  /** Qué campos se escribieron REALMENTE, releídos de la base después del guardado. */
-  guardados: ConexionCampo[];
-}
-
-export interface BorrarConexionResponse extends ConexionesResponse {
-  campo: ConexionCampo;
-  /** `false` = no había nada guardado que borrar. Ver `motivo` antes de decir "listo". */
-  borrado: boolean;
-  /** Explicación cuando `borrado` es `false` (ej. la credencial vive en el entorno). */
-  motivo?: string;
-}
-
-/**
- * Los campos a guardar. Los ausentes NO se tocan: el servidor arma el `on conflict do update`
- * solo con lo que viaja.
- *
- * Un `""` NO borra — el servidor lo rechaza con 400 a propósito, para que guardar la pantalla
- * de Ajustes con un input vacío no deje la app sin PIT. Borrar es `borrarConexion()`.
- */
-export type GuardarConexionesBody = Partial<Record<ConexionCampo, string>>;
-
-/** Estado de cada credencial. De los secretos, como mucho los últimos 4. */
-export function fetchConexiones(): Promise<ConexionesResponse> {
-  return pedir<ConexionesResponse>(`/api/closer/conexiones`);
-}
-
-/** Guarda los campos que vengan. Devuelve el estado releído de la base, no lo que se creyó guardar. */
-export function guardarConexiones(body: GuardarConexionesBody): Promise<GuardarConexionesResponse> {
-  return pedir<GuardarConexionesResponse>(`/api/closer/conexiones`, conJson(body));
-}
-
-/**
- * Borra una credencial puntual.
- *
- * Va por querystring y no por cuerpo: el handler acepta las dos formas, pero que un DELETE con
- * body llegue parseado depende del parser de la plataforma, y eso no se controla desde acá. El
- * nombre del campo es un literal de la unión, no un dato del usuario — igual se escapa.
- */
-export function borrarConexion(campo: ConexionCampo): Promise<BorrarConexionResponse> {
-  return pedir<BorrarConexionResponse>(`/api/closer/conexiones?campo=${encodeURIComponent(campo)}`, {
-    method: "DELETE",
-  });
-}
-
 /* ================================================================== */
 /* Autenticación (ESPEC-MULTIEMPRESA §3 y §4)                          */
 /* ================================================================== */

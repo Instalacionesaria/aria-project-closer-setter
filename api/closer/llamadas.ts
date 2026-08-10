@@ -22,6 +22,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { db } from "../_lib/repo.js";
 import { aCallRecord, type FilaLlamada } from "../../src/lib/assistable.js";
+import { env } from "../_lib/env.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -79,7 +80,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const ordenadas = filas
     .slice()
     .sort((a, b) => cuando(b).localeCompare(cuando(a)))
-    .map(aCallRecord);
+    /**
+     * Con lambda y no `.map(aCallRecord)`: `Array.map` pasa `(elemento, índice, array)`, así que
+     * point-free le entregaría el índice como zona horaria. TypeScript lo agarra, pero el
+     * siguiente parámetro opcional que gane esta función puede no tener un tipo que lo delate.
+     */
+    .map((f) => aCallRecord(f, env.zonaHoraria()));
 
   return res.status(200).json({
     ok: true,
