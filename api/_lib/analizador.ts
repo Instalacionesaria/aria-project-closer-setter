@@ -156,6 +156,13 @@ export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = ["appointment-flow-ai
  * meterle ids de voz habría mandado al cron amarillo a buscar mensajes de un agente que no
  * escribe mensajes. La voz entra y sale de acá con su propio flag.
  */
+/**
+ * La ventana que miran las vitrinas del auditor. Vive acá y no en cada endpoint para que el
+ * contador de la tarjeta, la lista de análisis y las alertas hablen del mismo período — tres
+ * constantes iguales son tres constantes que un día no lo son.
+ */
+export const DIAS_VENTANA_AUDITOR = 30;
+
 export const AGENTES_CON_AUDITOR: readonly AgenteAuditableId[] = [
   ...AUDITORES_ACTIVOS,
   ...(AUDITOR_VOZ_HABILITADO ? AGENTES_VOZ : []),
@@ -387,13 +394,19 @@ EL NIVEL DEL VEREDICTO — verde, amarillo o rojo
 Todo análisis auditable termina en UNO de estos tres. No es opcional y no hay un cuarto.
 
   verde ...... el agente trabajó bien. Ningún criterio se cumplió.
-  amarillo ... ningún fallo crítico, pero hay algo observable. Hallazgos de severidad
-               amarilla, sin corrección de prompt.
+  amarillo ... hay AL MENOS UN HALLAZGO de severidad amarilla. Es un hecho contable, no una
+               impresión: si no podés nombrar el hallazgo con su cita y su error_code, no es
+               amarillo.
   rojo ....... al menos un criterio se cumplió con la gravedad suficiente para pedir que un
                humano intervenga. Lleva "requiere_intervencion=true".
 
 La coherencia es OBLIGATORIA y la verifica el código: rojo ⟺ "requiere_intervencion=true".
 Un veredicto verde con hallazgos, o un rojo sin intervención, se rechaza.
+
+UNA OBSERVACIÓN NO JUSTIFICA AMARILLO. Si lo que viste merece amarillo, entonces es un hallazgo
+y va con su cita textual y su error_code. Si no llega a hallazgo, va en "observaciones" y el nivel
+sigue siendo verde. No hay tercera opción, y no se sube el nivel "por las dudas": inflar amarillos
+hace que el técnico deje de mirarlos.
 
 EL VERDE NO ES "NO ENCONTRÉ NADA". Es una afirmación medida, y por eso hay que sostenerla:
 
@@ -409,6 +422,41 @@ elogio no es lo mismo que encontrar una falla. Lo que NO se hace es inventar un 
 
 En amarillo, "destacado" dice qué se puede mejorar y "evidencia" la línea que lo muestra.
 En rojo los dos van vacíos: para eso están el diagnóstico y la corrección de cada hallazgo.
+
+──────────────────────────────────────────────────────────────────────
+EL RESUMEN Y LAS OBSERVACIONES — SE LLENAN SIEMPRE
+──────────────────────────────────────────────────────────────────────
+
+Estos dos campos son el trabajo que le queda a un veredicto cuando NO hay nada que corregir. Un
+verde que solo dice "verde" no le sirve a nadie.
+
+"resumen": 2 a 4 frases, en español, contando QUÉ PASÓ en la conversación: quién habló, qué pidió
+el contacto, hasta dónde llegó el intercambio y cómo terminó. Es DESCRIPCIÓN, no juicio — no digas
+si estuvo bien o mal, eso lo dicen el nivel y los hallazgos. Se llena SIEMPRE, **incluso cuando
+auditable=false**: ahí es lo único que se puede decir, y es exactamente lo que hay que decir
+("la llamada duró 19 segundos: el agente saludó, el contacto respondió una palabra y se cortó").
+
+"observaciones": hasta 4, cada una un hecho concreto de ESTA conversación que valga saber y que NO
+sea un fallo imputable. Van vacías si de verdad no hay ninguna — inventarlas es peor que no
+tenerlas. Con auditable=false van vacías siempre: observar algo sobre una conversación que
+declaraste imposible de juzgar es juzgarla.
+
+Cada observación lleva:
+  · "etiqueta", una de estas cuatro:
+      cobertura_prompt · el prompt del agente pide algo que en esta conversación no ocurrió.
+                         Solo si recibiste el prompt: nombrá qué pedía y qué faltó.
+      ritmo ............ se cortó o se abandonó antes de que la conversación se desarrollara.
+      oportunidad ...... algo que el agente podía aprovechar y no aprovechó, sin llegar a fallo.
+      contexto ......... algo que conviene saber y que NO es responsabilidad del agente
+                         (el contacto tenía prisa, la línea se cortó, respondió otra persona).
+  · "texto", una frase concreta y específica de esta conversación. Nada de "podría mejorar".
+  · "cita", la línea EXACTA del transcript que la sostiene, o null si es sobre la conversación
+    entera (una duración, un corte, algo que NO pasó).
+
+La diferencia con un hallazgo, que es la que no hay que confundir: un hallazgo IMPUTA una falla al
+agente, exige cita textual y pide corregir el prompt. Una observación DESCRIBE. "No hizo las dos
+preguntas porque la llamada duró 19 segundos" es una observación; "no hace las preguntas de
+calificación nunca" es un hallazgo.
 
 ──────────────────────────────────────────────────────────────────────
 SENTIMIENTO DEL CONTACTO
@@ -557,6 +605,30 @@ const RUBRICAS: Record<Territorio, string> = {
  * Que un criterio de setter aparezca en un análisis de closer es imposible por otra vía — la
  * rúbrica que se le manda al modelo solo describe los siete de su territorio.
  */
+/**
+ * Las etiquetas de una OBSERVACIÓN. No son criterios y no pueden solaparse con ellos: una
+ * observación no imputa un fallo, así que reusar una palabra de `CRITERIOS` haría que el mismo
+ * hecho tuviera dos destinos con reglas opuestas y que el modelo eligiera cuál.
+ *
+ * Las cuatro sirven en chat y en voz, con el insumo de cada medio. `ritmo` es el ejemplo: en una
+ * llamada significa "se cortó antes de desarrollarse" y en un chat "abandonó el hilo a los dos
+ * mensajes". Se descartó `duracion` justamente porque solo existe en voz.
+ */
+export const ETIQUETAS_OBSERVACION = [
+  /** El prompt del agente pide algo que en esta conversación no ocurrió. */
+  "cobertura_prompt",
+  /** Se cortó o se abandonó antes de que la conversación pudiera desarrollarse. */
+  "ritmo",
+  /** Algo que el agente podía aprovechar y no aprovechó, sin llegar a ser un fallo. */
+  "oportunidad",
+  /** Algo de la conversación que conviene saber y que NO es responsabilidad del agente. */
+  "contexto",
+] as const;
+
+export type EtiquetaObservacion = (typeof ETIQUETAS_OBSERVACION)[number];
+
+const MAX_OBSERVACIONES = 4;
+
 const CRITERIOS = [
   // ── Closer: post-agenda ──
   "frustracion",
@@ -598,8 +670,31 @@ const ESQUEMA_VEREDICTO = {
       enum: ["", "sin_mensajes_del_agente", "mayormente_audio", "conversacion_muy_corta"],
     },
     nivel: { type: "string", enum: ["verde", "amarillo", "rojo"] },
+    /**
+     * Qué pasó en la conversación. Se pide SIEMPRE, incluso cuando `auditable` es false — ahí es
+     * lo único que hay que decir, y es lo que responde "la llamada duró 19 segundos".
+     */
+    resumen: { type: "string" },
     destacado: { type: "string" },
     evidencia: { type: "string" },
+    /**
+     * Notas que NO son hallazgos: sin `error_code`, sin patrón, sin corrección de prompt, y **sin
+     * efecto sobre el nivel**. Es lo que permite que un verde diga algo más que "no encontré nada".
+     */
+    observaciones: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          etiqueta: { type: "string", enum: [...ETIQUETAS_OBSERVACION] },
+          texto: { type: "string" },
+          /** La línea del transcript que la sostiene, o `null` si es un hecho de la conversación entera. */
+          cita: { type: ["string", "null"] },
+        },
+        required: ["etiqueta", "texto", "cita"],
+        additionalProperties: false,
+      },
+    },
     requiere_intervencion: { type: "boolean" },
     motivo_intervencion: { type: "string" },
     criterio_principal: { type: "string", enum: [...CRITERIOS] },
@@ -647,6 +742,7 @@ const ESQUEMA_VEREDICTO = {
     "auditable",
     "motivo_no_auditable",
     "nivel",
+    "resumen",
     "destacado",
     "evidencia",
     "requiere_intervencion",
@@ -654,6 +750,7 @@ const ESQUEMA_VEREDICTO = {
     "criterio_principal",
     "sentimiento",
     "hallazgos",
+    "observaciones",
   ],
   additionalProperties: false,
 } as const;
@@ -678,6 +775,20 @@ export interface Hallazgo {
   evidenciaIa: string;
 }
 
+/**
+ * Una observación: algo que vale decir y que NO es un fallo del agente.
+ *
+ * La diferencia con `Hallazgo` no es de grado sino de naturaleza: un hallazgo imputa una falla,
+ * exige cita textual, genera un patrón (`error_code`) y pide corregir el prompt. Una observación
+ * describe. Por eso no tiene `error_code` ni `correccion` — y por eso no mueve el nivel.
+ */
+export interface Observacion {
+  etiqueta: EtiquetaObservacion;
+  texto: string;
+  /** `null` cuando la observación es sobre la conversación entera y no sobre una línea. */
+  cita: string | null;
+}
+
 export interface Veredicto {
   auditable: boolean;
   motivoNoAuditable: string;
@@ -693,6 +804,11 @@ export interface Veredicto {
    * equivocarse y el CHECK de la `031` no perdona.
    */
   nivel: NivelVeredicto | null;
+  /**
+   * Qué pasó en la conversación, en 2-4 frases. **Descripción, no juicio** — por eso se guarda
+   * también cuando `auditable` es false, que es justo donde es lo único que se puede decir.
+   */
+  resumen: string;
   /** Qué estuvo bien (verde) o qué mejorar (amarillo). Vacío si no se pudo señalar nada. */
   destacado: string;
   /** La línea del transcript que sostiene el `destacado`. Sin ella el destacado no se guarda. */
@@ -703,6 +819,11 @@ export interface Veredicto {
   /** Del CONTACTO, no de la IA. Alimenta el panel de tres tramos de Auditoría de Agentes. */
   sentimiento: Sentimiento;
   hallazgos: Hallazgo[];
+  /**
+   * Vacío significa "se miró y no hubo ninguna" — un hecho medido. La ausencia de medición se
+   * expresa en la columna con `null`, y de eso se encarga `guardarAnalisis`.
+   */
+  observaciones: Observacion[];
 }
 
 /* ================================================================== */
@@ -939,7 +1060,20 @@ export async function evaluarConversacion(opts: {
      * empresas. Ver el comentario de `MODELO` arriba: dejó de ser configurable a propósito.
      */
     model: modelo,
-    max_tokens: 8000,
+    /**
+     * ── 16000 y no 8000 (2026-08-10) ──────────────────────────────────
+     *
+     * El techo cubre **pensamiento + texto**, y con `effort: high` el pensamiento se lleva la
+     * mayor parte. Ya se rompió una vez por esto (ver el docstring de arriba): el JSON salió
+     * cortado, `stop_reason` fue `max_tokens` y el análisis **se perdió entero con la inferencia
+     * ya pagada** — el peor final posible.
+     *
+     * El veredicto acaba de ganar `resumen` (2-4 frases) y hasta 4 `observaciones`, sobre un
+     * esquema donde `diagnostico` y `correccion` no tienen tope de largo. Subir el techo va en el
+     * MISMO commit que los campos nuevos: dejarlo en 8000 era volver a pagar el mismo error a
+     * sabiendas.
+     */
+    max_tokens: 16000,
     system: [
       { type: "text" as const, text: opts.encuadre?.contexto ?? TERRITORIOS[opts.territorio].contexto },
       {
@@ -1027,6 +1161,25 @@ ${opts.patrones}
         .slice(0, MAX_HALLAZGOS)
     : [];
 
+  /**
+   * Las observaciones se descartan una por una si no se reconocen, igual que los hallazgos con un
+   * `error_code` inválido: una etiqueta inventada no puede llegar a la base, y tirar la
+   * observación es mejor que tirar el análisis.
+   *
+   * Con `auditable: false` quedan vacías por construcción — el CHECK de la `039` lo exige y la
+   * rúbrica lo pide, pero acá no se confía en ninguno de los dos.
+   */
+  const observaciones: Observacion[] = auditable
+    ? ((crudo.observaciones ?? []) as any[])
+        .map((o) => ({
+          etiqueta: String(o?.etiqueta ?? "") as EtiquetaObservacion,
+          texto: String(o?.texto ?? "").trim().slice(0, 400),
+          cita: typeof o?.cita === "string" && o.cita.trim() !== "" ? o.cita.trim().slice(0, 300) : null,
+        }))
+        .filter((o) => (ETIQUETAS_OBSERVACION as readonly string[]).includes(o.etiqueta) && o.texto !== "")
+        .slice(0, MAX_OBSERVACIONES)
+    : [];
+
   // Una conversación no auditable no puede pedir intervención: no se juzgó nada.
   const requiereIntervencion = auditable && Boolean(crudo.requiere_intervencion);
 
@@ -1066,6 +1219,8 @@ ${opts.patrones}
       auditable,
       motivoNoAuditable: String(crudo.motivo_no_auditable ?? ""),
       nivel,
+      // Se recorta pero NO se condiciona a `auditable`: es lo único que un no-auditable puede decir.
+      resumen: String(crudo.resumen ?? "").trim().slice(0, 1200),
       destacado: conRespaldo ? destacadoCrudo.slice(0, 240) : "",
       evidencia: conRespaldo ? evidenciaCruda.slice(0, 400) : "",
       requiereIntervencion,
@@ -1073,6 +1228,7 @@ ${opts.patrones}
       criterioPrincipal: CRITERIOS.includes(crudo.criterio_principal) ? crudo.criterio_principal : "ninguno",
       sentimiento: sentimientos.includes(crudo.sentimiento) ? crudo.sentimiento : "neutral",
       hallazgos,
+      observaciones,
     },
   };
 }
@@ -1152,6 +1308,13 @@ export async function guardarAnalisis(e: {
         // se guarda, porque nadie audita un elogio.
         destacado: e.veredicto.destacado || null,
         evidencia: e.veredicto.evidencia || null,
+        resumen: e.veredicto.resumen || null,
+        /**
+         * `null` = no se pidieron (no auditable); `[]` = se pidieron y no hubo ninguna. Los dos
+         * son hechos distintos y la `039` los declara — escribir `[]` siempre borraría la
+         * diferencia, que es la trampa que documenta `alarmas` un poco más abajo.
+         */
+        observaciones: e.veredicto.auditable ? e.veredicto.observaciones : null,
         criterio: e.veredicto.criterioPrincipal,
         motivo: e.veredicto.motivoIntervencion || null,
         sentimiento: e.veredicto.sentimiento,
@@ -1569,6 +1732,14 @@ export async function analizarYMarcar(
             motivoNoAuditable: "conversacion_muy_corta",
             // Sin juicio no hay nivel. Ver el comentario de `Veredicto.nivel`.
             nivel: null,
+            /**
+             * Vacíos los dos, y por el mismo motivo que `nivel: null`: esta fila no es un
+             * análisis, es la marca de dónde arrancar a contar. No hubo conversación que resumir
+             * ni nada que observar, y `guardarAnalisis` convierte el `""` en `null` y las
+             * observaciones en `null` (porque `auditable` es false). Inventar un resumen acá
+             * llenaría la vitrina de filas que dicen algo sobre nada.
+             */
+            resumen: "",
             destacado: "",
             evidencia: "",
             requiereIntervencion: false,
@@ -1576,6 +1747,7 @@ export async function analizarYMarcar(
             criterioPrincipal: "ninguno",
             sentimiento: "neutral",
             hallazgos: [],
+            observaciones: [],
           },
           iaEnCache: decision.iaAhora,
           promptHash: "linea_base",

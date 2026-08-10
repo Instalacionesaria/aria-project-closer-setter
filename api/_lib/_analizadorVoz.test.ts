@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { FilaLlamada } from "../../src/lib/assistable.js";
-import { CRITERIOS_CLOSER, CRITERIOS_SETTER } from "./analizador.js";
+import { CRITERIOS_CLOSER, CRITERIOS_SETTER, ETIQUETAS_OBSERVACION } from "./analizador.js";
 import { armarTranscriptVoz, hechosDeLlamada, RUBRICAS_VOZ, TERRITORIOS_VOZ, turnosValidos } from "./analizadorVoz.js";
 
 const fila = (p: Partial<FilaLlamada> = {}): FilaLlamada => ({
@@ -169,5 +169,45 @@ describe("RUBRICAS_VOZ · el molde compartido con el medio de voz", () => {
   it("la consecuencia de intervenir es la de voz: la llamada ya terminó", () => {
     expect(RUBRICAS_VOZ.closer).toContain("La llamada ya terminó");
     expect(RUBRICAS_VOZ.closer).not.toContain("le corta el bot");
+  });
+});
+
+describe("la sección de resumen y observaciones · el riesgo de inflar amarillos", () => {
+  /**
+   * El bloqueante que la revisión adversarial encontró antes de escribir esto: si la rúbrica pide
+   * llenar observaciones SIEMPRE y al mismo tiempo define amarillo como "hay algo observable", el
+   * modelo lee las dos frases juntas y devuelve amarillo con cero hallazgos. El efecto medible
+   * sería que el chip "N VERDES de M" baja el día del deploy sin que nada cambiara en los agentes.
+   *
+   * Estos dos tests fijan la redacción que lo evita.
+   */
+  it("amarillo se define como un HECHO contable, no como una impresión", () => {
+    for (const r of [RUBRICAS_VOZ.closer, RUBRICAS_VOZ.setter]) {
+      expect(r).toContain("hay AL MENOS UN HALLAZGO de severidad amarilla");
+      expect(r).not.toContain("ningún fallo crítico, pero hay algo observable");
+    }
+  });
+
+  it("dice explícitamente que una observación no justifica amarillo", () => {
+    expect(RUBRICAS_VOZ.closer).toContain("UNA OBSERVACIÓN NO JUSTIFICA AMARILLO");
+  });
+
+  it("pide el resumen incluso cuando no se pudo auditar — el caso de los 19 segundos", () => {
+    expect(RUBRICAS_VOZ.closer).toContain("incluso cuando");
+    expect(RUBRICAS_VOZ.closer).toContain("auditable=false");
+  });
+
+  it("las cuatro etiquetas de observación están en la rúbrica y ninguna repite un criterio", () => {
+    for (const e of ETIQUETAS_OBSERVACION) {
+      expect(RUBRICAS_VOZ.closer).toContain(e);
+      // Ninguna etiqueta puede ser también un criterio: el mismo hecho tendría dos destinos con
+      // reglas opuestas y el modelo elegiría cuál.
+      expect(CRITERIOS_CLOSER).not.toContain(`(${e})`);
+      expect(CRITERIOS_SETTER).not.toContain(`(${e})`);
+    }
+  });
+
+  it("con auditable=false la rúbrica ordena dejar las observaciones vacías", () => {
+    expect(RUBRICAS_VOZ.closer).toContain("Con auditable=false van vacías siempre");
   });
 });

@@ -358,8 +358,17 @@ Todo análisis auditable termina en **uno** de tres. No es opcional y no hay un 
 | Nivel | Qué significa | Qué produce |
 |---|---|---|
 | 🟢 `verde` | El agente trabajó bien | `destacado` + `evidencia`: qué hizo bien, con su cita. Sin corrección |
-| 🟡 `amarillo` | Sin fallo, pero mejorable | Hallazgos de severidad amarilla. **Sin** corrección de prompt |
+| 🟡 `amarillo` | **Al menos un hallazgo** de severidad amarilla | Los hallazgos, sin corrección de prompt |
 | 🔴 `rojo` | Fallo crítico | Diagnóstico + corrección de prompt citada contra el prompt de esa empresa |
+
+Y los **tres** traen `resumen` y `observaciones` (`039`) — ver abajo.
+
+> **Amarillo es un hecho contable, no una impresión** (redacción del 2026-08-10). Antes decía "sin
+> fallo, pero hay algo observable", y eso convivía mal con pedirle observaciones a todo veredicto:
+> el modelo leía las dos frases juntas y devolvía amarillo con cero hallazgos. El efecto no habría
+> sido un bug visible sino algo peor — el chip "N verdes de M" bajando el día del deploy sin que
+> nada cambiara en los agentes. Ahora la rúbrica dice: si no podés nombrar el hallazgo con su cita
+> y su `error_code`, no es amarillo.
 
 ### El verde se registra, y por eso hay que sostenerlo
 
@@ -371,6 +380,56 @@ Por eso el verde viene con `destacado` (qué hizo bien, concreto) y `evidencia` 
 respalda es la misma clase de dato que un hallazgo sin cita — y es peor, porque nadie audita un
 elogio. Si la conversación salió limpia pero no hay nada concreto que señalar, los dos quedan
 vacíos y el nivel sigue siendo verde: no encontrar un elogio no es encontrar una falla.
+
+### El resumen y las observaciones: lo que dice un verde
+
+Pedido de Fabio con un caso real: la primera llamada auditada salió verde y la pantalla no tenía
+nada que mostrar. El verde no era falso —el agente no hizo nada mal en 19 segundos— pero tampoco era
+todo lo que se podía decir.
+
+Desde la `039`, **todo** veredicto trae dos campos más:
+
+- **`resumen`** — qué pasó en la conversación, 2 a 4 frases. Es **descripción, no juicio**, y por
+  eso se escribe **incluso cuando `auditable` es false**: ahí es lo único que se puede decir, y es
+  exactamente lo que hay que decir ("la llamada duró 19 segundos: el agente saludó, el contacto
+  respondió una palabra y se cortó").
+- **`observaciones`** — hasta 4 notas concretas que **no son hallazgos**: sin `error_code`, sin
+  patrón, sin corrección de prompt, y **sin efecto sobre el nivel**. Cuatro etiquetas, que valen en
+  chat y en voz: `cobertura_prompt` (el prompt pide algo que no ocurrió), `ritmo` (se cortó o se
+  abandonó), `oportunidad` (algo que podía aprovechar y no aprovechó), `contexto` (algo que conviene
+  saber y no es responsabilidad del agente).
+
+La diferencia que no hay que confundir: **un hallazgo imputa, una observación describe.** "No hizo
+las dos preguntas porque la llamada duró 19 segundos" es una observación; "no hace las preguntas de
+calificación nunca" es un hallazgo, y lleva su corrección.
+
+Los tres estados de la columna están declarados, y el tercero es el que importa:
+
+| Valor | Qué significa |
+|---|---|
+| `null` | **No se pidieron.** Pasa con `auditable = false` y con las filas del carril amarillo |
+| `[]` | **Se pidieron y el auditor no vio ninguna.** Un hecho medido, distinto del anterior |
+| `[…]` | Las que vio |
+
+Un CHECK de la `039` impide observaciones sobre un análisis no auditable: observar algo de una
+conversación que el propio auditor declaró imposible de juzgar es juzgarla. Misma técnica que el
+`(nivel = 'rojo') = fallo` de la `031` — el estado inválido se vuelve inescribible.
+
+`max_tokens` subió a **16000** en el mismo commit, y no es un detalle suelto: el techo cubre
+pensamiento + texto, ya se había roto una vez por agregar campos de texto libre, y truncar cuesta el
+análisis **entero con la inferencia ya pagada**.
+
+### Dónde se ven
+
+En Auditoría de Agentes, el detalle de cada agente lista **todas las conversaciones auditadas** —
+verdes, amarillas, rojas y las que no se pudieron juzgar — y abre el veredicto completo de cada una
+(`GET /api/agentes/analisis`). Hasta el 2026-08-10 la pantalla mostraba solo hallazgos agrupados por
+patrón, así que un verde era literalmente invisible: la conversación mejor atendida era la única sin
+lugar donde aparecer.
+
+Esa lista **no filtra por `auditable`**, a diferencia de los contadores. Es deliberado y está escrito
+en la cabecera del endpoint: los contadores son métricas de calidad y un análisis que no juzgó nada
+no dice nada del agente; la lista es el registro de lo que el auditor miró.
 
 ### `nivel` manda; `fallo` es su proyección
 

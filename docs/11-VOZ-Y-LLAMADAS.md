@@ -131,7 +131,14 @@ al mismo endpoint y la vista no cambia.
   tres que hay cayeron en buzón, así que la forma de `transcript_object` (`{role, content}`) está
   validada solo contra un fixture sintético — la primera contestada es la prueba de fuego, y los
   turnos malformados se descartan con validación defensiva en vez de explotar.
-- **Reproducir el audio.** `grabacion_url` se guarda y viaja; el botón "Escuchar audio" del tab
-  todavía no tiene reproductor.
+- ~~**Reproducir el audio.**~~ El botón dejó de ser un `<button>` sin `onClick` (2026-08-10): ahora
+  es un enlace real a `grabacion_url`, con `noreferrer` para no mandarle el origen de la app al
+  hosting de la grabación. Un reproductor embebido sigue pendiente, pero el control ya no miente.
+- **La transcripción se ve en la ficha** (2026-08-10). Reemplazó al botón muerto, como bloque
+  hermano del resumen —no adentro— porque una llamada contestada con turnos y sin resumen de la
+  plataforma no habría renderizado nada. Los turnos se mapean campo por campo a `{rol, texto}` en
+  `turnosDeLlamada()`: el `transcript_object` de Retell **no se copia crudo al browser** porque trae
+  `metadata` sin redactar, y un rol desconocido se muestra como "origen no identificado", nunca como
+  el contacto.
 - **`extracciones` y `herramientas`** se guardan y no los lee nadie. Se guardan porque son el
   material de la auditoría de voz y no se pueden recuperar después.

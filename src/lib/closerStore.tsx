@@ -186,6 +186,11 @@ export interface CallRecord {
   /** Ausente = sin audio (buzón de voz / no contestó) — el reproductor no se renderiza. */
   audioUrl?: string;
   /**
+   * La transcripción, turno por turno. Ausente = no hay turnos (no contestada, o Retell mandó el
+   * array vacío). Nunca `[]`: la tarjeta decide no renderizar el bloque, no renderizar un vacío.
+   */
+  transcripcion?: { rol: "agente" | "contacto" | "otro"; texto: string }[];
+  /**
    * El veredicto del AUDITOR de voz sobre esta llamada (no confundir con `resumenIA`/`sentimiento`,
    * que son de la plataforma de llamadas). Ausente = todavía no se analizó, que no es lo mismo que
    * "salió bien" — por eso el chip no se renderiza en vez de mostrar un verde no medido.

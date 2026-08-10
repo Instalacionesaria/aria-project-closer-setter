@@ -33,6 +33,7 @@ import {
   type GrupoAlerta,
 } from "../lib/agentAuditStore";
 import { MOTIVO_VOZ_BLOQUEADO } from "../lib/auditores";
+import { fetchAnalisisAgente, type AnalisisApi } from "../lib/api";
 
 type Filter = "todos" | "text" | "voz";
 
@@ -47,12 +48,14 @@ type Pestana = "salud" | "prompts";
 
 const SENTIMENT_ROW =
   "flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-muted/30 border border-border/40 text-left shadow-sm";
-const SENTIMENT_LABEL = "text-[9px] font-bold text-muted-foreground uppercase tracking-widest";
+const SENTIMENT_LABEL =
+  "text-[9px] font-bold text-muted-foreground uppercase tracking-widest";
 const OP_CARD =
   "flex flex-col gap-1 p-4 rounded-2xl border border-border/80 dark:border-border bg-muted/90 dark:bg-muted/40 hover:bg-muted transition-colors shadow";
 const PANEL_VACIO =
   "text-sm text-muted-foreground border border-dashed border-border/60 rounded-2xl p-6 leading-relaxed";
-const ROTULO = "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground";
+const ROTULO =
+  "text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground";
 
 /* ------------------------------------------------------------------ */
 /* Formato                                                             */
@@ -70,9 +73,14 @@ function hace(iso: string): string {
 }
 
 const fechaCorta = (iso: string) =>
-  new Date(iso).toLocaleDateString("es-PE", { day: "2-digit", month: "short", year: "numeric" });
+  new Date(iso).toLocaleDateString("es-PE", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
 
-const diasTexto = (d: number) => (d === 0 ? "menos de 1 día" : `${d} día${d > 1 ? "s" : ""}`);
+const diasTexto = (d: number) =>
+  d === 0 ? "menos de 1 día" : `${d} día${d > 1 ? "s" : ""}`;
 
 /** Grupos abiertos de un agente: con al menos un caso activo o resuelto por humano sin parchear. */
 const gruposAbiertosDe = (grupos: GrupoAlerta[], agentId: AgentId) =>
@@ -81,7 +89,8 @@ const gruposAbiertosDe = (grupos: GrupoAlerta[], agentId: AgentId) =>
 /** Orden de la lista de trabajo: severidad (rojo primero), después antigüedad descendente. */
 const ordenarCola = (grupos: GrupoAlerta[]) =>
   [...grupos].sort((a, b) => {
-    if (a.patron.severidad !== b.patron.severidad) return a.patron.severidad === "rojo" ? -1 : 1;
+    if (a.patron.severidad !== b.patron.severidad)
+      return a.patron.severidad === "rojo" ? -1 : 1;
     return b.diasAbierto - a.diasAbierto;
   });
 
@@ -90,7 +99,14 @@ const ordenarCola = (grupos: GrupoAlerta[]) =>
 /* ------------------------------------------------------------------ */
 
 function SeverityDot({ severity }: { severity: AlertSeveridad }) {
-  return <div className={cn("w-2 h-2 rounded-full shrink-0", severity === "rojo" ? "bg-rose-500" : "bg-amber-500")} />;
+  return (
+    <div
+      className={cn(
+        "w-2 h-2 rounded-full shrink-0",
+        severity === "rojo" ? "bg-rose-500" : "bg-amber-500",
+      )}
+    />
+  );
 }
 
 function CategoryChip({ category }: { category: AlertCategoria }) {
@@ -126,7 +142,9 @@ function AgentCard({
 }) {
   const abiertos = gruposAbiertosDe(grupos, agent.id);
   const rojos = abiertos.filter((g) => g.patron.severidad === "rojo").length;
-  const amarillos = abiertos.filter((g) => g.patron.severidad === "amarillo").length;
+  const amarillos = abiertos.filter(
+    (g) => g.patron.severidad === "amarillo",
+  ).length;
   const sinDatos = agent.analisis === 0;
 
   return (
@@ -134,7 +152,9 @@ function AgentCard({
       onClick={agent.tieneAuditor ? onClick : undefined}
       className={cn(
         "text-card-foreground relative overflow-hidden border border-border/80 dark:border-border rounded-[2rem] bg-card shadow-lg transition-all duration-500 flex flex-col group/card",
-        agent.tieneAuditor ? "hover:shadow-xl cursor-pointer" : "cursor-default",
+        agent.tieneAuditor
+          ? "hover:shadow-xl cursor-pointer"
+          : "cursor-default",
       )}
     >
       {/* Badge de esquina */}
@@ -142,7 +162,9 @@ function AgentCard({
         {!agent.tieneAuditor ? null : sinDatos ? (
           <div className="flex gap-1.5 items-center bg-muted/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-border/50 shadow-sm">
             {/* Ni "✓ AL DÍA" verde (afirma salud que nadie midió) ni contadores en cero. */}
-            <span className="text-[10px] font-bold text-muted-foreground">SIN DATOS</span>
+            <span className="text-[10px] font-bold text-muted-foreground">
+              SIN DATOS
+            </span>
           </div>
         ) : abiertos.length === 0 ? (
           /**
@@ -189,11 +211,19 @@ function AgentCard({
       {/* Header — siempre presente: los agentes son entidades reales del producto (§50.10) */}
       <div className="p-8 pb-4 flex items-start gap-4">
         <div className="w-12 h-12 rounded-2xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20 text-violet-600 dark:text-violet-400 shadow-sm shrink-0">
-          {agent.icon === "bot" ? <Bot className="w-5 h-5" /> : <PhoneCall className="w-5 h-5" />}
+          {agent.icon === "bot" ? (
+            <Bot className="w-5 h-5" />
+          ) : (
+            <PhoneCall className="w-5 h-5" />
+          )}
         </div>
         <div className="pt-1">
-          <h3 className="text-lg font-semibold tracking-tight leading-none mb-1.5">{agent.name}</h3>
-          <div className="text-[10px] font-bold text-foreground uppercase tracking-widest mb-1">{agent.goal}</div>
+          <h3 className="text-lg font-semibold tracking-tight leading-none mb-1.5">
+            {agent.name}
+          </h3>
+          <div className="text-[10px] font-bold text-foreground uppercase tracking-widest mb-1">
+            {agent.goal}
+          </div>
           <p className="text-[11px] text-muted-foreground font-medium max-w-[240px] leading-relaxed mb-1.5">
             {agent.desc}
           </p>
@@ -219,7 +249,9 @@ function AgentCard({
           </div>
         ) : !agent.tieneAuditor ? (
           <div className={PANEL_VACIO}>
-            <div className="font-semibold text-foreground mb-1.5">Sin auditor conectado</div>
+            <div className="font-semibold text-foreground mb-1.5">
+              Sin auditor conectado
+            </div>
             {agent.porQueNoHayAuditor}
           </div>
         ) : (
@@ -231,7 +263,9 @@ function AgentCard({
                   <span
                     className={cn(
                       "font-semibold tracking-tighter leading-none",
-                      agent.metric ? "text-6xl text-foreground" : "text-4xl text-muted-foreground/50",
+                      agent.metric
+                        ? "text-6xl text-foreground"
+                        : "text-4xl text-muted-foreground/50",
                     )}
                   >
                     {agent.metric ?? "—"}
@@ -240,7 +274,9 @@ function AgentCard({
                     <span
                       className={cn(
                         "text-[10px] font-bold flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted/50",
-                        agent.delta.up ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+                        agent.delta.up
+                          ? "text-emerald-600 dark:text-emerald-400"
+                          : "text-rose-600 dark:text-rose-400",
                       )}
                     >
                       {agent.delta.text}
@@ -258,9 +294,18 @@ function AgentCard({
               {agent.sentiment && (
                 <div className="flex gap-4 items-center h-[90px]">
                   <div className="w-1.5 h-full rounded-full flex flex-col overflow-hidden bg-muted">
-                    <div className="bg-emerald-500 w-full" style={{ height: `${agent.sentiment.positivos}%` }} />
-                    <div className="bg-amber-400 w-full" style={{ height: `${agent.sentiment.neutrales}%` }} />
-                    <div className="bg-rose-500 w-full" style={{ height: `${agent.sentiment.molestos}%` }} />
+                    <div
+                      className="bg-emerald-500 w-full"
+                      style={{ height: `${agent.sentiment.positivos}%` }}
+                    />
+                    <div
+                      className="bg-amber-400 w-full"
+                      style={{ height: `${agent.sentiment.neutrales}%` }}
+                    />
+                    <div
+                      className="bg-rose-500 w-full"
+                      style={{ height: `${agent.sentiment.molestos}%` }}
+                    />
                   </div>
                   {/*
                     Etiquetas, no botones. El drill-down de §6.D pide la FRASE DISPARADORA y
@@ -271,17 +316,23 @@ function AgentCard({
                   <div className="flex flex-col justify-between h-full py-0.5">
                     <span className={SENTIMENT_ROW}>
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.positivos}%</span>
+                      <span className="text-xs font-bold text-foreground w-8">
+                        {agent.sentiment.positivos}%
+                      </span>
                       <span className={SENTIMENT_LABEL}>Positivos</span>
                     </span>
                     <span className={SENTIMENT_ROW}>
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.neutrales}%</span>
+                      <span className="text-xs font-bold text-foreground w-8">
+                        {agent.sentiment.neutrales}%
+                      </span>
                       <span className={SENTIMENT_LABEL}>Neutrales</span>
                     </span>
                     <span className={SENTIMENT_ROW}>
                       <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                      <span className="text-xs font-bold text-foreground w-8">{agent.sentiment.molestos}%</span>
+                      <span className="text-xs font-bold text-foreground w-8">
+                        {agent.sentiment.molestos}%
+                      </span>
                       <span className={SENTIMENT_LABEL}>Molestos</span>
                     </span>
                   </div>
@@ -293,20 +344,35 @@ function AgentCard({
 
             {sinDatos ? (
               <div className={PANEL_VACIO}>
-                <div className="font-semibold text-foreground mb-1.5">Auditor conectado · sin análisis todavía</div>
+                <div className="font-semibold text-foreground mb-1.5">
+                  Auditor conectado · sin análisis todavía
+                </div>
                 Ninguna conversación pasó por la rúbrica en el período.
               </div>
             ) : (
               <div className="flex flex-col gap-4">
-                <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em]">Operativos</div>
-                <div className={cn("grid gap-2.5", agent.ops.length > 3 ? "grid-cols-3 sm:grid-cols-6" : "grid-cols-3")}>
+                <div className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.2em]">
+                  Operativos
+                </div>
+                <div
+                  className={cn(
+                    "grid gap-2.5",
+                    agent.ops.length > 3
+                      ? "grid-cols-3 sm:grid-cols-6"
+                      : "grid-cols-3",
+                  )}
+                >
                   {agent.ops
                     .filter((op) => op.value !== null)
                     .map((op, i) => (
                       <div key={i} className={OP_CARD}>
                         <span className="text-lg font-semibold text-foreground flex items-baseline gap-1">
                           {op.value}
-                          {op.sub && <span className="text-[10px] text-muted-foreground font-medium">{op.sub}</span>}
+                          {op.sub && (
+                            <span className="text-[10px] text-muted-foreground font-medium">
+                              {op.sub}
+                            </span>
+                          )}
                         </span>
                         <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
                           {op.label}
@@ -334,7 +400,10 @@ function AgentCard({
  * afirmación falsa sobre cuándo se corrigió algo. Ahora cada ajuste cae en la semana que le
  * corresponde y, si quedó fuera de la ventana del gráfico, simplemente no hay marca.
  */
-function indicesDeAjustes(history: AgentInfo["history"], ajustes: AjusteAplicado[]): number[] {
+function indicesDeAjustes(
+  history: AgentInfo["history"],
+  ajustes: AjusteAplicado[],
+): number[] {
   if (history.length === 0) return [];
   const semanas = history.map((h) => h.week);
   const indices = new Set<number>();
@@ -342,13 +411,21 @@ function indicesDeAjustes(history: AgentInfo["history"], ajustes: AjusteAplicado
     const etiqueta = new Date(a.aplicadoEl)
       .toLocaleDateString("es-PE", { day: "2-digit", month: "short" })
       .replace(".", "");
-    const i = semanas.findIndex((s) => s.toLowerCase() === etiqueta.toLowerCase());
+    const i = semanas.findIndex(
+      (s) => s.toLowerCase() === etiqueta.toLowerCase(),
+    );
     if (i >= 0) indices.add(i);
   }
   return [...indices];
 }
 
-function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajustes: AjusteAplicado[] }) {
+function Sparkline({
+  history,
+  ajustes,
+}: {
+  history: AgentInfo["history"];
+  ajustes: AjusteAplicado[];
+}) {
   const W = 680;
   const H = 160;
   const PAD = 12;
@@ -362,15 +439,17 @@ function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajuste
   if (history.length === 0) {
     return (
       <p className={PANEL_VACIO}>
-        Sin semanas medidas todavía. El gráfico empieza a dibujarse con el primer análisis.
+        Sin semanas medidas todavía. El gráfico empieza a dibujarse con el
+        primer análisis.
       </p>
     );
   }
   if (history.length === 1) {
     return (
       <p className={PANEL_VACIO}>
-        Una sola semana medida ({history[0].week}: {history[0].sentimientoPositivo}% positivo). Hace falta una
-        segunda para ver una tendencia.
+        Una sola semana medida ({history[0].week}:{" "}
+        {history[0].sentimientoPositivo}% positivo). Hace falta una segunda para
+        ver una tendencia.
       </p>
     );
   }
@@ -382,8 +461,12 @@ function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajuste
   // La tasa solo se dibuja si el servidor la mandó. Mientras sea `null` (no se puede
   // reconstruir hacia atrás) dibujarla sería trazar dos veces la misma serie.
   const hayTasa = history.some((h) => h.tasa !== null);
-  const sentPoints = history.map((h, i) => `${xAt(i)},${y(h.sentimientoPositivo)}`).join(" ");
-  const tasaPoints = hayTasa ? history.map((h, i) => `${xAt(i)},${y(h.tasa ?? 0)}`).join(" ") : "";
+  const sentPoints = history
+    .map((h, i) => `${xAt(i)},${y(h.sentimientoPositivo)}`)
+    .join(" ");
+  const tasaPoints = hayTasa
+    ? history.map((h, i) => `${xAt(i)},${y(h.tasa ?? 0)}`).join(" ")
+    : "";
   const marcas = indicesDeAjustes(history, ajustes);
 
   const handleMove = (e: MouseEvent<SVGSVGElement>) => {
@@ -401,17 +484,22 @@ function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajuste
     <div className="space-y-2 relative">
       <div className="flex items-center gap-4 text-[11px] text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="w-4 h-0.5 bg-teal-500 inline-block" style={{ borderTop: "2px dashed" }} /> Sentimiento
-          positivo
+          <span
+            className="w-4 h-0.5 bg-teal-500 inline-block"
+            style={{ borderTop: "2px dashed" }}
+          />{" "}
+          Sentimiento positivo
         </span>
         {hayTasa && (
           <span className="flex items-center gap-1.5">
-            <span className="w-4 h-0.5 bg-foreground inline-block" /> Tasa de trabajo
+            <span className="w-4 h-0.5 bg-foreground inline-block" /> Tasa de
+            trabajo
           </span>
         )}
         {marcas.length > 0 && (
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-violet-500 inline-block" /> Ajuste aplicado
+            <span className="w-2 h-2 rounded-full bg-violet-500 inline-block" />{" "}
+            Ajuste aplicado
           </span>
         )}
       </div>
@@ -433,12 +521,30 @@ function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajuste
               className="text-border"
             />
           )}
-          <polyline points={sentPoints} fill="none" stroke="#14b8a6" strokeWidth={2} strokeDasharray="4 4" />
+          <polyline
+            points={sentPoints}
+            fill="none"
+            stroke="#14b8a6"
+            strokeWidth={2}
+            strokeDasharray="4 4"
+          />
           {hayTasa && (
-            <polyline points={tasaPoints} fill="none" stroke="currentColor" strokeWidth={2} className="text-foreground" />
+            <polyline
+              points={tasaPoints}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              className="text-foreground"
+            />
           )}
           {history.map((h, i) => (
-            <circle key={`s-${i}`} cx={xAt(i)} cy={y(h.sentimientoPositivo)} r={2.5} fill="#14b8a6" />
+            <circle
+              key={`s-${i}`}
+              cx={xAt(i)}
+              cy={y(h.sentimientoPositivo)}
+              r={2.5}
+              fill="#14b8a6"
+            />
           ))}
           {marcas.map((i) => (
             <circle
@@ -469,13 +575,19 @@ function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajuste
             className="absolute top-2 z-10 pointer-events-none bg-popover text-popover-foreground border border-border rounded-lg shadow-lg px-3 py-2 text-xs whitespace-nowrap"
             style={{
               left: `${tooltipLeftPct}%`,
-              transform: tooltipAlignRight ? "translateX(-100%)" : "translateX(8px)",
+              transform: tooltipAlignRight
+                ? "translateX(-100%)"
+                : "translateX(8px)",
             }}
           >
             <div className="font-semibold mb-1">{hovered.week}</div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-muted-foreground">Sentimiento positivo:</span>
-              <span className="font-bold text-teal-600 dark:text-teal-400">{hovered.sentimientoPositivo}%</span>
+              <span className="text-muted-foreground">
+                Sentimiento positivo:
+              </span>
+              <span className="font-bold text-teal-600 dark:text-teal-400">
+                {hovered.sentimientoPositivo}%
+              </span>
             </div>
             {hovered.tasa !== null && (
               <div className="flex items-center justify-between gap-3">
@@ -501,6 +613,216 @@ function Sparkline({ history, ajustes }: { history: AgentInfo["history"]; ajuste
 /* Detalle de agente                                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * El nivel de un análisis, como chip.
+ *
+ * Cuatro estados y no tres: `null` es "no se pudo juzgar" y se ve **distinto** de un verde. Un
+ * verde afirma que el agente trabajó bien; un `null` dice que no había con qué juzgarlo (una
+ * llamada de 19 segundos, una transcripción vacía). Pintarlos igual sería inventar la parte que
+ * nadie midió — la regla 1 aplicada a un chip.
+ */
+function ChipNivel({ nivel }: { nivel: "verde" | "amarillo" | "rojo" | null }) {
+  const estilo =
+    nivel === "verde"
+      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+      : nivel === "amarillo"
+        ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30"
+        : nivel === "rojo"
+          ? "bg-red-500/10 text-red-700 dark:text-red-300 border-red-500/30"
+          : "bg-muted text-muted-foreground border-border/60";
+  return (
+    <span
+      className={cn(
+        "text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full border",
+        estilo,
+      )}
+    >
+      {nivel ?? "sin juzgar"}
+    </span>
+  );
+}
+
+/** Cómo se lee cada etiqueta de observación. El slug no se muestra crudo. */
+const ETIQUETA_OBS: Record<string, string> = {
+  cobertura_prompt: "Cobertura del prompt",
+  ritmo: "Ritmo de la conversación",
+  oportunidad: "Oportunidad",
+  contexto: "Contexto",
+};
+
+/**
+ * El veredicto completo de UNA conversación.
+ *
+ * Es la pantalla que faltaba: hasta hoy solo se podían abrir los hallazgos agrupados por patrón, y
+ * un verde no produce ninguno — así que la conversación mejor atendida era la única invisible.
+ *
+ * El estado se guarda como id y el dato se resuelve de la lista en cada render (no se congela el
+ * objeto): si la lista se recarga, el drawer no queda mostrando una versión vieja.
+ */
+function AnalisisDrawer({
+  analisis: a,
+  onClose,
+}: {
+  analisis: AnalisisApi;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end">
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-[1px] animate-in fade-in duration-150"
+        onClick={onClose}
+      />
+      <div className="relative w-full max-w-xl h-full bg-card border-l border-border shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200">
+        <div className="sticky top-0 bg-card/95 backdrop-blur border-b border-border/60 px-6 py-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <ChipNivel nivel={a.nivel} />
+              <span className="text-sm font-semibold truncate">
+                {a.nombre ?? "Contacto sin nombre en la caché"}
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {hace(a.analizadoEl)}
+              {a.disparo === "llamada" ? " · llamada" : ""}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-5">
+          {/* Lo primero: qué pasó. Es lo que el técnico viene a leer. */}
+          <div>
+            <div className={cn(ROTULO, "mb-1.5")}>Qué pasó</div>
+            {a.resumen ? (
+              <p className="text-sm leading-relaxed">{a.resumen}</p>
+            ) : (
+              <p className={PANEL_VACIO}>
+                Este análisis es anterior al 2026-08-10, cuando el auditor
+                empezó a escribir el resumen. No se reconstruye hacia atrás:
+                habría que volver a pagar la inferencia.
+              </p>
+            )}
+          </div>
+
+          {/* No auditable: el motivo, que es un hecho y no una falla del agente. */}
+          {!a.auditable && (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs leading-relaxed">
+              <span className="font-semibold">No se pudo juzgar.</span> El
+              auditor no encontró material suficiente para evaluar al agente,
+              así que no emitió veredicto. Eso NO es una falla del agente: es la
+              ausencia de una conversación que auditar.
+            </div>
+          )}
+
+          {a.destacado && (
+            <div>
+              <div className={cn(ROTULO, "mb-1.5")}>
+                {a.nivel === "amarillo" ? "Qué mejorar" : "Qué hizo bien"}
+              </div>
+              <p className="text-sm leading-relaxed">{a.destacado}</p>
+              {a.evidencia && (
+                <p className="text-xs text-muted-foreground mt-1.5 pl-3 border-l-2 border-border italic">
+                  {a.evidencia}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Observaciones: describen, no imputan. `null` y `[]` se dicen distinto. */}
+          <div>
+            <div className={cn(ROTULO, "mb-1.5")}>Observaciones</div>
+            {a.observaciones === null ? (
+              <p className={PANEL_VACIO}>
+                No se pidieron: sobre una conversación que no se pudo juzgar,
+                observar es juzgar.
+              </p>
+            ) : a.observaciones.length === 0 ? (
+              <p className={PANEL_VACIO}>
+                El auditor las buscó y no encontró ninguna.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {a.observaciones.map((o, i) => (
+                  <div
+                    key={i}
+                    className="rounded-lg border border-border/60 bg-muted/20 p-3"
+                  >
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                      {ETIQUETA_OBS[o.etiqueta] ?? o.etiqueta}
+                    </span>
+                    <p className="text-sm leading-relaxed mt-0.5">{o.texto}</p>
+                    {o.cita && (
+                      <p className="text-xs text-muted-foreground mt-1.5 pl-3 border-l-2 border-border italic">
+                        {o.cita}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Los hallazgos, que sí imputan y sí llevan corrección de prompt. */}
+          {a.hallazgos.length > 0 && (
+            <div>
+              <div className={cn(ROTULO, "mb-1.5")}>Hallazgos</div>
+              <div className="space-y-2.5">
+                {a.hallazgos.map((h) => (
+                  <div
+                    key={h.error_code}
+                    className="rounded-lg border border-border/60 bg-card p-3"
+                  >
+                    <div className="flex items-center gap-2">
+                      <SeverityDot
+                        severity={h.severidad === "rojo" ? "rojo" : "amarillo"}
+                      />
+                      <span className="text-sm font-medium">{h.titulo}</span>
+                    </div>
+                    <code className="text-[10px] text-muted-foreground font-mono">
+                      {h.error_code}
+                    </code>
+                    {h.diagnostico && (
+                      <p className="text-xs leading-relaxed mt-1.5">
+                        {h.diagnostico}
+                      </p>
+                    )}
+                    {h.correccion && (
+                      <div className="mt-2">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                          {h.correccion_tipo === "reemplazo"
+                            ? "Debería decir"
+                            : "Agregar al prompt"}
+                        </span>
+                        <p className="text-xs leading-relaxed mt-0.5 font-mono bg-muted/40 rounded p-2">
+                          {h.correccion}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {a.motivo && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+              <div className="text-[9px] font-bold uppercase tracking-wider text-red-700 dark:text-red-300">
+                Por qué pidió intervención
+              </div>
+              <p className="text-sm leading-relaxed mt-0.5">{a.motivo}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AgentDetailView({
   agent,
   grupos,
@@ -518,15 +840,51 @@ function AgentDetailView({
   onOpenGroup: (agentId: AgentId, errorCode: string) => void;
   onOpenAdjustment: (entry: AjusteAplicado) => void;
 }) {
+  /**
+   * ── La lista se carga acá y no en el provider ──────────────────────
+   *
+   * La grilla de tarjetas no la usa: solo hace falta cuando alguien abre UN agente. Colgarla del
+   * `Promise.all` del provider haría que abrir Auditoría pidiera los análisis de los cuatro
+   * agentes para mostrar cero de ellos.
+   */
+  const [analisis, setAnalisis] = useState<AnalisisApi[] | null>(null);
+  const [errorAnalisis, setErrorAnalisis] = useState<string | null>(null);
+  const [truncado, setTruncado] = useState(false);
+  const [abierto, setAbierto] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    setAnalisis(null);
+    setErrorAnalisis(null);
+    void fetchAnalisisAgente(agent.id).then((r) => {
+      if (!vivo) return;
+      if (!r.ok)
+        return setErrorAnalisis(
+          r.error ?? "No se pudieron cargar las conversaciones.",
+        );
+      setAnalisis(r.analisis ?? []);
+      setTruncado(Boolean(r.truncado));
+    });
+    // Cambiar de agente cancela lo anterior: sin esto, la respuesta de la tarjeta que se cerró
+    // podría pintar la lista de la que se acaba de abrir.
+    return () => {
+      vivo = false;
+    };
+  }, [agent.id]);
+
+  const abiertoDato = analisis?.find((a) => a.id === abierto) ?? null;
   const abiertos = ordenarCola(gruposAbiertosDe(grupos, agent.id));
   const rojos = abiertos.filter((g) => g.patron.severidad === "rojo").length;
-  const amarillos = abiertos.filter((g) => g.patron.severidad === "amarillo").length;
+  const amarillos = abiertos.filter(
+    (g) => g.patron.severidad === "amarillo",
+  ).length;
   // Se cruza por ID, no por el nombre visible: el join por string de display era el mismo
   // error de modelado que rompió "Abrir Ficha".
   const delAgente = ajustes.filter((a) => a.agenteId === agent.id);
 
   const pos = agent.sentiment?.positivos ?? null;
-  const SentimentIcon = pos === null ? Meh : pos >= 70 ? Smile : pos >= 40 ? Meh : Frown;
+  const SentimentIcon =
+    pos === null ? Meh : pos >= 70 ? Smile : pos >= 40 ? Meh : Frown;
   const sentimentColor =
     pos === null
       ? "text-muted-foreground/40 border-border"
@@ -548,32 +906,58 @@ function AgentDetailView({
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-violet-500/10 flex items-center justify-center border border-violet-500/20 text-violet-600 dark:text-violet-400 shadow-sm shrink-0">
-            {agent.icon === "bot" ? <Bot className="w-5 h-5" /> : <PhoneCall className="w-5 h-5" />}
+            {agent.icon === "bot" ? (
+              <Bot className="w-5 h-5" />
+            ) : (
+              <PhoneCall className="w-5 h-5" />
+            )}
           </div>
           <div>
-            <h2 className="text-xl font-semibold tracking-tight">{agent.name}</h2>
+            <h2 className="text-xl font-semibold tracking-tight">
+              {agent.name}
+            </h2>
             <p className="text-xs text-muted-foreground">{agent.desc}</p>
           </div>
         </div>
         <div className="flex items-center gap-3 bg-card border border-border/60 rounded-2xl px-4 py-2.5 shadow-sm">
           <div className="text-right">
-            <div className={cn("text-lg font-semibold", !agent.metric && "text-muted-foreground/50")}>
+            <div
+              className={cn(
+                "text-lg font-semibold",
+                !agent.metric && "text-muted-foreground/50",
+              )}
+            >
               {agent.metric ?? "—"}
             </div>
-            <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">{agent.goal}</div>
+            <div className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+              {agent.goal}
+            </div>
           </div>
           {agent.sentiment && (
             <>
               <div className="w-[1px] h-8 bg-border/50" />
-              <div className={cn("w-9 h-9 rounded-full border-2 flex items-center justify-center shrink-0", sentimentColor)}>
+              <div
+                className={cn(
+                  "w-9 h-9 rounded-full border-2 flex items-center justify-center shrink-0",
+                  sentimentColor,
+                )}
+              >
                 <SentimentIcon className="w-4 h-4" />
               </div>
               <div className="flex flex-col gap-0.5">
-                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">Sentimiento</span>
+                <span className="text-[9px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Ánimo del contacto
+                </span>
                 <div className="flex items-center gap-1.5 text-[10px] font-semibold">
-                  <span className="text-emerald-600">{agent.sentiment.positivos}%</span>
-                  <span className="text-amber-600">{agent.sentiment.neutrales}%</span>
-                  <span className="text-rose-600">{agent.sentiment.molestos}%</span>
+                  <span className="text-emerald-600">
+                    {agent.sentiment.positivos}%
+                  </span>
+                  <span className="text-amber-600">
+                    {agent.sentiment.neutrales}%
+                  </span>
+                  <span className="text-rose-600">
+                    {agent.sentiment.molestos}%
+                  </span>
                 </div>
               </div>
             </>
@@ -583,7 +967,8 @@ function AgentDetailView({
 
       <div className="border border-border/60 rounded-2xl bg-card p-6 shadow-sm">
         <div className={cn(ROTULO, "mb-4")}>
-          Evolución del sentimiento{agent.history.length > 1 ? ` (${agent.history.length} semanas)` : ""}
+          Evolución del ánimo del contacto
+          {agent.history.length > 1 ? ` (${agent.history.length} semanas)` : ""}
         </div>
         <Sparkline history={agent.history} ajustes={delAgente} />
       </div>
@@ -600,9 +985,15 @@ function AgentDetailView({
                 <div key={i} className={OP_CARD}>
                   <span className="text-lg font-semibold text-foreground flex items-baseline gap-1">
                     {op.value}
-                    {op.sub && <span className="text-[10px] text-muted-foreground font-medium">{op.sub}</span>}
+                    {op.sub && (
+                      <span className="text-[10px] text-muted-foreground font-medium">
+                        {op.sub}
+                      </span>
+                    )}
                   </span>
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{op.label}</span>
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                    {op.label}
+                  </span>
                 </div>
               ))}
           </div>
@@ -611,10 +1002,12 @@ function AgentDetailView({
 
       <div className="flex items-center gap-4 text-xs font-medium text-muted-foreground">
         <span className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> {rojos} rojos abiertos
+          <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> {rojos}{" "}
+          rojos abiertos
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> {amarillos} amarillos
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> {amarillos}{" "}
+          amarillos
         </span>
         <span className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
           ✓ {delAgente.length} ajustes aplicados
@@ -634,7 +1027,9 @@ function AgentDetailView({
             {abiertos.map((g) => (
               <button
                 key={g.key}
-                onClick={() => onOpenGroup(g.patron.agenteId, g.patron.errorCode)}
+                onClick={() =>
+                  onOpenGroup(g.patron.agenteId, g.patron.errorCode)
+                }
                 className="w-full flex items-center justify-between gap-4 p-4 hover:bg-muted/30 transition-colors text-left"
               >
                 <div className="flex items-center gap-3 min-w-0">
@@ -654,7 +1049,9 @@ function AgentDetailView({
                     <div className="text-xs text-muted-foreground">
                       abierto hace {diasTexto(g.diasAbierto)}
                       {g.soloResueltosPorHumano && (
-                        <span className="ml-2 text-emerald-600 dark:text-emerald-400">· salvado por humano</span>
+                        <span className="ml-2 text-emerald-600 dark:text-emerald-400">
+                          · salvado por humano
+                        </span>
                       )}
                     </div>
                   </div>
@@ -670,9 +1067,95 @@ function AgentDetailView({
       </div>
 
       <div>
-        <div className={cn(ROTULO, "mb-3")}>Historial de ajustes de este agente</div>
+        <div className={cn(ROTULO, "mb-3")}>
+          Conversaciones auditadas
+          {analisis && analisis.length > 0 ? ` (${analisis.length})` : ""}
+        </div>
+        {errorAnalisis ? (
+          <p className={PANEL_VACIO}>{errorAnalisis}</p>
+        ) : analisis === null ? (
+          <p className={PANEL_VACIO}>Cargando…</p>
+        ) : analisis.length === 0 ? (
+          <p className={PANEL_VACIO}>
+            Todavía no hay ninguna conversación auditada de este agente en los
+            últimos {ventanaDias} días.
+          </p>
+        ) : (
+          <div className="border border-border/60 rounded-2xl bg-card divide-y divide-border/50 shadow-sm overflow-hidden">
+            {analisis.map((a) => (
+              <button
+                key={a.id}
+                onClick={() => setAbierto(a.id)}
+                className="w-full flex items-start justify-between gap-4 p-4 hover:bg-muted/30 transition-colors text-left"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <ChipNivel nivel={a.nivel} />
+                    <span className="text-sm font-medium truncate">
+                      {a.nombre ?? "Contacto sin nombre en la caché"}
+                    </span>
+                    {a.disparo === "llamada" && (
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
+                        llamada
+                      </span>
+                    )}
+                  </div>
+                  {/* El resumen es la razón de ser de esta lista: se muestra acá, no escondido. */}
+                  {a.resumen ? (
+                    <p className="text-xs text-muted-foreground mt-1 leading-relaxed line-clamp-2">
+                      {a.resumen}
+                    </p>
+                  ) : (
+                    /* Los análisis anteriores al 2026-08-10 no tienen resumen. Se dice, no se
+                       rellena con el motivo ni con una frase inventada. */
+                    <p className="text-xs text-muted-foreground/60 mt-1 italic">
+                      Sin resumen: se analizó antes de que el auditor los
+                      escribiera.
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3 mt-1.5 text-[10px] font-medium text-muted-foreground">
+                    <span>{hace(a.analizadoEl)}</span>
+                    {a.hallazgos.length > 0 && (
+                      <span>
+                        {a.hallazgos.length} hallazgo
+                        {a.hallazgos.length === 1 ? "" : "s"}
+                      </span>
+                    )}
+                    {a.observaciones && a.observaciones.length > 0 && (
+                      <span>
+                        {a.observaciones.length} observaci
+                        {a.observaciones.length === 1 ? "ón" : "ones"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
+              </button>
+            ))}
+          </div>
+        )}
+        {truncado && (
+          <p className="text-[10px] text-muted-foreground mt-2">
+            La lista muestra las 100 más recientes. Hubo más en la ventana.
+          </p>
+        )}
+      </div>
+
+      {abiertoDato && (
+        <AnalisisDrawer
+          analisis={abiertoDato}
+          onClose={() => setAbierto(null)}
+        />
+      )}
+
+      <div>
+        <div className={cn(ROTULO, "mb-3")}>
+          Historial de ajustes de este agente
+        </div>
         {delAgente.length === 0 ? (
-          <p className={PANEL_VACIO}>Este agente no tiene ajustes registrados.</p>
+          <p className={PANEL_VACIO}>
+            Este agente no tiene ajustes registrados.
+          </p>
         ) : (
           <div className="border border-border/60 rounded-2xl bg-card divide-y divide-border/50 shadow-sm overflow-hidden">
             {delAgente.map((row) => (
@@ -682,9 +1165,13 @@ function AgentDetailView({
                 className="w-full flex items-center gap-4 p-4 hover:bg-muted/30 transition-colors text-left"
               >
                 <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
-                  <span className="text-emerald-600 dark:text-emerald-400 text-xs">✓</span>
+                  <span className="text-emerald-600 dark:text-emerald-400 text-xs">
+                    ✓
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground w-28 shrink-0">{fechaCorta(row.aplicadoEl)}</span>
+                <span className="text-xs text-muted-foreground w-28 shrink-0">
+                  {fechaCorta(row.aplicadoEl)}
+                </span>
                 <span className="font-semibold text-sm text-foreground flex-1">
                   {row.titulo}
                   <span className="text-muted-foreground font-normal ml-1 bg-muted px-1.5 py-0.5 rounded text-[10px]">
@@ -692,7 +1179,9 @@ function AgentDetailView({
                   </span>
                 </span>
                 <CategoryChip category={row.categoria as AlertCategoria} />
-                <span className="text-xs text-muted-foreground shrink-0">{row.autor}</span>
+                <span className="text-xs text-muted-foreground shrink-0">
+                  {row.autor}
+                </span>
                 <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
               </button>
             ))}
@@ -723,7 +1212,8 @@ function BloqueCorreccion({ patron }: { patron: GrupoAlerta["patron"] }) {
   if (!patron.correccion) {
     return (
       <p className={PANEL_VACIO}>
-        Este caso no dejó una corrección propuesta. Revisá el diagnóstico y la evidencia para decidir el ajuste.
+        Este caso no dejó una corrección propuesta. Revisá el diagnóstico y la
+        evidencia para decidir el ajuste.
       </p>
     );
   }
@@ -731,8 +1221,12 @@ function BloqueCorreccion({ patron }: { patron: GrupoAlerta["patron"] }) {
   const copiar = () => {
     const partes = [
       `# ${patron.titulo}  (${patron.errorCode})`,
-      patron.promptRef ? `Archivo: ${patron.promptRef.archivo}${patron.promptSeccion ? ` · § ${patron.promptSeccion}` : ""}` : "",
-      patron.fragmentoPrompt ? `\n## Dice ahora\n${patron.fragmentoPrompt}` : "",
+      patron.promptRef
+        ? `Archivo: ${patron.promptRef.archivo}${patron.promptSeccion ? ` · § ${patron.promptSeccion}` : ""}`
+        : "",
+      patron.fragmentoPrompt
+        ? `\n## Dice ahora\n${patron.fragmentoPrompt}`
+        : "",
       `\n## Debería decir\n${patron.correccion}`,
     ].filter(Boolean);
     navigator.clipboard?.writeText(partes.join("\n"));
@@ -744,7 +1238,9 @@ function BloqueCorreccion({ patron }: { patron: GrupoAlerta["patron"] }) {
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <div className={ROTULO}>
-          {patron.ajustadoEl ? `Corrección aplicada el ${fechaCorta(patron.ajustadoEl)}` : "Corrección propuesta al prompt"}
+          {patron.ajustadoEl
+            ? `Corrección aplicada el ${fechaCorta(patron.ajustadoEl)}`
+            : "Corrección propuesta al prompt"}
         </div>
         {patron.promptRef && (
           <span className="text-[10px] font-mono text-muted-foreground bg-muted px-2 py-0.5 rounded truncate max-w-[55%]">
@@ -757,8 +1253,8 @@ function BloqueCorreccion({ patron }: { patron: GrupoAlerta["patron"] }) {
       {patron.promptDesactualizado && (
         <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
           <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          El prompt cambió desde que se detectó esto: el fragmento citado puede ya no existir. Conviene revalidarlo
-          antes de aplicar la corrección.
+          El prompt cambió desde que se detectó esto: el fragmento citado puede
+          ya no existir. Conviene revalidarlo antes de aplicar la corrección.
         </p>
       )}
 
@@ -778,23 +1274,29 @@ function BloqueCorreccion({ patron }: { patron: GrupoAlerta["patron"] }) {
         </>
       ) : (
         <p className="text-[11px] text-muted-foreground leading-relaxed">
-          El auditor no tenía el prompt del agente cuando detectó esto, así que no hay un fragmento que citar. La
-          corrección de abajo es una instrucción para <strong>agregar</strong>.
+          El auditor no tenía el prompt del agente cuando detectó esto, así que
+          no hay un fragmento que citar. La corrección de abajo es una
+          instrucción para <strong>agregar</strong>.
         </p>
       )}
 
       <div className="rounded-xl border-l-4 border-emerald-500 bg-emerald-500/5 p-3">
         <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-700 dark:text-emerald-400 mb-1.5">
-          {patron.correccionTipo === "reemplazo" ? "Debería decir" : "Agregar al prompt"}
+          {patron.correccionTipo === "reemplazo"
+            ? "Debería decir"
+            : "Agregar al prompt"}
         </div>
-        <div className="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words">{patron.correccion}</div>
+        <div className="text-sm font-mono leading-relaxed whitespace-pre-wrap break-words">
+          {patron.correccion}
+        </div>
       </div>
 
       <button
         onClick={copiar}
         className="w-full flex items-center justify-center gap-2 h-10 rounded-md bg-foreground text-background text-sm font-semibold hover:opacity-90 transition-opacity"
       >
-        <Copy className="w-3.5 h-3.5" /> {copiado ? "¡Copiado!" : "Copiar corrección"}
+        <Copy className="w-3.5 h-3.5" />{" "}
+        {copiado ? "¡Copiado!" : "Copiar corrección"}
       </button>
     </div>
   );
@@ -839,7 +1341,10 @@ function AlertGroupDrawer({
 
   return (
     <div className="fixed inset-0 z-[70] flex justify-end">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] animate-in fade-in duration-150" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-[1px] animate-in fade-in duration-150"
+        onClick={onClose}
+      />
       <div className="relative w-full max-w-md bg-popover text-popover-foreground h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
         <div className="flex items-center justify-between p-5 border-b border-border/50">
           <div className="flex items-center gap-2">
@@ -849,7 +1354,10 @@ function AlertGroupDrawer({
               abierto hace {diasTexto(grupo.diasAbierto)}
             </span>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -861,7 +1369,9 @@ function AlertGroupDrawer({
               <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                 ×{grupo.casesCount} casos
               </span>
-              <span className="text-[10px] font-mono text-muted-foreground">{grupo.patron.errorCode}</span>
+              <span className="text-[10px] font-mono text-muted-foreground">
+                {grupo.patron.errorCode}
+              </span>
             </div>
           </div>
 
@@ -869,8 +1379,10 @@ function AlertGroupDrawer({
           {grupo.patron.reincidenteDesde && grupo.patron.ajustadoEl && (
             <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-start gap-2">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-              Este patrón volvió a aparecer el {fechaCorta(grupo.patron.reincidenteDesde)}, después del ajuste del{" "}
-              {fechaCorta(grupo.patron.ajustadoEl)}. El ajuste anterior no lo corrigió.
+              Este patrón volvió a aparecer el{" "}
+              {fechaCorta(grupo.patron.reincidenteDesde)}, después del ajuste
+              del {fechaCorta(grupo.patron.ajustadoEl)}. El ajuste anterior no
+              lo corrigió.
             </p>
           )}
 
@@ -896,8 +1408,8 @@ function AlertGroupDrawer({
             </div>
             {conEvidencia.length === 0 ? (
               <p className={PANEL_VACIO}>
-                Los análisis de este patrón no dejaron el par de mensajes. Abrí la ficha del contacto para ver la
-                conversación completa.
+                Los análisis de este patrón no dejaron el par de mensajes. Abrí
+                la ficha del contacto para ver la conversación completa.
               </p>
             ) : (
               <div className="border border-border/50 rounded-xl p-3.5 space-y-3">
@@ -910,7 +1422,9 @@ function AlertGroupDrawer({
                       </span>
                     )}
                   </span>
-                  <span className="text-xs text-muted-foreground">{hace(actual.analizadoEl)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {hace(actual.analizadoEl)}
+                  </span>
                 </div>
 
                 <div className="space-y-2">
@@ -955,7 +1469,9 @@ function AlertGroupDrawer({
                       <ChevronLeft className="w-4 h-4" />
                     </button>
                     <button
-                      onClick={() => setIdx((i) => Math.min(conEvidencia.length - 1, i + 1))}
+                      onClick={() =>
+                        setIdx((i) => Math.min(conEvidencia.length - 1, i + 1))
+                      }
                       disabled={idx === conEvidencia.length - 1}
                       className="p-1 rounded-full hover:bg-muted disabled:opacity-30 disabled:pointer-events-none"
                     >
@@ -979,7 +1495,9 @@ function AlertGroupDrawer({
             disabled={guardando || porCerrar === 0}
             className="w-full h-11 rounded-md bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:pointer-events-none text-white text-sm font-semibold transition-colors"
           >
-            {guardando ? "Guardando…" : `Marcar grupo resuelto — cierra los ×${porCerrar} casos`}
+            {guardando
+              ? "Guardando…"
+              : `Marcar grupo resuelto — cierra los ×${porCerrar} casos`}
           </button>
         </div>
       </div>
@@ -1002,18 +1520,26 @@ function AdjustmentDetailDrawer({
 }) {
   return (
     <div className="fixed inset-0 z-[70] flex justify-end">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px] animate-in fade-in duration-150" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-[1px] animate-in fade-in duration-150"
+        onClick={onClose}
+      />
       <div className="relative w-full max-w-md bg-popover text-popover-foreground h-full shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
         <div className="flex items-center justify-between p-5 border-b border-border/50">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center">
-              <span className="text-emerald-600 dark:text-emerald-400 text-[10px]">✓</span>
+              <span className="text-emerald-600 dark:text-emerald-400 text-[10px]">
+                ✓
+              </span>
             </div>
             <span className="text-[10px] font-medium text-muted-foreground bg-muted px-2 py-1 rounded-full">
               {fechaCorta(entry.aplicadoEl)}
             </span>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+          >
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -1060,7 +1586,8 @@ function AdjustmentDetailDrawer({
           )}
 
           <div className="flex items-center gap-2 text-xs text-muted-foreground pt-2 border-t border-border/50">
-            Aplicado por <span className="font-medium text-foreground">{entry.autor}</span>
+            Aplicado por{" "}
+            <span className="font-medium text-foreground">{entry.autor}</span>
           </div>
         </div>
       </div>
@@ -1104,11 +1631,22 @@ export default function AgentsAudit() {
 
   const [filter, setFilter] = useState<Filter>("todos");
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId | null>(null);
-  const [openGroupKey, setOpenGroupKey] = useState<{ agentId: AgentId; errorCode: string } | null>(null);
-  const [openAdjustment, setOpenAdjustment] = useState<AjusteAplicado | null>(null);
+  const [openGroupKey, setOpenGroupKey] = useState<{
+    agentId: AgentId;
+    errorCode: string;
+  } | null>(null);
+  const [openAdjustment, setOpenAdjustment] = useState<AjusteAplicado | null>(
+    null,
+  );
 
-  const graves = useMemo(() => grupos.filter((g) => g.patron.severidad === "rojo" && g.hayActivos), [grupos]);
-  const graveMasViejo = useMemo(() => [...graves].sort((a, b) => b.diasAbierto - a.diasAbierto)[0], [graves]);
+  const graves = useMemo(
+    () => grupos.filter((g) => g.patron.severidad === "rojo" && g.hayActivos),
+    [grupos],
+  );
+  const graveMasViejo = useMemo(
+    () => [...graves].sort((a, b) => b.diasAbierto - a.diasAbierto)[0],
+    [graves],
+  );
 
   const textAgents = agents.filter((a) => a.type === "text");
   const vozAgents = agents.filter((a) => a.type === "voz");
@@ -1117,10 +1655,12 @@ export default function AgentsAudit() {
 
   const selectedAgent = agents.find((a) => a.id === selectedAgentId) ?? null;
   const openGroup = openGroupKey
-    ? (grupos.find((g) => g.patron.agenteId === openGroupKey.agentId && g.patron.errorCode === openGroupKey.errorCode) ??
-      null)
+    ? (grupos.find(
+        (g) =>
+          g.patron.agenteId === openGroupKey.agentId &&
+          g.patron.errorCode === openGroupKey.errorCode,
+      ) ?? null)
     : null;
-
 
   /**
    * La ficha la maneja la STORE, no un `useState` local con el nombre.
@@ -1131,8 +1671,12 @@ export default function AgentsAudit() {
    * Aunque el join hubiera acertado, la ficha habría abierto vacía sobre una persona real.
    */
   const fichaAbierta = closer.openContactName;
-  const contactoFicha = fichaAbierta ? (closer.contacts[fichaAbierta] ?? null) : null;
-  const setterFicha = fichaAbierta ? (setter.contacts[fichaAbierta] ?? null) : null;
+  const contactoFicha = fichaAbierta
+    ? (closer.contacts[fichaAbierta] ?? null)
+    : null;
+  const setterFicha = fichaAbierta
+    ? (setter.contacts[fichaAbierta] ?? null)
+    : null;
 
   const filterBtn = (active: boolean) =>
     cn(
@@ -1179,7 +1723,9 @@ export default function AgentsAudit() {
             ajustes={ajustes}
             ventanaDias={ventanaDias}
             onBack={() => setSelectedAgentId(null)}
-            onOpenGroup={(agentId, errorCode) => setOpenGroupKey({ agentId, errorCode })}
+            onOpenGroup={(agentId, errorCode) =>
+              setOpenGroupKey({ agentId, errorCode })
+            }
             onOpenAdjustment={(entry) => setOpenAdjustment(entry)}
           />
         ) : (
@@ -1191,25 +1737,44 @@ export default function AgentsAudit() {
                   <div className="inline-flex items-center justify-center px-3 py-1.5 rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-400 text-[10px] font-bold tracking-[0.2em] uppercase w-fit">
                     AGENTES
                   </div>
-                  <span className="text-xs font-medium text-muted-foreground">Últimos {ventanaDias} días</span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    Últimos {ventanaDias} días
+                  </span>
                   <button
                     onClick={() => void refrescar()}
                     disabled={estado === "cargando"}
                     className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 disabled:opacity-50"
                   >
-                    <RefreshCw className={cn("w-3 h-3", estado === "cargando" && "animate-spin")} /> Actualizar
+                    <RefreshCw
+                      className={cn(
+                        "w-3 h-3",
+                        estado === "cargando" && "animate-spin",
+                      )}
+                    />{" "}
+                    Actualizar
                   </button>
                 </div>
-                <h1 className="text-4xl font-light tracking-tight text-foreground">Salud de los agentes</h1>
+                <h1 className="text-4xl font-light tracking-tight text-foreground">
+                  Salud de los agentes
+                </h1>
               </div>
               <div className="flex items-center p-1 bg-muted/30 rounded-xl border border-border/50 shadow-sm backdrop-blur-md">
-                <button onClick={() => setFilter("todos")} className={filterBtn(filter === "todos")}>
+                <button
+                  onClick={() => setFilter("todos")}
+                  className={filterBtn(filter === "todos")}
+                >
                   Todos
                 </button>
-                <button onClick={() => setFilter("text")} className={filterBtn(filter === "text")}>
+                <button
+                  onClick={() => setFilter("text")}
+                  className={filterBtn(filter === "text")}
+                >
                   💬 Agentes de Texto
                 </button>
-                <button onClick={() => setFilter("voz")} className={filterBtn(filter === "voz")}>
+                <button
+                  onClick={() => setFilter("voz")}
+                  className={filterBtn(filter === "voz")}
+                >
                   📞 Agentes de Voz
                 </button>
               </div>
@@ -1231,7 +1796,8 @@ export default function AgentsAudit() {
                       No se pudo consultar al auditor
                     </h4>
                     <p className="text-xs text-amber-700/70 dark:text-amber-400/70 mt-0.5 font-medium">
-                      {errorMensaje} — los números de abajo no están; no es que no haya nada medido.
+                      {errorMensaje} — los números de abajo no están; no es que
+                      no haya nada medido.
                     </p>
                   </div>
                 </div>
@@ -1244,7 +1810,10 @@ export default function AgentsAudit() {
               </div>
             ) : graves.length > 0 ? (
               <div
-                onClick={() => graveMasViejo && setSelectedAgentId(graveMasViejo.patron.agenteId)}
+                onClick={() =>
+                  graveMasViejo &&
+                  setSelectedAgentId(graveMasViejo.patron.agenteId)
+                }
                 className="w-full bg-rose-500/5 border border-rose-500/20 rounded-2xl p-5 flex items-center justify-between cursor-pointer hover:bg-rose-500/10 transition-colors mb-8 group"
               >
                 <div className="flex items-center gap-4">
@@ -1253,11 +1822,14 @@ export default function AgentsAudit() {
                   </div>
                   <div>
                     <h4 className="text-sm font-semibold text-rose-600 dark:text-rose-400">
-                      {graves.length} caso{graves.length > 1 ? "s" : ""} grave{graves.length > 1 ? "s" : ""} abierto
+                      {graves.length} caso{graves.length > 1 ? "s" : ""} grave
+                      {graves.length > 1 ? "s" : ""} abierto
                       {graves.length > 1 ? "s" : ""}
                     </h4>
                     <p className="text-xs text-rose-600/70 dark:text-rose-400/70 mt-0.5 font-medium">
-                      El más antiguo lleva {diasTexto(graveMasViejo?.diasAbierto ?? 0)} sin resolución
+                      El más antiguo lleva{" "}
+                      {diasTexto(graveMasViejo?.diasAbierto ?? 0)} sin
+                      resolución
                     </p>
                   </div>
                 </div>
@@ -1273,10 +1845,18 @@ export default function AgentsAudit() {
                   El auditor todavía no analizó ninguna conversación
                 </h4>
                 <p className="text-xs text-muted-foreground mt-1 leading-relaxed max-w-3xl">
-                  Solo audita los chats donde el agente de IA está atendiendo. Hoy ningún contacto tiene el agente
-                  activado, así que no hay nada que medir — se destraba cuando los workflows de GHL empiecen a aplicar{" "}
-                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">bot_activado</code>. El detalle
-                  completo está en <code className="font-mono text-[11px]">/api/agentes/auditor-estado</code>.
+                  Solo audita los chats donde el agente de IA está atendiendo.
+                  Hoy ningún contacto tiene el agente activado, así que no hay
+                  nada que medir — se destraba cuando los workflows de GHL
+                  empiecen a aplicar{" "}
+                  <code className="font-mono text-[11px] bg-muted px-1 py-0.5 rounded">
+                    bot_activado
+                  </code>
+                  . El detalle completo está en{" "}
+                  <code className="font-mono text-[11px]">
+                    /api/agentes/auditor-estado
+                  </code>
+                  .
                 </p>
               </div>
             ) : (
@@ -1285,7 +1865,8 @@ export default function AgentsAudit() {
                   Ningún caso grave abierto
                 </h4>
                 <p className="text-xs text-emerald-700/70 dark:text-emerald-400/70 mt-0.5 font-medium">
-                  {analisisTotales} conversaciones analizadas en los últimos {ventanaDias} días.
+                  {analisisTotales} conversaciones analizadas en los últimos{" "}
+                  {ventanaDias} días.
                 </p>
               </div>
             )}
@@ -1337,8 +1918,9 @@ export default function AgentsAudit() {
               </div>
               {ajustes.length === 0 ? (
                 <p className={PANEL_VACIO}>
-                  Todavía no se aplicó ningún ajuste. Cada vez que marques un grupo como resuelto, queda acá la
-                  corrección exacta que se aplicó al prompt, con su fecha y su autor.
+                  Todavía no se aplicó ningún ajuste. Cada vez que marques un
+                  grupo como resuelto, queda acá la corrección exacta que se
+                  aplicó al prompt, con su fecha y su autor.
                 </p>
               ) : (
                 <div className="border text-card-foreground shadow-md border-border/80 rounded-2xl bg-card overflow-hidden">
@@ -1353,7 +1935,9 @@ export default function AgentsAudit() {
                           >
                             <td className="p-4 align-middle w-12 text-center">
                               <div className="w-6 h-6 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto">
-                                <span className="text-emerald-600 dark:text-emerald-400 text-xs">✓</span>
+                                <span className="text-emerald-600 dark:text-emerald-400 text-xs">
+                                  ✓
+                                </span>
                               </div>
                             </td>
                             <td className="p-4 align-middle text-xs text-muted-foreground w-32 font-medium">
@@ -1367,11 +1951,14 @@ export default function AgentsAudit() {
                             </td>
                             <td className="p-4 align-middle">
                               <div className="inline-flex items-center rounded-full border text-foreground border-border/50 font-medium text-xs px-2 py-0.5">
-                                {agents.find((a) => a.id === row.agenteId)?.name ?? row.agenteId}
+                                {agents.find((a) => a.id === row.agenteId)
+                                  ?.name ?? row.agenteId}
                               </div>
                             </td>
                             <td className="p-4 align-middle">
-                              <CategoryChip category={row.categoria as AlertCategoria} />
+                              <CategoryChip
+                                category={row.categoria as AlertCategoria}
+                              />
                             </td>
                             <td className="p-4 align-middle text-xs text-muted-foreground text-right font-medium">
                               {row.autor}
@@ -1396,17 +1983,28 @@ export default function AgentsAudit() {
           grupo={openGroup}
           onClose={() => setOpenGroupKey(null)}
           onPatch={async () => {
-            await marcarGrupoResuelto(openGroup.patron.agenteId, openGroup.patron.errorCode);
+            await marcarGrupoResuelto(
+              openGroup.patron.agenteId,
+              openGroup.patron.errorCode,
+            );
             setOpenGroupKey(null);
           }}
-          onOpenContact={(caso) => closer.openContact(caso.nombre ?? caso.ghlContactId, caso.ghlContactId)}
+          onOpenContact={(caso) =>
+            closer.openContact(
+              caso.nombre ?? caso.ghlContactId,
+              caso.ghlContactId,
+            )
+          }
         />
       )}
 
       {openAdjustment && (
         <AdjustmentDetailDrawer
           entry={openAdjustment}
-          agentName={agents.find((a) => a.id === openAdjustment.agenteId)?.name ?? openAdjustment.agenteId}
+          agentName={
+            agents.find((a) => a.id === openAdjustment.agenteId)?.name ??
+            openAdjustment.agenteId
+          }
           onClose={() => setOpenAdjustment(null)}
         />
       )}
@@ -1427,9 +2025,15 @@ export default function AgentsAudit() {
         onAdvance={(result) =>
           fichaAbierta &&
           result.stage &&
-          closer.advance(fichaAbierta, { ...result, stage: result.stage, situacion: result.situacionSlug })
+          closer.advance(fichaAbierta, {
+            ...result,
+            stage: result.stage,
+            situacion: result.situacionSlug,
+          })
         }
-        onSetterAdvance={(result) => fichaAbierta && setter.advance(fichaAbierta, result)}
+        onSetterAdvance={(result) =>
+          fichaAbierta && setter.advance(fichaAbierta, result)
+        }
         onAddNota={(texto) => {
           if (!fichaAbierta) return;
           if (contactoFicha) closer.addNota(fichaAbierta, texto);
@@ -1442,8 +2046,10 @@ export default function AgentsAudit() {
         }}
         onBotStateChange={(estadoBot, evento, autor) => {
           if (!fichaAbierta) return;
-          if (contactoFicha) closer.setBotEstado(fichaAbierta, estadoBot, evento, autor);
-          else if (setterFicha) setter.setBotEstado(fichaAbierta, estadoBot, evento, autor);
+          if (contactoFicha)
+            closer.setBotEstado(fichaAbierta, estadoBot, evento, autor);
+          else if (setterFicha)
+            setter.setBotEstado(fichaAbierta, estadoBot, evento, autor);
         }}
       />
     </div>

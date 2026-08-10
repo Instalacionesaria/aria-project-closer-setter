@@ -59,7 +59,9 @@ async function pedir<T>(ruta: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const cuerpo = await res.text().catch(() => "");
-    throw new Error(`El servidor respondió ${res.status}. ${detalleDelError(cuerpo)}`);
+    throw new Error(
+      `El servidor respondió ${res.status}. ${detalleDelError(cuerpo)}`,
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -74,7 +76,11 @@ async function pedir<T>(ruta: string, init?: RequestInit): Promise<T> {
 function detalleDelError(cuerpo: string): string {
   try {
     const json: unknown = JSON.parse(cuerpo);
-    if (json && typeof json === "object" && typeof (json as { error?: unknown }).error === "string") {
+    if (
+      json &&
+      typeof json === "object" &&
+      typeof (json as { error?: unknown }).error === "string"
+    ) {
       return (json as { error: string }).error;
     }
   } catch {
@@ -103,7 +109,8 @@ const conJson = (cuerpo: unknown): RequestInit => ({
  * asume lo mismo por ser el tercer endpoint del mismo grupo.
  * `/api/closer/conversacion` es la excepción histórica y sigue con `contactId`.
  */
-const porContacto = (ruta: string, ghlContactId: string) => `${ruta}?ghlContactId=${encodeURIComponent(ghlContactId)}`;
+const porContacto = (ruta: string, ghlContactId: string) =>
+  `${ruta}?ghlContactId=${encodeURIComponent(ghlContactId)}`;
 
 /** Una cita normalizada tal como la devuelve `GET /api/closer/agenda`. */
 export interface AgendaAppointment {
@@ -151,7 +158,11 @@ export function fetchAgendaHoy(opts?: {
 /** Citas de hoy hasta hoy+days — alimenta el tab Agenda y "Próximos Días". */
 export function fetchAgendaRange(
   days = 6,
-  opts?: { calendarId?: string; includeCancelled?: boolean; refrescar?: boolean },
+  opts?: {
+    calendarId?: string;
+    includeCancelled?: boolean;
+    refrescar?: boolean;
+  },
 ): Promise<AgendaRangeResponse> {
   const params = new URLSearchParams({ days: String(days) });
   if (opts?.calendarId) params.set("calendarId", opts.calendarId);
@@ -184,7 +195,10 @@ export interface UrgenteReal {
  * Son dos colas y no una con parámetro porque los tags de territorio son excluyentes:
  * cada rol pide la suya y no hay forma de que un contacto aparezca en las dos (§11).
  */
-export function fetchUrgentesSetter(): Promise<{ count: number; urgentes: UrgenteReal[] }> {
+export function fetchUrgentesSetter(): Promise<{
+  count: number;
+  urgentes: UrgenteReal[];
+}> {
   return pedir(`/api/setter/urgentes`);
 }
 
@@ -222,7 +236,13 @@ export interface MiDiaSetterResponse {
   oportunidades?: ColaSetterContacto[];
   buzon?: ColaSetterContacto[];
   seguimientos?: ColaSetterContacto[];
-  completadas?: { contactId: string; name: string; motivo: string; pildora: string | null; cuando: string }[];
+  completadas?: {
+    contactId: string;
+    name: string;
+    motivo: string;
+    pildora: string | null;
+    cuando: string;
+  }[];
   resumen?: Record<string, number>;
   total?: number;
   error?: string;
@@ -284,7 +304,11 @@ export interface CockpitSetter {
   faltaPctDiferida: boolean;
 }
 
-export function fetchInicioSetter(): Promise<{ ok: boolean; cockpit?: CockpitSetter; error?: string }> {
+export function fetchInicioSetter(): Promise<{
+  ok: boolean;
+  cockpit?: CockpitSetter;
+  error?: string;
+}> {
   return pedir(`/api/setter/inicio`);
 }
 
@@ -316,12 +340,20 @@ export function guardarComision(
 }
 
 /** Mueve un contacto de etapa. Escribe Supabase y manda el tag a GHL si el literal existe. */
-export function moverEtapaSetter(ghlContactId: string, etapa: string): Promise<{ ok: boolean; error?: string }> {
-  return pedir(`/api/setter/pipeline`, { ...conJson({ ghlContactId, etapa }), method: "PATCH" });
+export function moverEtapaSetter(
+  ghlContactId: string,
+  etapa: string,
+): Promise<{ ok: boolean; error?: string }> {
+  return pedir(`/api/setter/pipeline`, {
+    ...conJson({ ghlContactId, etapa }),
+    method: "PATCH",
+  });
 }
 
 /** Registra una de las cinco salidas del Avanzar del setter. */
-export function avanzarSetter(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+export function avanzarSetter(
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
   return pedir<Record<string, unknown>>(`/api/setter/avanzar`, conJson(body));
 }
 
@@ -329,8 +361,13 @@ export function avanzarSetter(body: Record<string, unknown>): Promise<Record<str
 /* Auditoría de Agentes                                                */
 /* ================================================================== */
 
-export type AgentId = "lead-flow-ai" | "appointment-flow-ai" | "lead-flow-voz" | "appointment-flow-voz";
-export type AlertCategoria = "comportamiento" | "base_conocimiento" | "informacion_adicional";
+export type AgentId =
+  | "lead-flow-ai"
+  | "appointment-flow-ai"
+  | "lead-flow-voz"
+  | "appointment-flow-voz";
+export type AlertCategoria =
+  "comportamiento" | "base_conocimiento" | "informacion_adicional";
 export type AlertSeveridad = "rojo" | "amarillo";
 export type CasoEstado = "activo" | "resuelto_por_humano" | "parcheado";
 
@@ -434,6 +471,70 @@ export function fetchAlertasAgentes(dias = 30): Promise<AlertasResponse> {
   return pedir(`/api/agentes/alertas?dias=${dias}`);
 }
 
+/* ── Todas las conversaciones auditadas de un agente ── */
+
+/** Una nota que NO es un hallazgo: describe, no imputa. Ver la migración `039`. */
+export interface ObservacionApi {
+  etiqueta: "cobertura_prompt" | "ritmo" | "oportunidad" | "contexto";
+  texto: string;
+  cita: string | null;
+}
+
+export interface AnalisisApi {
+  id: string;
+  ghlContactId: string;
+  /** `null` = el contacto no está en la caché. No se rellena con el id, que no es un nombre. */
+  nombre: string | null;
+  conversacionId: string | null;
+  /**
+   * `null` = **no se pudo juzgar** (transcripción vacía, conversación de dos líneas). No es un
+   * cuarto nivel y la vista lo pinta distinto de un verde: no medir y medir bien son dos hechos.
+   */
+  nivel: "verde" | "amarillo" | "rojo" | null;
+  auditable: boolean;
+  fallo: boolean;
+  criterio: string | null;
+  sentimiento: string | null;
+  /** Qué pasó en la conversación. Viene también cuando `auditable` es false — ahí es lo único. */
+  resumen: string | null;
+  /** `null` = no se pidieron (no auditable); `[]` = se pidieron y no hubo ninguna. */
+  observaciones: ObservacionApi[] | null;
+  destacado: string | null;
+  evidencia: string | null;
+  motivo: string | null;
+  disparo: string;
+  analizadoEl: string;
+  hallazgos: {
+    error_code: string;
+    titulo: string;
+    severidad: string;
+    categoria: string;
+    criterio: string | null;
+    diagnostico: string | null;
+    correccion: string | null;
+    correccion_tipo: string | null;
+    estado: string;
+  }[];
+}
+
+export interface AnalisisResponse {
+  ok: boolean;
+  error?: string;
+  agenteId?: string;
+  ventanaDias?: number;
+  /** `true` = la lista se cortó en el tope. Se dice en vez de fingir que eso era todo. */
+  truncado?: boolean;
+  analisis?: AnalisisApi[];
+}
+
+export function fetchAnalisisAgente(
+  agenteId: string,
+): Promise<AnalisisResponse> {
+  return pedir(
+    `/api/agentes/analisis?agenteId=${encodeURIComponent(agenteId)}`,
+  );
+}
+
 /**
  * El closer tomó la conversación a mano: los hallazgos activos de ese contacto pasan a
  * `resuelto_por_humano`.
@@ -444,7 +545,9 @@ export function fetchAlertasAgentes(dias = 30): Promise<AlertasResponse> {
  * No quita el tag `bot_pausado_fallo` en GHL (el puerto no tiene `quitarTags`), así que el
  * contacto sigue apareciendo en Urgentes hasta que alguien lo saque allá.
  */
-export function resolverAlertasDeContacto(ghlContactId: string): Promise<{ resueltos: number }> {
+export function resolverAlertasDeContacto(
+  ghlContactId: string,
+): Promise<{ resueltos: number }> {
   return pedir(`/api/agentes/alertas`, conJson({ ghlContactId }));
 }
 
@@ -466,8 +569,12 @@ export interface AjusteAplicado {
   aplicadoEl: string;
 }
 
-export function fetchAjustesAgentes(agenteId?: AgentId): Promise<{ count: number; ajustes: AjusteAplicado[] }> {
-  return pedir(`/api/agentes/ajustes${agenteId ? `?agenteId=${agenteId}` : ""}`);
+export function fetchAjustesAgentes(
+  agenteId?: AgentId,
+): Promise<{ count: number; ajustes: AjusteAplicado[] }> {
+  return pedir(
+    `/api/agentes/ajustes${agenteId ? `?agenteId=${agenteId}` : ""}`,
+  );
 }
 
 /**
@@ -519,8 +626,12 @@ export interface ConversationResponse {
  * Hasta el 2026-07-31 apuntaba a `/api/closer/conversacion`, que costaba 2 llamadas a GHL
  * por request con la ficha abierta cada 10s. El shape de la respuesta es idéntico.
  */
-export function fetchConversation(contactId: string): Promise<ConversationResponse> {
-  return pedir<ConversationResponse>(`/api/closer/chat?contactId=${encodeURIComponent(contactId)}`);
+export function fetchConversation(
+  contactId: string,
+): Promise<ConversationResponse> {
+  return pedir<ConversationResponse>(
+    `/api/closer/chat?contactId=${encodeURIComponent(contactId)}`,
+  );
 }
 
 /**
@@ -529,7 +640,10 @@ export function fetchConversation(contactId: string): Promise<ConversationRespon
  * **Lanza con la ventana de 24 h cerrada** (409 `ventana_24h_cerrada`), antes de gastar la
  * llamada a GHL. El mensaje del error ya viene redactado para mostrarse tal cual.
  */
-export function enviarMensaje(contactId: string, message: string): Promise<{ ok: boolean; enviado: boolean; messageId?: string }> {
+export function enviarMensaje(
+  contactId: string,
+  message: string,
+): Promise<{ ok: boolean; enviado: boolean; messageId?: string }> {
   return pedir(`/api/closer/mensajes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -538,7 +652,9 @@ export function enviarMensaje(contactId: string, message: string): Promise<{ ok:
 }
 
 /** "Marcar como resuelto" del Buzón General: mueve la marca y el contacto sale de la cola. */
-export function resolverBuzon(contactId: string): Promise<{ ok: boolean; resueltoEl: string }> {
+export function resolverBuzon(
+  contactId: string,
+): Promise<{ ok: boolean; resueltoEl: string }> {
   return pedir(`/api/closer/buzon-resolver`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -568,8 +684,13 @@ export function pingReconciliar(): void {
  *
  * Lanza si la mitad de Mi Día falla. La de ingesta nunca tumba el request: viaja como campo.
  */
-export function tickCloser(): Promise<MiDiaResponse & { reconciliacion?: unknown }> {
-  return pedir<MiDiaResponse & { reconciliacion?: unknown }>(`/api/closer/tick`, { method: "POST" });
+export function tickCloser(): Promise<
+  MiDiaResponse & { reconciliacion?: unknown }
+> {
+  return pedir<MiDiaResponse & { reconciliacion?: unknown }>(
+    `/api/closer/tick`,
+    { method: "POST" },
+  );
 }
 
 /* ================================================================== */
@@ -636,11 +757,20 @@ export interface MiDiaResponse {
     indicadores?: IndicadoresContacto;
   }[];
   urgentes: (MiDiaContacto & { fallo: string })[];
-  buzon: (MiDiaContacto & { ultimoEntranteEl: string | null; snippet: string | null })[];
+  buzon: (MiDiaContacto & {
+    ultimoEntranteEl: string | null;
+    snippet: string | null;
+  })[];
   completadasHoy: (MiDiaContacto & { motivo: string; cuando: string })[];
   /** La cola de seguimientos de siempre — el shape lo consume `filaAContacto()`. */
   seguimientosHoy: unknown[];
-  resumen: { citas: number; urgentes: number; buzon: number; seguimientos: number; completadas: number };
+  resumen: {
+    citas: number;
+    urgentes: number;
+    buzon: number;
+    seguimientos: number;
+    completadas: number;
+  };
 }
 
 /**
@@ -813,7 +943,9 @@ export interface SincronizarCrmResponse {
  * (el `WEBHOOK_SECRET` es server-only y el browser no debe tenerlo).
  */
 export function sincronizarCrm(): Promise<SincronizarCrmResponse> {
-  return pedir<SincronizarCrmResponse>(`/api/closer/sincronizar`, { method: "POST" });
+  return pedir<SincronizarCrmResponse>(`/api/closer/sincronizar`, {
+    method: "POST",
+  });
 }
 
 /* El fetcher del cockpit de GHL (`fetchCockpit`, Opportunity Value leído de vuelta) se
@@ -895,7 +1027,9 @@ export function crearNota(body: CrearNotaBody): Promise<CrearNotaResponse> {
  * la nota en pantalla.
  */
 export function eliminarNota(id: string): Promise<{ ok: boolean; id: string }> {
-  return pedir(`/api/closer/notas?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  return pedir(`/api/closer/notas?id=${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
 }
 
 /**
@@ -903,8 +1037,12 @@ export function eliminarNota(id: string): Promise<{ ok: boolean; id: string }> {
  * GHL no se toca — el contacto sigue intacto allá, y puede volver a darse de alta si agenda
  * una cita nueva (el webhook/cron lo re-crea por upsert, §51.3).
  */
-export function eliminarContacto(ghlContactId: string): Promise<{ ok: boolean; existia: boolean }> {
-  return pedir(porContacto(`/api/closer/contactos`, ghlContactId), { method: "DELETE" });
+export function eliminarContacto(
+  ghlContactId: string,
+): Promise<{ ok: boolean; existia: boolean }> {
+  return pedir(porContacto(`/api/closer/contactos`, ghlContactId), {
+    method: "DELETE",
+  });
 }
 
 /* ================================================================== */
@@ -947,8 +1085,12 @@ export interface HistorialResponse {
 }
 
 /** El historial de un contacto. No hay escritura: el timeline es inmutable (§7). */
-export function fetchHistorial(ghlContactId: string): Promise<HistorialResponse> {
-  return pedir<HistorialResponse>(porContacto(`/api/closer/historial`, ghlContactId));
+export function fetchHistorial(
+  ghlContactId: string,
+): Promise<HistorialResponse> {
+  return pedir<HistorialResponse>(
+    porContacto(`/api/closer/historial`, ghlContactId),
+  );
 }
 
 /* ================================================================== */
@@ -992,8 +1134,14 @@ export function fetchPlantillas(): Promise<PlantillasResponse> {
 }
 
 /** Manda una plantilla. El cuerpo lo resuelve el servidor a partir del `id`. */
-export function enviarPlantilla(contactId: string, plantillaId: string): Promise<EnviarPlantillaResponse> {
-  return pedir<EnviarPlantillaResponse>(`/api/closer/plantillas`, conJson({ contactId, plantillaId }));
+export function enviarPlantilla(
+  contactId: string,
+  plantillaId: string,
+): Promise<EnviarPlantillaResponse> {
+  return pedir<EnviarPlantillaResponse>(
+    `/api/closer/plantillas`,
+    conJson({ contactId, plantillaId }),
+  );
 }
 
 /* ================================================================== */
@@ -1016,6 +1164,15 @@ export interface LlamadaApi {
   resumenIA?: string;
   sentimiento?: "positivo" | "neutral" | "negativo";
   audioUrl?: string;
+  /**
+   * El veredicto del AUDITOR sobre esta llamada. Estaba faltando en este tipo desde que el
+   * endpoint lo empezó a mandar (2026-08-10): el servidor y el cliente pueden divergir sin que
+   * `tsc` diga nada, porque no comparten el tipo. Se declara para que la próxima divergencia sí
+   * falle en compilación de este lado.
+   */
+  veredicto?: { nivel: "verde" | "amarillo" | "rojo"; motivo: string | null };
+  /** La transcripción ya normalizada por `turnosDeLlamada`: dos strings por turno, nada más. */
+  transcripcion?: { rol: "agente" | "contacto" | "otro"; texto: string }[];
 }
 
 export interface LlamadasResponse {
@@ -1033,7 +1190,9 @@ export interface LlamadasResponse {
  * pero nunca recibía una fila.
  */
 export function fetchLlamadas(ghlContactId: string): Promise<LlamadasResponse> {
-  return pedir<LlamadasResponse>(porContacto(`/api/closer/llamadas`, ghlContactId));
+  return pedir<LlamadasResponse>(
+    porContacto(`/api/closer/llamadas`, ghlContactId),
+  );
 }
 
 /* ================================================================== */
@@ -1046,7 +1205,8 @@ export function fetchLlamadas(ghlContactId: string): Promise<LlamadasResponse> {
  * contrato con el servidor y no depende de los tipos de vista. Al ser idénticos, un
  * `PerfilCampo[]` se le pasa tal cual a `PerfilTab` sin mapear nada.
  */
-export type PerfilGrupo = "detalles" | "origen" | "calificacion" | "interacciones";
+export type PerfilGrupo =
+  "detalles" | "origen" | "calificacion" | "interacciones";
 
 /**
  * De qué formulario salió el campo. Solo aplica dentro de `calificacion`: las preguntas de
@@ -1109,7 +1269,8 @@ export function fetchPerfil(ghlContactId: string): Promise<PerfilResponse> {
 /* Autenticación (ESPEC-MULTIEMPRESA §3 y §4)                          */
 /* ================================================================== */
 
-export type Rol = "super_admin" | "admin" | "closer" | "setter" | "tecnico" | "media_buyer";
+export type Rol =
+  "super_admin" | "admin" | "closer" | "setter" | "tecnico" | "media_buyer";
 
 export type Tema = "claro" | "oscuro";
 
@@ -1153,7 +1314,14 @@ export async function fetchSesion(): Promise<SesionResponse> {
 
 export interface LoginResponse {
   ok: boolean;
-  usuario?: { id: string; nombre: string; email: string; roles: Rol[]; orgId: string; debeCambiarPassword: boolean };
+  usuario?: {
+    id: string;
+    nombre: string;
+    email: string;
+    roles: Rol[];
+    orgId: string;
+    debeCambiarPassword: boolean;
+  };
   codigo?: string;
   error?: string;
 }
@@ -1163,18 +1331,29 @@ export interface LoginResponse {
  * esperada** de una contraseña incorrecta, no un error de la aplicación, y la pantalla
  * necesita el mensaje para mostrarlo.
  */
-export async function login(email: string, password: string): Promise<LoginResponse> {
+export async function login(
+  email: string,
+  password: string,
+): Promise<LoginResponse> {
   const res = await fetch("/api/auth/login", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  return (await res.json().catch(() => ({ ok: false, error: "El servidor no respondió." }))) as LoginResponse;
+  return (await res
+    .json()
+    .catch(() => ({
+      ok: false,
+      error: "El servidor no respondió.",
+    }))) as LoginResponse;
 }
 
 export async function logout(): Promise<void> {
-  await fetch("/api/auth/sesion", { method: "DELETE", credentials: "same-origin" }).catch(() => {});
+  await fetch("/api/auth/sesion", {
+    method: "DELETE",
+    credentials: "same-origin",
+  }).catch(() => {});
 }
 
 export interface CambioPasswordResponse {
@@ -1190,28 +1369,40 @@ export interface CambioPasswordResponse {
  * que se pierde es que sobreviva a la próxima sesión. No es motivo para tirarle un error
  * encima a alguien que apretó un botón de luz.
  */
-export async function guardarTema(tema: Tema): Promise<{ ok: boolean; error?: string }> {
+export async function guardarTema(
+  tema: Tema,
+): Promise<{ ok: boolean; error?: string }> {
   const res = await fetch("/api/auth/sesion?accion=tema", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ tema }),
   });
-  return (await res.json().catch(() => ({ ok: false, error: "El servidor no respondió." }))) as {
+  return (await res
+    .json()
+    .catch(() => ({ ok: false, error: "El servidor no respondió." }))) as {
     ok: boolean;
     error?: string;
   };
 }
 
 /** Cambia la contraseña. Cierra todas las demás sesiones y renueva la propia. */
-export async function cambiarPassword(actual: string, nueva: string): Promise<CambioPasswordResponse> {
+export async function cambiarPassword(
+  actual: string,
+  nueva: string,
+): Promise<CambioPasswordResponse> {
   const res = await fetch("/api/auth/sesion", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ actual, nueva }),
   });
-  return (await res.json().catch(() => ({ ok: false, error: "El servidor no respondió." }))) as CambioPasswordResponse;
+  return (await res
+    .json()
+    .catch(() => ({
+      ok: false,
+      error: "El servidor no respondió.",
+    }))) as CambioPasswordResponse;
 }
 
 /* ================================================================== */
@@ -1229,17 +1420,27 @@ export async function cambiarPassword(actual: string, nueva: string): Promise<Ca
  *
  * El 401 sigue disparando el evento de sesión vencida: eso sí es un cambio de estado global.
  */
-async function pedirAdmin<T extends { ok: boolean }>(ruta: string, init?: RequestInit): Promise<T> {
+async function pedirAdmin<T extends { ok: boolean }>(
+  ruta: string,
+  init?: RequestInit,
+): Promise<T> {
   const res = await fetch(ruta, { credentials: "same-origin", ...init });
 
   if (res.status === 401) {
     window.dispatchEvent(new CustomEvent(EVENTO_SIN_SESION));
-    return { ok: false, error: "Tu sesión venció. Volvé a entrar." } as unknown as T;
+    return {
+      ok: false,
+      error: "Tu sesión venció. Volvé a entrar.",
+    } as unknown as T;
   }
 
   const cuerpo = (await res.json().catch(() => null)) as T | null;
   // Sin cuerpo JSON no se puede decir qué pasó: se dice eso, y no un "ok" inventado.
-  if (!cuerpo) return { ok: false, error: `El servidor respondió ${res.status} sin explicación.` } as unknown as T;
+  if (!cuerpo)
+    return {
+      ok: false,
+      error: `El servidor respondió ${res.status} sin explicación.`,
+    } as unknown as T;
   return cuerpo;
 }
 
@@ -1277,19 +1478,32 @@ export function fetchEmpresas(): Promise<EmpresasResponse> {
   return pedirAdmin<EmpresasResponse>("/api/admin/empresas");
 }
 
-export function crearEmpresa(body: { nombre: string; slug: string; zonaHoraria: string }): Promise<RespuestaAdmin> {
+export function crearEmpresa(body: {
+  nombre: string;
+  slug: string;
+  zonaHoraria: string;
+}): Promise<RespuestaAdmin> {
   return pedirAdmin<RespuestaAdmin>("/api/admin/empresas", conJson(body));
 }
 
-export function editarEmpresa(
-  body: { orgId: string; nombre?: string; activa?: boolean; zonaHoraria?: string },
-): Promise<RespuestaAdmin> {
-  return pedirAdmin<RespuestaAdmin>("/api/admin/empresas", { ...conJson(body), method: "PATCH" });
+export function editarEmpresa(body: {
+  orgId: string;
+  nombre?: string;
+  activa?: boolean;
+  zonaHoraria?: string;
+}): Promise<RespuestaAdmin> {
+  return pedirAdmin<RespuestaAdmin>("/api/admin/empresas", {
+    ...conJson(body),
+    method: "PATCH",
+  });
 }
 
 /** Baja lógica (`activa = false`). El borrado real no existe a propósito — ver §7.1. */
 export function desactivarEmpresa(orgId: string): Promise<RespuestaAdmin> {
-  return pedirAdmin<RespuestaAdmin>(`/api/admin/empresas?orgId=${encodeURIComponent(orgId)}`, { method: "DELETE" });
+  return pedirAdmin<RespuestaAdmin>(
+    `/api/admin/empresas?orgId=${encodeURIComponent(orgId)}`,
+    { method: "DELETE" },
+  );
 }
 
 /* ── §4.1 · El checklist de alta ── */
@@ -1397,15 +1611,24 @@ export function editarUsuario(body: {
   activo?: boolean;
   roles?: Rol[];
 }): Promise<RespuestaAdmin> {
-  return pedirAdmin<RespuestaAdmin>("/api/admin/usuarios", { ...conJson(body), method: "PATCH" });
+  return pedirAdmin<RespuestaAdmin>("/api/admin/usuarios", {
+    ...conJson(body),
+    method: "PATCH",
+  });
 }
 
 export function regenerarPassword(id: string): Promise<AltaUsuarioResponse> {
-  return pedirAdmin<AltaUsuarioResponse>("/api/admin/usuarios?accion=regenerar-password", conJson({ id }));
+  return pedirAdmin<AltaUsuarioResponse>(
+    "/api/admin/usuarios?accion=regenerar-password",
+    conJson({ id }),
+  );
 }
 
 export function eliminarUsuario(id: string): Promise<RespuestaAdmin> {
-  return pedirAdmin<RespuestaAdmin>(`/api/admin/usuarios?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  return pedirAdmin<RespuestaAdmin>(
+    `/api/admin/usuarios?id=${encodeURIComponent(id)}`,
+    { method: "DELETE" },
+  );
 }
 
 /* ── §7.3 · Configuración y credenciales ── */
@@ -1454,20 +1677,31 @@ export function fetchPrompts(): Promise<PromptsResponse> {
   return pedirAdmin<PromptsResponse>("/api/agentes/prompts");
 }
 
-export function guardarPrompts(body: Record<string, string>): Promise<RespuestaAdmin> {
+export function guardarPrompts(
+  body: Record<string, string>,
+): Promise<RespuestaAdmin> {
   return pedirAdmin<RespuestaAdmin>("/api/agentes/prompts", conJson(body));
 }
 
 export interface ConfiguracionResponse {
   ok: boolean;
-  empresa?: { id: string; nombre: string; slug: string; esPrincipal: boolean; activa: boolean; zonaHoraria: string };
+  empresa?: {
+    id: string;
+    nombre: string;
+    slug: string;
+    esPrincipal: boolean;
+    activa: boolean;
+    zonaHoraria: string;
+  };
   credenciales?: CredencialAdmin[];
   /** Sin clave maestra en el servidor no se puede guardar nada cifrado. */
   puedeGuardarCifrado?: boolean;
   error?: string;
 }
 
-export function fetchConfiguracion(orgId?: string): Promise<ConfiguracionResponse> {
+export function fetchConfiguracion(
+  orgId?: string,
+): Promise<ConfiguracionResponse> {
   const q = orgId ? `?orgId=${encodeURIComponent(orgId)}` : "";
   return pedirAdmin<ConfiguracionResponse>(`/api/admin/configuracion${q}`);
 }
@@ -1477,7 +1711,9 @@ export function fetchConfiguracion(orgId?: string): Promise<ConfiguracionRespons
  * permite editar una credencial sin reescribir las otras siete. Para borrar una hay que
  * nombrarla en `borrar`.
  */
-export function guardarConfiguracion(body: Record<string, unknown>): Promise<RespuestaAdmin> {
+export function guardarConfiguracion(
+  body: Record<string, unknown>,
+): Promise<RespuestaAdmin> {
   return pedirAdmin<RespuestaAdmin>("/api/admin/configuracion", conJson(body));
 }
 
@@ -1514,18 +1750,28 @@ export function fetchWebhooks(): Promise<WebhooksResponse> {
 }
 
 /** Rota uno. El valor anterior deja de funcionar **en el acto**. */
-export function rotarWebhook(clave: string): Promise<RespuestaAdmin & { aviso?: string }> {
-  return pedirAdmin<RespuestaAdmin & { aviso?: string }>("/api/admin/webhooks", conJson({ clave }));
+export function rotarWebhook(
+  clave: string,
+): Promise<RespuestaAdmin & { aviso?: string }> {
+  return pedirAdmin<RespuestaAdmin & { aviso?: string }>(
+    "/api/admin/webhooks",
+    conJson({ clave }),
+  );
 }
 
 /* ── §7.1 · El selector de empresa del super admin ── */
 
 /** `null` vuelve a la empresa propia. Queda registrado en auditoría. */
-export function cambiarEmpresaActiva(orgId: string | null): Promise<RespuestaAdmin & { empresaActiva?: string }> {
-  return pedirAdmin<RespuestaAdmin & { empresaActiva?: string }>("/api/auth/sesion", {
-    ...conJson({ orgId }),
-    method: "PATCH",
-  });
+export function cambiarEmpresaActiva(
+  orgId: string | null,
+): Promise<RespuestaAdmin & { empresaActiva?: string }> {
+  return pedirAdmin<RespuestaAdmin & { empresaActiva?: string }>(
+    "/api/auth/sesion",
+    {
+      ...conJson({ orgId }),
+      method: "PATCH",
+    },
+  );
 }
 
 /* ================================================================== */
@@ -1597,8 +1843,12 @@ export interface EstadisticasResponse {
   error?: string;
 }
 
-export function fetchEstadisticas(periodo: PeriodoEstadisticas): Promise<EstadisticasResponse> {
-  return pedirAdmin<EstadisticasResponse>(`/api/estadisticas?periodo=${periodo}`);
+export function fetchEstadisticas(
+  periodo: PeriodoEstadisticas,
+): Promise<EstadisticasResponse> {
+  return pedirAdmin<EstadisticasResponse>(
+    `/api/estadisticas?periodo=${periodo}`,
+  );
 }
 
 /* ================================================================== */
@@ -1650,6 +1900,11 @@ export interface AcquisitionResponse {
   error?: string;
 }
 
-export function fetchAcquisition(nivel: NivelAcquisition, dias = 30): Promise<AcquisitionResponse> {
-  return pedirAdmin<AcquisitionResponse>(`/api/acquisition?nivel=${nivel}&dias=${dias}`);
+export function fetchAcquisition(
+  nivel: NivelAcquisition,
+  dias = 30,
+): Promise<AcquisitionResponse> {
+  return pedirAdmin<AcquisitionResponse>(
+    `/api/acquisition?nivel=${nivel}&dias=${dias}`,
+  );
 }

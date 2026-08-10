@@ -2362,10 +2362,54 @@ function CallCard({ call }: { call: CallRecord }) {
                   <p className="text-sm text-foreground leading-relaxed">{call.resumenIA}</p>
                 </div>
               )}
+              {/**
+                * ── La transcripción, hermana del resumen y no adentro ──────────
+                *
+                * Va como bloque propio porque el del resumen está condicionado a `resumenIA`: una
+                * llamada contestada con turnos y sin resumen de la plataforma no habría renderizado
+                * nada. Son dos datos de fuentes distintas —el resumen lo escribe la plataforma de
+                * voz, los turnos son la transcripción cruda— y cada uno aparece si existe.
+                */}
+              {call.transcripcion && (
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                    Transcripción · {call.transcripcion.length} turnos
+                  </span>
+                  <div className="mt-1.5 space-y-2 max-h-72 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
+                    {call.transcripcion.map((t, i) => (
+                      <div key={i} className="text-sm leading-relaxed">
+                        <span
+                          className={cn(
+                            "text-[10px] font-bold uppercase tracking-wider mr-1.5",
+                            t.rol === "agente" && "text-primary",
+                            t.rol === "contacto" && "text-foreground",
+                            /* Un rol que no reconocemos se atenúa y se nombra por lo que es: no se
+                               le atribuye al contacto. */
+                            t.rol === "otro" && "text-muted-foreground/60",
+                          )}
+                        >
+                          {t.rol === "agente" ? "Agente IA" : t.rol === "contacto" ? "Contacto" : "Origen no identificado"}
+                        </span>
+                        <span className={cn(t.rol === "otro" && "text-muted-foreground")}>{t.texto}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {/**
+                * El audio pasa a ser un enlace REAL. Antes era un `<button>` sin `onClick`: un
+                * control que no hace nada enseña que la pantalla está rota. `noreferrer` para no
+                * mandarle el origen de la app al hosting de la grabación.
+                */}
               {call.audioUrl && (
-                <button className="w-full h-10 rounded-full border border-border flex items-center justify-center gap-2 text-sm font-medium hover:bg-muted transition-colors">
+                <a
+                  href={call.audioUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full h-10 rounded-full border border-border flex items-center justify-center gap-2 text-sm font-medium hover:bg-muted transition-colors"
+                >
                   <PlayCircle className="w-4 h-4" /> Escuchar audio
-                </button>
+                </a>
               )}
             </>
           ) : (

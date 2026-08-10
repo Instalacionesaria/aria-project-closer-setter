@@ -218,6 +218,51 @@ export function duracionLlamada(segundos: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
+/**
+ * Un turno de la transcripción, ya normalizado y seguro para mostrar.
+ *
+ * ── Por qué NO se manda `turnos` tal cual al browser ──────────────────
+ *
+ * `closer_llamadas.turnos` es el `transcript_object` de Retell **sin redactar**:
+ * `redactarSecretos()` se aplica solo al cuerpo crudo del inbox, no a esta columna. Cada turno
+ * trae un `metadata` con ids internos, latencias y —en un turno de herramienta— los argumentos de
+ * la tool. Copiar el objeto al browser mandaría eso y todo lo que Retell agregue mañana, a un
+ * endpoint que ven `closer`, `setter` y `tecnico`.
+ *
+ * Así que se mapea campo por campo: dos strings salen, nada más.
+ */
+export interface TurnoLlamada {
+  /**
+   * `otro` es deliberado y no un cajón de sastre: un rol que no conocemos **no se etiqueta como el
+   * contacto**. Decir "esto lo dijo el contacto" sobre un turno que no sabemos de quién es sería
+   * una afirmación falsa sobre una persona real — la regla 1 aplicada a una etiqueta.
+   */
+  rol: "agente" | "contacto" | "otro";
+  texto: string;
+}
+
+/**
+ * Los turnos legibles de una llamada. Único lugar donde se interpreta la forma de Retell.
+ *
+ * La forma `{role, content}` está verificada contra la primera llamada contestada real
+ * (2026-08-10): Retell manda además `metadata` por turno, que acá se descarta. Un turno que no
+ * matchea se descarta entero en vez de mostrarse a medias.
+ */
+export function turnosDeLlamada(turnos: unknown): TurnoLlamada[] {
+  if (!Array.isArray(turnos)) return [];
+  const salida: TurnoLlamada[] = [];
+  for (const t of turnos) {
+    if (typeof t !== "object" || t === null) continue;
+    const crudo = t as { role?: unknown; content?: unknown };
+    if (typeof crudo.role !== "string" || typeof crudo.content !== "string") continue;
+    const texto = crudo.content.trim();
+    if (!texto) continue;
+    const rol = crudo.role === "agent" ? "agente" : crudo.role === "user" ? "contacto" : "otro";
+    salida.push({ rol, texto });
+  }
+  return salida;
+}
+
 const SENTIMIENTO_ASSISTABLE: Record<string, Sentimiento> = {
   positive: "positivo",
   neutral: "neutral",
@@ -295,6 +340,14 @@ export function aCallRecord(f: FilaLlamada, zona: string = ZONA_HORARIA_ORG): Ca
     contestada: f.contestada,
     resultado: resultadoDeLlamada(f.contestada, f.motivo_desconexion),
     ...(f.contestada && f.resumen ? { resumenIA: f.resumen } : {}),
+    /**
+     * Solo si contestada, igual que el resumen: una no contestada no tiene conversación. Y
+     * `undefined` en vez de `[]` cuando no hay turnos — la tarjeta no renderiza el bloque en vez
+     * de mostrar una transcripción vacía (regla 1).
+     */
+    ...(f.contestada && turnosDeLlamada(f.turnos).length > 0
+      ? { transcripcion: turnosDeLlamada(f.turnos) }
+      : {}),
     ...(f.contestada && f.sentimiento && SENTIMIENTO_ASSISTABLE[f.sentimiento]
       ? { sentimiento: SENTIMIENTO_ASSISTABLE[f.sentimiento] }
       : {}),

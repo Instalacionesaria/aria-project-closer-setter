@@ -31,6 +31,7 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import {
   AGENTES_CON_AUDITOR,
   AUDITORES_ACTIVOS,
+  DIAS_VENTANA_AUDITOR,
   type AgenteTextoId,
   type AgenteAuditableId,
 } from "../_lib/analizador.js";
@@ -41,7 +42,8 @@ import { eventosDeCalendario } from "../_lib/ghl/lectura.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
-const DIAS_VENTANA = 30;
+/** La ventana la define el analizador: una sola para todas las vitrinas del auditor. */
+const DIAS_VENTANA = DIAS_VENTANA_AUDITOR;
 
 /** Lo que consume la vista. Espeja `AgentInfo` sin importarlo: `api/` no depende del front. */
 export interface AgenteTextoMetricas {
@@ -118,10 +120,21 @@ async function citasEnVentana(desdeDias: number, hastaDias: number) {
 async function verdesDe(agenteId: AgenteAuditableId): Promise<number | null> {
   const desde = new Date(Date.now() - DIAS_VENTANA * 86_400_000).toISOString();
 
+  /**
+   * ── El numerador y el denominador tienen que salir del MISMO conjunto ──
+   *
+   * El chip dice "N VERDES de M": los verdes salen de acá y la M de
+   * `closer_agentes_texto_30d`, que filtra `auditable` y `disparo <> 'linea_base'`
+   * (`021_vistas_por_org.sql`). Esta query no los filtraba, así que las dos mitades del mismo
+   * chip contaban poblaciones distintas — un análisis no auditable podía sumar al numerador y
+   * no al denominador, y "3 verdes de 2" es un número imposible que nadie iba a poder explicar.
+   */
   const { data, error } = await db()
     .from("closer_analisis_agente")
     .select("nivel")
     .eq("agente_id", agenteId)
+    .eq("auditable", true)
+    .neq("disparo", "linea_base")
     .not("nivel", "is", null)
     .gte("analizado_el", desde);
 
