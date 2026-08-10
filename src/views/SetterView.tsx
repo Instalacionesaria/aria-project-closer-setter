@@ -858,6 +858,31 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
     void cargar();
   }, [cargar]);
 
+  /**
+   * Mover una tarjeta. Recarga siempre, con éxito o con error: el servidor es el que sabe dónde
+   * quedó el contacto, y pintar el movimiento sin confirmarlo dejaría la columna mintiendo si el
+   * PATCH lo rechazó — por ejemplo, un contacto congelado, que se ve pero no se mueve.
+   *
+   * ── Estos dos hooks van ACÁ, antes de los `return` tempranos ─────────
+   *
+   * Estaban después de `if (error)` y `if (!datos)`, y eso rompía la vista entera con el error
+   * #310 de React ("rendered more hooks than during the previous render"): el primer render corta
+   * en "Cargando…" con 4 hooks, y cuando llegan los datos el componente ejecuta 6 — React exige
+   * que la cantidad y el orden de hooks sean idénticos en cada render. El síntoma era abrir la
+   * pestaña Pipeline y ver "No se pudo cargar esta vista" apenas respondía el endpoint.
+   */
+  const [moviendo, setMoviendo] = useState<string | null>(null);
+  const mover = useCallback(
+    async (contactId: string, etapa: string) => {
+      setMoviendo(contactId);
+      const r = await moverEtapaSetter(contactId, etapa);
+      setMoviendo(null);
+      if (!r.ok) setError(r.error ?? "No se pudo mover el contacto.");
+      await cargar();
+    },
+    [cargar],
+  );
+
   if (error) {
     return (
       <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-6 text-sm space-y-2">
@@ -877,23 +902,6 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
       </div>
     );
   }
-
-  /**
-   * Mover una tarjeta. Recarga siempre, con éxito o con error: el servidor es el que sabe dónde
-   * quedó el contacto, y pintar el movimiento sin confirmarlo dejaría la columna mintiendo si el
-   * PATCH lo rechazó — por ejemplo, un contacto congelado, que se ve pero no se mueve.
-   */
-  const [moviendo, setMoviendo] = useState<string | null>(null);
-  const mover = useCallback(
-    async (contactId: string, etapa: string) => {
-      setMoviendo(contactId);
-      const r = await moverEtapaSetter(contactId, etapa);
-      setMoviendo(null);
-      if (!r.ok) setError(r.error ?? "No se pudo mover el contacto.");
-      await cargar();
-    },
-    [cargar],
-  );
 
   const q = busqueda.trim().toLowerCase();
   const filtrar = (cs: PipelineSetterContacto[]) =>
