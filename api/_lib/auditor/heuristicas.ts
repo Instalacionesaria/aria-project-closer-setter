@@ -120,6 +120,23 @@ function contiene(texto: string, lexico: readonly string[]): string | null {
  * `ahoraMs` es un parámetro y no `Date.now()` adentro para que los tests puedan fijar el reloj:
  * dos de las señales dependen del tiempo transcurrido.
  */
+/**
+ * ── Las cinco señales sirven para los DOS territorios ─────────────────
+ *
+ * El plan de lanzamiento pedía argumentar si las de pago aplican en pre-agenda. **Aplican, y con
+ * más urgencia que en post-agenda.**
+ *
+ * El razonamiento: en el territorio del closer, alguien que dice "quiero pagar" ya tuvo su llamada
+ * de venta — hay un humano que lo conoce y que va a retomar. En pre-agenda no: es un lead que
+ * todavía nadie atendió, diciéndole a un bot que quiere comprar. Si el bot no entiende, no hay
+ * nadie mirando. Es el peor caso del embudo entero y el más caro de perder.
+ *
+ * Las de frustración aplican igual por el mismo motivo, y las tres restantes son estructurales
+ * —repetición y silencio— así que no dependen de la etapa.
+ *
+ * Por eso `alarmasDe` no toma el territorio: si lo tomara, habría que justificar qué señal se
+ * apaga en cuál, y no hay ninguna que se apague.
+ */
 export function alarmasDe(mensajes: MensajeClasificado[], ahoraMs = Date.now()): Alarma[] {
   const alarmas: Alarma[] = [];
   const conTexto = mensajes.filter((m) => !m.sinTexto && m.texto.trim());

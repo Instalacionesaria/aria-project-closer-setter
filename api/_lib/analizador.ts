@@ -125,11 +125,22 @@ export type Territorio = "closer" | "setter";
  */
 export type AgenteTextoId = "lead-flow-ai" | "appointment-flow-ai";
 
-/** Qué agentes tienen auditor CABLEADO hoy. Un solo lugar, para que los endpoints no diverjan. */
-export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = ["appointment-flow-ai"];
+/**
+ * Qué agentes tienen auditor CABLEADO hoy. Un solo lugar, para que los endpoints no diverjan.
+ *
+ * `lead-flow-ai` entró el 2026-08-08 con su propia rúbrica de pre-agenda (`CRITERIOS_SETTER`). No
+ * es el auditor del closer con otro contexto: los criterios son otros porque la misión del agente
+ * es otra — calificar y agendar, no confirmar y acompañar.
+ *
+ * Su rojo alimenta la cola de urgentes del **setter**, no la del closer: `miDiaSetter.ts` deriva
+ * urgentes de `bot_pausado_fallo` + `zona_setter`, así que el ruteo sale solo del territorio del
+ * contacto y no hizo falta una línea nueva.
+ */
+export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = ["appointment-flow-ai", "lead-flow-ai"];
 
 /**
- * Qué hace el agente en cada etapa. NO agrega criterios a la rúbrica — son los mismos para
+ * Qué hace el agente en cada etapa. Desde el 2026-08-08 **sí** cambia la rúbrica: cada territorio
+ * tiene sus siete criterios (ver `RUBRICAS`). Antes eran los mismos para
  * ambos roles. Solo le dice al auditor cuál era el trabajo del agente, que es lo que permite
  * juzgar bien "prometió algo incorrecto": prometer una fecha significa algo distinto según
  * si el agente estaba agendando o acompañando una cita ya agendada.
@@ -178,7 +189,22 @@ export const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteText
  * descartes son la parte que importa: son los que evitan que el modelo confirme el criterio
  * por parecido semántico.
  */
-const RUBRICA = `Sos un auditor de calidad de agentes de IA que atienden conversaciones de venta por
+/**
+ * ── La rúbrica es una FUNCIÓN del territorio (2026-08-08) ─────────────
+ *
+ * Era una constante con los siete criterios del closer adentro. El auditor del setter no puede
+ * usarla: audita **pre-agenda**, donde la misión del agente es calificar y agendar — no confirmar
+ * y acompañar. "Abandonó la conversación" significa otra cosa cuando el contacto todavía no
+ * agendó, y "promesa incorrecta sobre el programa" no aplica a quien nunca habló del programa.
+ *
+ * Lo que se comparte es todo lo demás, y no es poco: el formato del transcript, la **regla de
+ * atribución innegociable**, la precondición de auditabilidad, el bloque de corrección, el código
+ * de patrón, los tres niveles y el sentimiento. Duplicar la rúbrica entera para cambiar una
+ * sección habría garantizado que las dos divergieran en la regla de atribución, que es justo la
+ * que no puede divergir.
+ */
+function rubricaDe(criterios: string): string {
+  return `Sos un auditor de calidad de agentes de IA que atienden conversaciones de venta por
 WhatsApp. Tu trabajo tiene dos salidas distintas y no hay que mezclarlas:
 
   A. INTERVENCIÓN: ¿hay que apagar al agente y que un humano tome esta conversación AHORA?
@@ -235,61 +261,7 @@ descarte, el criterio NO se cumple, por más que el disparo parezca darse. Y cad
 exige una CITA TEXTUAL del transcript: si no podés copiar la línea exacta que lo prueba, el
 hallazgo no existe y no lo reportás.
 
-1. FRUSTRACIÓN NO MANEJADA  (frustracion)
-   Disparo: el contacto expresa fastidio, queja, reproche o enojo, y la respuesta siguiente
-   del AGENTE IA lo ignora, lo repite con otras palabras, o sigue con su guion.
-   Descartes: · el agente reconoció el fastidio y cambió de enfoque, aunque no lo resolviera;
-              · quien respondió después fue un ASESOR HUMANO;
-              · el contacto está molesto con un tercero (el precio, la empresa, otra
-                persona), no con la atención del agente.
-
-2. ABANDONÓ LA CONVERSACIÓN  (dejo_de_responder)
-   Disparo: los TRES a la vez —
-     (a) el último mensaje del transcript es del CONTACTO;
-     (b) nadie respondió después: ni AGENTE IA, ni ASESOR HUMANO, ni AUTOMATIZACIÓN;
-     (c) el silencio supera el umbral que figura en HECHOS MEDIDOS.
-   Descartes: · alguien respondió después, aunque sea una AUTOMATIZACIÓN — eso es un
-                traspaso o un seguimiento, no un abandono;
-              · el silencio no llega al umbral: la conversación sigue viva;
-              · el último mensaje del contacto es un cierre que no pide respuesta
-                ("dale, gracias", "perfecto", "ahí lo veo").
-   NUNCA uses este criterio para decir que "el agente no estuvo presente" o que "no hubo
-   respuesta automática": la ausencia de agente ya se filtró en la precondición. Este
-   criterio es sobre un agente que SÍ estaba atendiendo y dejó colgada una pregunta concreta.
-
-3. PROMESA INCORRECTA O CONTRADICCIÓN  (promesa_incorrecta)
-   Disparo: el AGENTE IA afirma algo verificablemente falso, se contradice con algo que él
-   mismo dijo antes, o promete un precio, una fecha, un descuento, un plan de pago o una
-   condición que no le corresponde ofrecer.
-   Descartes: · la promesa la hizo una AUTOMATIZACIÓN o un ASESOR HUMANO;
-              · el agente aclaró o corrigió en el mismo tramo de la conversación;
-              · es una respuesta genérica y prudente ("un asesor lo va a confirmar").
-
-4. NO ES LO QUE BUSCA  (no_es_lo_que_busca)
-   Disparo: el contacto dice explícitamente que el producto, el precio o la modalidad no le
-   sirven, y el agente sigue empujando el mismo camino sin registrar la objeción.
-   Descartes: · el contacto está negociando o pidiendo información, que es comportamiento
-                normal de compra;
-              · el agente registró la objeción y ofreció una alternativa real.
-
-5. INSISTE Y NO LO ENTIENDE  (insiste_no_entiende)
-   Disparo: el contacto pide LO MISMO tres veces o más y el agente responde tres veces sin
-   darle lo que pide.
-   Descartes: · el agente pidió un dato que necesitaba para poder resolverlo;
-              · lo que pide está fuera de lo que el agente puede hacer y el agente lo dijo
-                con claridad (eso, si acaso, es el criterio 6).
-
-6. FUERA DE ALCANCE SIN SALIDA  (fuera_de_alcance)
-   Disparo: el contacto necesita algo que el agente no puede resolver y el agente ni lo
-   deriva a un humano ni dice qué va a pasar: lo deja en un callejón.
-   Descartes: · el agente derivó, o dijo explícitamente que un asesor iba a continuar.
-
-7. LE FALTÓ UN DATO QUE DEBERÍA TENER  (dato_faltante)
-   Disparo: el contacto pregunta algo razonable sobre el producto, el proceso o la
-   logística, y el agente no lo sabe o lo esquiva — cuando es información que debería estar
-   en su base de conocimiento.
-   Descartes: · es información que legítimamente depende del caso puntual y requiere a un
-                humano.
+${criterios}
 
 ──────────────────────────────────────────────────────────────────────
 INTERVENCIÓN HUMANA — CUÁNDO SÍ
@@ -403,14 +375,158 @@ Del CONTACTO, no del agente, a lo largo de toda la conversación:
 
 Es independiente del resto: una conversación puede fallar con un contacto que se mantuvo
 amable, y otra puede tener un contacto molesto sin que el agente haya hecho nada mal.`;
+}
 
+/** Los siete criterios del CLOSER: post-agenda, confirmar y acompañar hasta la llamada. */
+const CRITERIOS_CLOSER = `1. FRUSTRACIÓN NO MANEJADA  (frustracion)
+   Disparo: el contacto expresa fastidio, queja, reproche o enojo, y la respuesta siguiente
+   del AGENTE IA lo ignora, lo repite con otras palabras, o sigue con su guion.
+   Descartes: · el agente reconoció el fastidio y cambió de enfoque, aunque no lo resolviera;
+              · quien respondió después fue un ASESOR HUMANO;
+              · el contacto está molesto con un tercero (el precio, la empresa, otra
+                persona), no con la atención del agente.
+
+2. ABANDONÓ LA CONVERSACIÓN  (dejo_de_responder)
+   Disparo: los TRES a la vez —
+     (a) el último mensaje del transcript es del CONTACTO;
+     (b) nadie respondió después: ni AGENTE IA, ni ASESOR HUMANO, ni AUTOMATIZACIÓN;
+     (c) el silencio supera el umbral que figura en HECHOS MEDIDOS.
+   Descartes: · alguien respondió después, aunque sea una AUTOMATIZACIÓN — eso es un
+                traspaso o un seguimiento, no un abandono;
+              · el silencio no llega al umbral: la conversación sigue viva;
+              · el último mensaje del contacto es un cierre que no pide respuesta
+                ("dale, gracias", "perfecto", "ahí lo veo").
+   NUNCA uses este criterio para decir que "el agente no estuvo presente" o que "no hubo
+   respuesta automática": la ausencia de agente ya se filtró en la precondición. Este
+   criterio es sobre un agente que SÍ estaba atendiendo y dejó colgada una pregunta concreta.
+
+3. PROMESA INCORRECTA O CONTRADICCIÓN  (promesa_incorrecta)
+   Disparo: el AGENTE IA afirma algo verificablemente falso, se contradice con algo que él
+   mismo dijo antes, o promete un precio, una fecha, un descuento, un plan de pago o una
+   condición que no le corresponde ofrecer.
+   Descartes: · la promesa la hizo una AUTOMATIZACIÓN o un ASESOR HUMANO;
+              · el agente aclaró o corrigió en el mismo tramo de la conversación;
+              · es una respuesta genérica y prudente ("un asesor lo va a confirmar").
+
+4. NO ES LO QUE BUSCA  (no_es_lo_que_busca)
+   Disparo: el contacto dice explícitamente que el producto, el precio o la modalidad no le
+   sirven, y el agente sigue empujando el mismo camino sin registrar la objeción.
+   Descartes: · el contacto está negociando o pidiendo información, que es comportamiento
+                normal de compra;
+              · el agente registró la objeción y ofreció una alternativa real.
+
+5. INSISTE Y NO LO ENTIENDE  (insiste_no_entiende)
+   Disparo: el contacto pide LO MISMO tres veces o más y el agente responde tres veces sin
+   darle lo que pide.
+   Descartes: · el agente pidió un dato que necesitaba para poder resolverlo;
+              · lo que pide está fuera de lo que el agente puede hacer y el agente lo dijo
+                con claridad (eso, si acaso, es el criterio 6).
+
+6. FUERA DE ALCANCE SIN SALIDA  (fuera_de_alcance)
+   Disparo: el contacto necesita algo que el agente no puede resolver y el agente ni lo
+   deriva a un humano ni dice qué va a pasar: lo deja en un callejón.
+   Descartes: · el agente derivó, o dijo explícitamente que un asesor iba a continuar.
+
+7. LE FALTÓ UN DATO QUE DEBERÍA TENER  (dato_faltante)
+   Disparo: el contacto pregunta algo razonable sobre el producto, el proceso o la
+   logística, y el agente no lo sabe o lo esquiva — cuando es información que debería estar
+   en su base de conocimiento.
+   Descartes: · es información que legítimamente depende del caso puntual y requiere a un
+                humano.`;
+
+/**
+ * Los siete del SETTER: pre-agenda, calificar y conseguir la cita.
+ *
+ * No son los del closer con otro nombre. La misión del agente es distinta, así que lo que cuenta
+ * como falla también: acá el daño caro es **agendar a quien no puede comprar** —le llena la agenda
+ * al closer— y **prometer algo que el prompt no respalda**, porque esa promesa llega a la llamada
+ * de venta como una expectativa que el closer tiene que romper.
+ *
+ * Tres no tienen equivalente en el closer (`calificacion_saltada`, `presiono_sin_calificar`,
+ * `sin_derivacion`) y uno se comparte tal cual (`dato_faltante`), porque significa lo mismo en las
+ * dos etapas.
+ */
+const CRITERIOS_SETTER = `1. CALIFICACIÓN SALTADA  (calificacion_saltada)
+   Disparo: el agente empujó a agendar SIN haber preguntado nada que permita calificar —
+   facturación, etapa del negocio, capacidad de inversión. Agendar a ciegas le llena la agenda
+   al closer de gente que no puede comprar, que es el costo más caro de este embudo.
+   Descartes: · el contacto ya venía calificado desde el formulario y el transcript lo muestra;
+              · el contacto pidió agendar por su cuenta antes de que el agente preguntara nada;
+              · sí preguntó y el contacto esquivó — eso no es culpa del agente.
+
+2. PRESIONÓ A QUIEN NO CALIFICA  (presiono_sin_calificar)
+   Disparo: el contacto dijo con claridad que no tiene capital, no es el perfil o no es el
+   momento, y el agente **siguió empujando la cita**.
+   Descartes: · el agente reconoció el límite y ofreció una alternativa (low-ticket, nurture);
+              · la objeción era ambigua o el contacto se contradijo después;
+              · quien insistió fue un ASESOR HUMANO.
+
+3. NO OFRECIÓ LA SALIDA QUE CORRESPONDÍA  (sin_derivacion)
+   Disparo: el contacto no califica para high-ticket pero mostró interés real, y el agente
+   cerró la conversación sin ofrecerle nada — ni low-ticket, ni quedar en contacto.
+   Descartes: · el contacto dijo explícitamente que no quería nada más;
+              · el prompt del agente no menciona ninguna alternativa que pudiera ofrecer;
+              · la conversación sigue abierta: todavía puede ofrecerla.
+
+4. INFORMACIÓN FALSA SOBRE EL SERVICIO  (info_falsa)
+   Disparo: el agente afirmó algo sobre precio, duración, garantía o resultados que **contradice
+   el prompt** o que el prompt no respalda. Es el criterio más grave de pre-agenda: una promesa
+   inventada acá llega a la llamada de venta como una expectativa que el closer tiene que romper.
+   Descartes: · el prompt sí lo respalda, aunque con otras palabras;
+              · lo dijo el CONTACTO y el agente no lo confirmó;
+              · fue una AUTOMATIZACIÓN o un ASESOR HUMANO.
+
+5. ABANDONÓ A UN LEAD CALIFICADO  (abandono_calificado)
+   Disparo: el contacto mostró que califica —dio números, mostró urgencia, preguntó cómo
+   seguir— y la conversación se cortó sin que el agente propusiera un próximo paso.
+   Descartes: · el agente propuso agendar y el contacto no respondió;
+              · el último mensaje es del contacto y hace menos de 60 minutos: todavía no es
+                abandono, es una conversación en curso;
+              · un ASESOR HUMANO tomó la conversación después.
+
+6. NO ENTENDIÓ LA OBJECIÓN  (objecion_no_entendida)
+   Disparo: el contacto planteó una objeción concreta —precio, tiempo, desconfianza— y el
+   agente respondió algo que no la toca, o la repitió con otras palabras.
+   Descartes: · el agente la reconoció y respondió al fondo, aunque no la resolviera;
+              · la objeción venía dentro de un mensaje largo y ambiguo;
+              · el contacto la retiró él mismo en el mensaje siguiente.
+
+7. LE FALTÓ UN DATO QUE DEBERÍA TENER  (dato_faltante)
+   Disparo: el contacto preguntó algo que el prompt del agente SÍ contesta, y el agente dijo
+   que no sabía o derivó sin necesidad.
+   Descartes: · el dato no está en el prompt — eso es un hueco del prompt, no del agente;
+              · la pregunta era sobre su caso particular y requiere un humano.`;
+
+/** La rúbrica de cada territorio, compuesta una sola vez. */
+const RUBRICAS: Record<Territorio, string> = {
+  closer: rubricaDe(CRITERIOS_CLOSER),
+  setter: rubricaDe(CRITERIOS_SETTER),
+};
+
+/**
+ * Todos los criterios que un veredicto puede nombrar, de los dos territorios.
+ *
+ * Es una lista sola y no dos porque `closer_analisis_agente.criterio` es una columna sola: el
+ * esquema del modelo la valida contra este enum y el CHECK de Postgres contra el mismo conjunto.
+ * Que un criterio de setter aparezca en un análisis de closer es imposible por otra vía — la
+ * rúbrica que se le manda al modelo solo describe los siete de su territorio.
+ */
 const CRITERIOS = [
+  // ── Closer: post-agenda ──
   "frustracion",
   "dejo_de_responder",
   "promesa_incorrecta",
   "no_es_lo_que_busca",
   "insiste_no_entiende",
   "fuera_de_alcance",
+  // ── Setter: pre-agenda ──
+  "calificacion_saltada",
+  "presiono_sin_calificar",
+  "sin_derivacion",
+  "info_falsa",
+  "abandono_calificado",
+  "objecion_no_entendida",
+  // ── Compartido: significa lo mismo en las dos etapas ──
   "dato_faltante",
   "ninguno",
 ] as const;
@@ -771,7 +887,7 @@ export async function evaluarConversacion(opts: {
       },
       {
         type: "text" as const,
-        text: RUBRICA,
+        text: RUBRICAS[opts.territorio],
         /**
          * ── El breakpoint va ACÁ, no al final (2026-08-07) ─────────────
          *

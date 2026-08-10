@@ -32,13 +32,36 @@ describe("enDesarrollo · §8", () => {
   });
 
   /**
-   * Hoy las seis están bloqueadas. Cuando alguna se active, este test falla y hay que sacarla de
-   * la lista a mano — que es el punto: activar una sección que muestra números no debería poder
-   * pasar sin que alguien lo escriba.
+   * ── Cinco bloqueadas, una activa ──────────────────────────────────
+   *
+   * El auditor del setter se encendió el 2026-08-08 y salió de la lista **a mano**, que es el
+   * punto de este test: activar una sección que muestra números no debería poder pasar sin que
+   * alguien lo escriba acá. Las otras cinco siguen bloqueadas.
+   *
+   * Las cuatro de Adquisición son las que el plan de lanzamiento pide dejar en `true`: el velo
+   * muestra la sección completa sin un solo número, y eso es deliberado — anunciadas, no
+   * simuladas.
    */
-  it("las seis están bloqueadas", () => {
-    for (const clave of ESPERADAS) {
+  const ACTIVAS: ClaveEnDesarrollo[] = ["ci.auditor_setter"];
+  const BLOQUEADAS = ESPERADAS.filter((c) => !ACTIVAS.includes(c));
+
+  it("las cinco que quedan siguen bloqueadas", () => {
+    expect(BLOQUEADAS).toHaveLength(5);
+    for (const clave of BLOQUEADAS) {
       expect(estaEnDesarrollo(clave), `${clave} debería estar en desarrollo`).toBe(true);
+    }
+  });
+
+  it("las activas NO están en desarrollo", () => {
+    for (const clave of ACTIVAS) {
+      expect(estaEnDesarrollo(clave), `${clave} ya se activó`).toBe(false);
+    }
+  });
+
+  /** Las cuatro de Adquisición, fijadas aparte: el plan de lanzamiento pide que no se activen. */
+  it("las cuatro de Adquisición siguen en desarrollo", () => {
+    for (const clave of ESPERADAS.filter((c) => c.startsWith("ai."))) {
+      expect(estaEnDesarrollo(clave), `${clave} no debería activarse todavía`).toBe(true);
     }
   });
 

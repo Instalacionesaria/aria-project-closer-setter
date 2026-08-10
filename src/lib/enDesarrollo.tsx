@@ -81,11 +81,20 @@ const SECCIONES: Record<ClaveEnDesarrollo, Seccion> = {
    * tienen que decir lo mismo que esa constante, y un test lo hace cumplir — si alguien enciende
    * el auditor del setter allá y se olvida de acá, falla `enDesarrollo.test.ts`.
    */
+  /**
+   * **Encendido el 2026-08-08.** Tiene su rúbrica propia de pre-agenda (`CRITERIOS_SETTER` en
+   * `analizador.ts`): seis criterios que no existen en el closer más `dato_faltante`, que
+   * significa lo mismo en las dos etapas.
+   *
+   * La entrada se deja en el catálogo en vez de borrarse: el test de coherencia la compara contra
+   * `AUDITORES_ACTIVOS`, así que si alguien apaga el auditor allá y no vuelve a poner el velo acá,
+   * la suite lo caza. Borrarla dejaría ese guard sin nada que verificar.
+   */
   "ci.auditor_setter": {
     queVaAHacer:
       "Va a auditar al agente que califica y agenda. Su rúbrica es distinta de la del closer: " +
       "juzga calificar y agendar, no confirmar y acompañar.",
-    enDesarrollo: true,
+    enDesarrollo: false,
   },
   "ci.auditor_voz": {
     queVaAHacer: "Va a auditar las llamadas de los agentes de voz sobre su transcripción.",
