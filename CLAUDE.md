@@ -6,8 +6,8 @@ Este archivo tiene solo lo que hay que tener presente **siempre**. El detalle de
 vive en `docs/`, un documento por tema.
 
 > Hasta el 2026-08-05 este archivo eran 1689 líneas ordenadas cronológicamente: 56 secciones
-> fechadas donde responder *"¿cómo funciona el auditor?"* exigía leer dos, y *"¿cómo llegan los
-> mensajes?"* cuatro. Se transpuso a temas. **Cuando algo cambie, se actualiza el documento de
+> fechadas donde responder _"¿cómo funciona el auditor?"_ exigía leer dos, y _"¿cómo llegan los
+> mensajes?"_ cuatro. Se transpuso a temas. **Cuando algo cambie, se actualiza el documento de
 > ese tema — no se agrega una sección al final.** Así es como este archivo llegó a ser
 > inconsultable.
 
@@ -18,23 +18,24 @@ vive en `docs/`, un documento por tema.
 **Empezá por [`docs/00-MAPA.md`](docs/00-MAPA.md)**: tiene una tabla de "tengo esta pregunta →
 leo esto".
 
-| Documento | Responde |
-|---|---|
-| [01-PRODUCTO](docs/01-PRODUCTO.md) | Qué es, el embudo, el **glosario obligatorio**, las reglas transversales |
-| [02-ARQUITECTURA](docs/02-ARQUITECTURA.md) | Las tres piezas y quién manda sobre cada dato |
-| [03-INTEGRACION-GHL](docs/03-INTEGRACION-GHL.md) | Tags, custom fields, webhooks, qué falta configurar |
-| [04-DATOS-Y-RELOJES](docs/04-DATOS-Y-RELOJES.md) | Ingesta, el tick, caché, presupuesto de llamadas |
-| [05-CLOSER](docs/05-CLOSER.md) | Mi Día, Pipeline, Avanzar, la ficha, iconografía |
-| [06-SETTER](docs/06-SETTER.md) | Su espejo en pre-agenda |
-| [07-AUDITOR-IA](docs/07-AUDITOR-IA.md) | Portones, rúbrica, debounce, los dos carriles, costo, los 4 agentes |
-| [13-LEXICO-AUDITOR](docs/13-LEXICO-AUDITOR.md) | Las palabras que disparan una alarma, y cómo agregar una |
-| [08-MENSAJERIA](docs/08-MENSAJERIA.md) | Chat, ventana de 24 h, estados de entrega |
-| [11-VOZ-Y-LLAMADAS](docs/11-VOZ-Y-LLAMADAS.md) | Llamadas de los agentes de voz: Assistable, el tab Llamada |
-| [12-MULTIEMPRESA](docs/12-MULTIEMPRESA.md) | Aislamiento entre empresas, autenticación, roles, credenciales |
-| [09-DECISIONES](docs/09-DECISIONES.md) | El **porqué** de lo que no es obvio |
-| [10-ESTADO](docs/10-ESTADO.md) | Qué existe, qué está a medias, qué bloquea |
-| [db/README](docs/db/README.md) | Esquema y cómo correr migraciones |
-| [LISTA-TAGS](docs/LISTA-TAGS.md) | **Los 25 tags para pasarle a GHL**: cuándo se aplica cada uno, quién lo aplica, y cuáles faltan crear. Sin número a propósito |
+| Documento                                          | Responde                                                                                                                         |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [01-PRODUCTO](docs/01-PRODUCTO.md)                 | Qué es, el embudo, el **glosario obligatorio**, las reglas transversales                                                         |
+| [02-ARQUITECTURA](docs/02-ARQUITECTURA.md)         | Las tres piezas y quién manda sobre cada dato                                                                                    |
+| [03-INTEGRACION-GHL](docs/03-INTEGRACION-GHL.md)   | Tags, custom fields, webhooks, qué falta configurar                                                                              |
+| [04-DATOS-Y-RELOJES](docs/04-DATOS-Y-RELOJES.md)   | Ingesta, el tick, caché, presupuesto de llamadas                                                                                 |
+| [05-CLOSER](docs/05-CLOSER.md)                     | Mi Día, Pipeline, Avanzar, la ficha, iconografía                                                                                 |
+| [06-SETTER](docs/06-SETTER.md)                     | Su espejo en pre-agenda                                                                                                          |
+| [07-AUDITOR-IA](docs/07-AUDITOR-IA.md)             | Portones, rúbrica, debounce, los dos carriles, costo, los 4 agentes                                                              |
+| [13-LEXICO-AUDITOR](docs/13-LEXICO-AUDITOR.md)     | Las palabras que disparan una alarma, y cómo agregar una                                                                         |
+| [08-MENSAJERIA](docs/08-MENSAJERIA.md)             | Chat, ventana de 24 h, estados de entrega                                                                                        |
+| [11-VOZ-Y-LLAMADAS](docs/11-VOZ-Y-LLAMADAS.md)     | Llamadas de los agentes de voz: Assistable, el tab Llamada                                                                       |
+| [12-MULTIEMPRESA](docs/12-MULTIEMPRESA.md)         | Aislamiento entre empresas, autenticación, roles, credenciales                                                                   |
+| [09-DECISIONES](docs/09-DECISIONES.md)             | El **porqué** de lo que no es obvio                                                                                              |
+| [10-ESTADO](docs/10-ESTADO.md)                     | Qué existe, qué está a medias, qué bloquea                                                                                       |
+| [db/README](docs/db/README.md)                     | Esquema y cómo correr migraciones                                                                                                |
+| [LISTA-TAGS](docs/LISTA-TAGS.md)                   | **Los 25 tags para pasarle a GHL**: cuándo se aplica cada uno, quién lo aplica, y cuáles faltan crear. Sin número a propósito    |
+| [PAQUETE-TECNOLOGICO](docs/PAQUETE-TECNOLOGICO.md) | **Con qué está construido**: lenguajes, versiones, servicios externos, y por qué son solo 5 dependencias. Sin número a propósito |
 
 Los **literales de GHL** que el código usa de verdad están en `src/lib/ghl/contrato.ts`, cada
 uno con su fuente y su nivel de confianza. Si un documento y ese archivo se contradicen, gana
@@ -59,7 +60,7 @@ el archivo.
 1. **Sin dato, el elemento no se renderiza.** Un `0%` medido y un `0%` no medido no son el
    mismo hecho. Un contador en cero se atenúa, no muestra "0".
 2. **Nunca reportar un éxito que no ocurrió.** Si una escritura falla, la respuesta lo dice.
-   `null` y `[]` tienen que significar una sola cosa: nunca "no hay nada" *y* "no pude
+   `null` y `[]` tienen que significar una sola cosa: nunca "no hay nada" _y_ "no pude
    averiguarlo".
 3. **Una sola derivación por regla.** Si dos vitrinas muestran el mismo hecho, comparten la
    función que lo calcula. Dos implementaciones divergen en silencio.
