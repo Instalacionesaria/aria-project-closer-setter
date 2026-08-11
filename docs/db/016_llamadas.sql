@@ -63,6 +63,10 @@ create table if not exists public.closer_llamadas (
   -- voz, que van a necesitar atribuir cada frase igual que hace `autoria.ts` con el chat.
   turnos              jsonb,
   sentimiento         text,
+  -- Solo el ENLACE, no el audio: el MP3 vive en el bucket del proveedor de voz. Verificado el
+  -- 2026-08-10 contra las grabaciones reales: es una URL de un bucket PÚBLICO de Cloudflare R2,
+  -- sin firma y sin vencimiento — responde 200 a cualquiera que la tenga. La única protección es
+  -- que el nombre del archivo es un UUID. Ver docs/11-VOZ-Y-LLAMADAS.md § Lo que falta.
   grabacion_url       text,
 
   -- Lo que el agente extrajo y las herramientas que usó. Todavía nadie los lee; se guardan

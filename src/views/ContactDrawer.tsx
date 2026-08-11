@@ -48,10 +48,36 @@ import { isoEnDias, fechaCorta } from "../lib/fechas";
 import { armarPildora } from "../lib/pildora";
 import type { SituacionSeguimiento } from "../lib/ghl/contrato";
 import type { ModoSeguimiento } from "../lib/seguimientos/dominio";
-import { STAGE_META, botIconVisual, countCallsContestadas, countSalesCalls, callsIASummary, indicadoresDe, type ClosurerContact, type StageKey, type BotEstado, type CallRecord, type CallOrigin, type Sentimiento, type PerfilField, type PerfilGroup, type PerfilFormulario, type VideoPreCallInfo } from "../lib/closerStore";
+import {
+  STAGE_META,
+  botIconVisual,
+  countCallsContestadas,
+  countSalesCalls,
+  callsIASummary,
+  indicadoresDe,
+  type ClosurerContact,
+  type StageKey,
+  type BotEstado,
+  type CallRecord,
+  type CallOrigin,
+  type Sentimiento,
+  type PerfilField,
+  type PerfilGroup,
+  type PerfilFormulario,
+  type VideoPreCallInfo,
+} from "../lib/closerStore";
 import { StatusIcons } from "../components/StatusIcons";
-import { INDICADORES_VACIOS, type IndicadoresContacto } from "../lib/indicadores";
-import { TAG_CLS_BY_TONE, type SetterContact, type SetterStageKey, type SetterTagTone, type SetterAdvanceInput } from "../lib/setterStore";
+import {
+  INDICADORES_VACIOS,
+  type IndicadoresContacto,
+} from "../lib/indicadores";
+import {
+  TAG_CLS_BY_TONE,
+  type SetterContact,
+  type SetterStageKey,
+  type SetterTagTone,
+  type SetterAdvanceInput,
+} from "../lib/setterStore";
 import { useSettings } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
 import {
@@ -75,7 +101,12 @@ const GRADE_CIRCLE: Record<string, string> = {
   D: "bg-rose-500/10 text-rose-600",
 };
 
-const TABS: { key: DrawerTab; label: string; icon: typeof X; disabled?: boolean }[] = [
+const TABS: {
+  key: DrawerTab;
+  label: string;
+  icon: typeof X;
+  disabled?: boolean;
+}[] = [
   { key: "chat", label: "Chat", icon: MessageCircle },
   { key: "llamada", label: "Llamada", icon: PhoneCall },
   { key: "perfil", label: "Perfil", icon: UserCheck },
@@ -122,7 +153,8 @@ type AvanzarResult = {
 
 /* ---------- Closer: pantallas exactas provistas por Fabio ---------- */
 
-type CloserOutcomeKey = "venta" | "acordo" | "seguimiento" | "no_interesa" | "no_show" | "nurture";
+type CloserOutcomeKey =
+  "venta" | "acordo" | "seguimiento" | "no_interesa" | "no_show" | "nurture";
 
 const CLOSER_CARDS: {
   key: CloserOutcomeKey;
@@ -132,18 +164,56 @@ const CLOSER_CARDS: {
   tone: "emerald" | "blue" | "violet" | "red" | "amber";
   span2?: boolean;
 }[] = [
-  { key: "venta", label: "Venta", desc: "Pago total · mueve a Ganado", icon: CheckCircle2, tone: "emerald" },
-  { key: "acordo", label: "Acordó comprar, falta pago", desc: "Dejó seña · falta el resto", icon: DollarSign, tone: "blue" },
-  { key: "seguimiento", label: "Seguimiento", desc: "Pactar fecha · entra a tu cola", icon: Calendar, tone: "violet" },
-  { key: "no_interesa", label: "No le interesa", desc: "Mueve a Descalificado · objeción", icon: XCircle, tone: "red" },
-  { key: "no_show", label: "No-show", desc: "Mueve a No-show · dispara recuperación", icon: PhoneOff, tone: "amber" },
-  { key: "nurture", label: "Nurture", desc: "No es ahora · a maduración", icon: Sprout, tone: "blue" },
+  {
+    key: "venta",
+    label: "Venta",
+    desc: "Pago total · mueve a Ganado",
+    icon: CheckCircle2,
+    tone: "emerald",
+  },
+  {
+    key: "acordo",
+    label: "Acordó comprar, falta pago",
+    desc: "Dejó seña · falta el resto",
+    icon: DollarSign,
+    tone: "blue",
+  },
+  {
+    key: "seguimiento",
+    label: "Seguimiento",
+    desc: "Pactar fecha · entra a tu cola",
+    icon: Calendar,
+    tone: "violet",
+  },
+  {
+    key: "no_interesa",
+    label: "No le interesa",
+    desc: "Mueve a Descalificado · objeción",
+    icon: XCircle,
+    tone: "red",
+  },
+  {
+    key: "no_show",
+    label: "No-show",
+    desc: "Mueve a No-show · dispara recuperación",
+    icon: PhoneOff,
+    tone: "amber",
+  },
+  {
+    key: "nurture",
+    label: "Nurture",
+    desc: "No es ahora · a maduración",
+    icon: Sprout,
+    tone: "blue",
+  },
 ];
 
 const CARD_ICON_TONE: Record<string, string> = {
-  emerald: "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
+  emerald:
+    "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400",
   blue: "bg-blue-100 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400",
-  violet: "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400",
+  violet:
+    "bg-violet-100 text-violet-600 dark:bg-violet-500/15 dark:text-violet-400",
   red: "bg-red-100 text-red-500 dark:bg-red-500/15 dark:text-red-400",
   amber: "bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-400",
   slate: "bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-400",
@@ -168,13 +238,25 @@ const SELECTED_TONE_CLS: Record<string, string> = {
   slate: "bg-slate-50 border-slate-300 text-slate-700",
 };
 
-function Chip({ selected, onClick, children, tone = "violet" }: { selected: boolean; onClick: () => void; children: React.ReactNode; tone?: string }) {
+function Chip({
+  selected,
+  onClick,
+  children,
+  tone = "violet",
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  tone?: string;
+}) {
   return (
     <button
       onClick={onClick}
       className={cn(
         "text-sm font-medium px-3 py-2.5 rounded-xl border transition-colors text-center",
-        selected ? SELECTED_TONE_CLS[tone] : "border-border bg-background dark:bg-secondary text-foreground hover:bg-muted/40"
+        selected
+          ? SELECTED_TONE_CLS[tone]
+          : "border-border bg-background dark:bg-secondary text-foreground hover:bg-muted/40",
       )}
     >
       {children}
@@ -205,10 +287,15 @@ function OptionCard({
         "w-full text-left flex items-start gap-3 p-4 rounded-2xl border transition-all",
         selected
           ? cn("border-2", SELECTED_TONE_CLS[tone])
-          : "border-border/60 bg-background dark:bg-secondary hover:border-border hover:shadow-sm"
+          : "border-border/60 bg-background dark:bg-secondary hover:border-border hover:shadow-sm",
       )}
     >
-      <div className={cn("h-9 w-9 rounded-full flex items-center justify-center shrink-0", CARD_ICON_TONE[tone])}>
+      <div
+        className={cn(
+          "h-9 w-9 rounded-full flex items-center justify-center shrink-0",
+          CARD_ICON_TONE[tone],
+        )}
+      >
         <Icon className="h-4.5 w-4.5" />
       </div>
       <div className="min-w-0">
@@ -238,21 +325,38 @@ function ModalShell({
 }) {
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      <div onClick={onClose} className="absolute inset-0 bg-black/50 backdrop-blur-[1px] animate-in fade-in duration-150" />
+      <div
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 backdrop-blur-[1px] animate-in fade-in duration-150"
+      />
       <div className="relative w-full max-w-md max-h-[85vh] overflow-y-auto scrollbar-thin bg-popover text-popover-foreground rounded-2xl shadow-2xl border border-border animate-in zoom-in-95 fade-in duration-150">
         <div className="p-5 pb-4 border-b border-border/30">
           <div className="flex items-start gap-2">
             {onBack && (
-              <button onClick={onBack} className="h-7 w-7 -ml-1.5 mt-0.5 shrink-0 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground">
+              <button
+                onClick={onBack}
+                className="h-7 w-7 -ml-1.5 mt-0.5 shrink-0 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground"
+              >
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
             <div className="min-w-0 flex-1">
-              {eyebrow && <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{eyebrow}</div>}
-              <h3 className="text-lg font-bold tracking-tight truncate">{title}</h3>
-              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{subtitle}</p>
+              {eyebrow && (
+                <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">
+                  {eyebrow}
+                </div>
+              )}
+              <h3 className="text-lg font-bold tracking-tight truncate">
+                {title}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                {subtitle}
+              </p>
             </div>
-            <button onClick={onClose} className="h-7 w-7 shrink-0 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground">
+            <button
+              onClick={onClose}
+              className="h-7 w-7 shrink-0 flex items-center justify-center rounded-full hover:bg-muted text-muted-foreground"
+            >
               <X className="h-4 w-4" />
             </button>
           </div>
@@ -265,10 +369,20 @@ function ModalShell({
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">{children}</label>;
+  return (
+    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
+      {children}
+    </label>
+  );
 }
 
-function NotaField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function NotaField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
   return (
     <div>
       <FieldLabel>Nota (¿algo que recordar?)</FieldLabel>
@@ -282,14 +396,24 @@ function NotaField({ value, onChange }: { value: string; onChange: (v: string) =
   );
 }
 
-function ConfirmButton({ tone, disabled, onClick, children }: { tone: string; disabled: boolean; onClick: () => void; children: React.ReactNode }) {
+function ConfirmButton({
+  tone,
+  disabled,
+  onClick,
+  children,
+}: {
+  tone: string;
+  disabled: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
         "w-full h-11 rounded-xl text-sm font-semibold transition-colors disabled:opacity-40 disabled:pointer-events-none",
-        CONFIRM_BUTTON_TONE[tone]
+        CONFIRM_BUTTON_TONE[tone],
       )}
     >
       {children}
@@ -297,11 +421,31 @@ function ConfirmButton({ tone, disabled, onClick, children }: { tone: string; di
   );
 }
 
-const NO_INTERESA_RAZONES = ["Precio", "No es el momento", "Competencia", "No califica", "Otro"];
-const NO_SHOW_RAZONES = ["Avisó · quiere reagendar", "Plantón · sin aviso", "Falla técnica", "Datos incorrectos"];
+const NO_INTERESA_RAZONES = [
+  "Precio",
+  "No es el momento",
+  "Competencia",
+  "No califica",
+  "Otro",
+];
+const NO_SHOW_RAZONES = [
+  "Avisó · quiere reagendar",
+  "Plantón · sin aviso",
+  "Falla técnica",
+  "Datos incorrectos",
+];
 
-function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm: (result: AvanzarResult) => void }) {
-  const withNota = (r: Omit<AvanzarResult, "nota">, nota: string): AvanzarResult => ({ ...r, nota: nota.trim() || undefined });
+function CloserAvanzar({
+  onClose,
+  onConfirm,
+}: {
+  onClose: () => void;
+  onConfirm: (result: AvanzarResult) => void;
+}) {
+  const withNota = (
+    r: Omit<AvanzarResult, "nota">,
+    nota: string,
+  ): AvanzarResult => ({ ...r, nota: nota.trim() || undefined });
   const [step, setStep] = useState<CloserOutcomeKey | null>(null);
 
   // Venta
@@ -337,14 +481,21 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
               onClick={() => setStep(c.key)}
               className={cn(
                 "text-left p-4 rounded-2xl border border-border/60 hover:border-border hover:shadow-sm transition-all bg-background dark:bg-secondary",
-                c.span2 && "col-span-2"
+                c.span2 && "col-span-2",
               )}
             >
-              <div className={cn("h-9 w-9 rounded-full flex items-center justify-center mb-3", CARD_ICON_TONE[c.tone])}>
+              <div
+                className={cn(
+                  "h-9 w-9 rounded-full flex items-center justify-center mb-3",
+                  CARD_ICON_TONE[c.tone],
+                )}
+              >
                 <c.icon className="h-4.5 w-4.5" />
               </div>
               <div className="text-sm font-bold">{c.label}</div>
-              <div className="text-xs text-muted-foreground mt-0.5">{c.desc}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {c.desc}
+              </div>
             </button>
           ))}
         </div>
@@ -356,39 +507,78 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
     const canConfirm = Number(ventaMonto) > 0 && !!tipoPago;
     const confirm = () => {
       const monto = Number(ventaMonto);
-      onConfirm(withNota({
-        // La píldora se delega a `armarPildora` en vez de concatenarse acá: es el único
-        // lugar donde se decide el formato, y así esta pantalla no puede volver a
-        // desincronizarse de la semilla ni del camino de los contactos reales de GHL.
-        pildora: armarPildora({ stage: "ganado", subcategoria: tipoPago, monto }),
-        texto: `Registró Venta — ${money(monto)} (${tipoPago})`,
-        toast: `Venta registrada — ${money(monto)}`,
-        monto,
-        formaPagoVenta: tipoPago ?? undefined,
-        // Es la subcategoría del stage `ganado` (`forma_de_pago_venta` en GHL). Sin esto el
-        // backend rechaza la venta con 400: el catálogo la declara obligatoria.
-        subcategoriaGhl: tipoPago ?? undefined,
-        celebrate: true,
-        stage: "ganado",
-      }, nota));
+      onConfirm(
+        withNota(
+          {
+            // La píldora se delega a `armarPildora` en vez de concatenarse acá: es el único
+            // lugar donde se decide el formato, y así esta pantalla no puede volver a
+            // desincronizarse de la semilla ni del camino de los contactos reales de GHL.
+            pildora: armarPildora({
+              stage: "ganado",
+              subcategoria: tipoPago,
+              monto,
+            }),
+            texto: `Registró Venta — ${money(monto)} (${tipoPago})`,
+            toast: `Venta registrada — ${money(monto)}`,
+            monto,
+            formaPagoVenta: tipoPago ?? undefined,
+            // Es la subcategoría del stage `ganado` (`forma_de_pago_venta` en GHL). Sin esto el
+            // backend rechaza la venta con 400: el catálogo la declara obligatoria.
+            subcategoriaGhl: tipoPago ?? undefined,
+            celebrate: true,
+            stage: "ganado",
+          },
+          nota,
+        ),
+      );
     };
     return (
-      <ModalShell onClose={onClose} onBack={back} title="Registrar Cierre" subtitle="Ingresa los detalles de la venta"
-        footer={<ConfirmButton tone="emerald" disabled={!canConfirm} onClick={confirm}>Guardar Venta</ConfirmButton>}>
+      <ModalShell
+        onClose={onClose}
+        onBack={back}
+        title="Registrar Cierre"
+        subtitle="Ingresa los detalles de la venta"
+        footer={
+          <ConfirmButton
+            tone="emerald"
+            disabled={!canConfirm}
+            onClick={confirm}
+          >
+            Guardar Venta
+          </ConfirmButton>
+        }
+      >
         <div>
           <FieldLabel>Monto Total</FieldLabel>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-            <input type="number" min={0} value={ventaMonto} onChange={(e) => setVentaMonto(e.target.value)} placeholder="0"
-              className="w-full rounded-md border border-input bg-background dark:bg-secondary pl-7 pr-3 py-2 text-sm" />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+              $
+            </span>
+            <input
+              type="number"
+              min={0}
+              value={ventaMonto}
+              onChange={(e) => setVentaMonto(e.target.value)}
+              placeholder="0"
+              className="w-full rounded-md border border-input bg-background dark:bg-secondary pl-7 pr-3 py-2 text-sm"
+            />
           </div>
         </div>
         <div>
           <FieldLabel>Tipo de pago</FieldLabel>
           <div className="grid grid-cols-2 gap-2">
-            {["Contado", "Splitwise", "Buy Now Pay Later", "Cuotas"].map((t) => (
-              <Chip key={t} tone="emerald" selected={tipoPago === t} onClick={() => setTipoPago(t)}>{t}</Chip>
-            ))}
+            {["Contado", "Splitwise", "Buy Now Pay Later", "Cuotas"].map(
+              (t) => (
+                <Chip
+                  key={t}
+                  tone="emerald"
+                  selected={tipoPago === t}
+                  onClick={() => setTipoPago(t)}
+                >
+                  {t}
+                </Chip>
+              ),
+            )}
           </div>
         </div>
         <NotaField value={nota} onChange={setNota} />
@@ -400,23 +590,45 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
     const canConfirm = Number(acuerdoMonto) > 0;
     const confirm = () => {
       const monto = Number(acuerdoMonto);
-      onConfirm(withNota({
-        pildora: `ACORDÓ COMPRAR · ${money(monto)}`,
-        texto: `Registró Acordó comprar, falta pago — seña ${money(monto)}`,
-        toast: `Acuerdo registrado — seña ${money(monto)}`,
-        monto,
-        stage: "cierre",
-      }, nota));
+      onConfirm(
+        withNota(
+          {
+            pildora: `ACORDÓ COMPRAR · ${money(monto)}`,
+            texto: `Registró Acordó comprar, falta pago — seña ${money(monto)}`,
+            toast: `Acuerdo registrado — seña ${money(monto)}`,
+            monto,
+            stage: "cierre",
+          },
+          nota,
+        ),
+      );
     };
     return (
-      <ModalShell onClose={onClose} onBack={back} title="Registrar: Acordó comprar, falta pago" subtitle="Ingresa el monto de la seña o promesa"
-        footer={<ConfirmButton tone="blue" disabled={!canConfirm} onClick={confirm}>Guardar acuerdo</ConfirmButton>}>
+      <ModalShell
+        onClose={onClose}
+        onBack={back}
+        title="Registrar: Acordó comprar, falta pago"
+        subtitle="Ingresa el monto de la seña o promesa"
+        footer={
+          <ConfirmButton tone="blue" disabled={!canConfirm} onClick={confirm}>
+            Guardar acuerdo
+          </ConfirmButton>
+        }
+      >
         <div>
           <FieldLabel>Monto asegurado (USD)</FieldLabel>
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-            <input type="number" min={0} value={acuerdoMonto} onChange={(e) => setAcuerdoMonto(e.target.value)} placeholder="0"
-              className="w-full rounded-md border border-input bg-background dark:bg-secondary pl-7 pr-3 py-2 text-sm" />
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+              $
+            </span>
+            <input
+              type="number"
+              min={0}
+              value={acuerdoMonto}
+              onChange={(e) => setAcuerdoMonto(e.target.value)}
+              placeholder="0"
+              className="w-full rounded-md border border-input bg-background dark:bg-secondary pl-7 pr-3 py-2 text-sm"
+            />
           </div>
         </div>
         <NotaField value={nota} onChange={setNota} />
@@ -427,23 +639,51 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
   if (step === "no_interesa") {
     const canConfirm = !!razonPerdida;
     const confirm = () => {
-      onConfirm(withNota({
-        pildora: `NO LE INTERESA · ${(razonPerdida ?? "").toUpperCase()}`,
-        texto: `Registró No le interesa — ${razonPerdida}`,
-        toast: "Prospecto descalificado",
-        subcategoriaGhl: razonPerdida ?? undefined,
-        stage: "descalificado",
-      }, nota));
+      onConfirm(
+        withNota(
+          {
+            pildora: `NO LE INTERESA · ${(razonPerdida ?? "").toUpperCase()}`,
+            texto: `Registró No le interesa — ${razonPerdida}`,
+            toast: "Prospecto descalificado",
+            subcategoriaGhl: razonPerdida ?? undefined,
+            stage: "descalificado",
+          },
+          nota,
+        ),
+      );
     };
     return (
-      <ModalShell onClose={onClose} onBack={back} title="Descalificar Prospecto" subtitle="Selecciona la razón principal"
-        footer={<ConfirmButton tone="red" disabled={!canConfirm} onClick={confirm}>Confirmar Descalificación</ConfirmButton>}>
+      <ModalShell
+        onClose={onClose}
+        onBack={back}
+        title="Descalificar Prospecto"
+        subtitle="Selecciona la razón principal"
+        footer={
+          <ConfirmButton tone="red" disabled={!canConfirm} onClick={confirm}>
+            Confirmar Descalificación
+          </ConfirmButton>
+        }
+      >
         <div>
           <FieldLabel>Razón de descalificación</FieldLabel>
           <div className="grid grid-cols-2 gap-2">
             {NO_INTERESA_RAZONES.map((r, i) => (
-              <div key={r} className={i === NO_INTERESA_RAZONES.length - 1 && NO_INTERESA_RAZONES.length % 2 === 1 ? "col-span-2" : ""}>
-                <Chip tone="red" selected={razonPerdida === r} onClick={() => setRazonPerdida(r)}>{r}</Chip>
+              <div
+                key={r}
+                className={
+                  i === NO_INTERESA_RAZONES.length - 1 &&
+                  NO_INTERESA_RAZONES.length % 2 === 1
+                    ? "col-span-2"
+                    : ""
+                }
+              >
+                <Chip
+                  tone="red"
+                  selected={razonPerdida === r}
+                  onClick={() => setRazonPerdida(r)}
+                >
+                  {r}
+                </Chip>
               </div>
             ))}
           </div>
@@ -454,35 +694,69 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
   }
 
   if (step === "seguimiento") {
-    return <CloserSeguimientoFlow onClose={onClose} onBack={back} onConfirm={onConfirm} />;
+    return (
+      <CloserSeguimientoFlow
+        onClose={onClose}
+        onBack={back}
+        onConfirm={onConfirm}
+      />
+    );
   }
 
   if (step === "nurture") {
-    return <NurtureScreen onClose={onClose} onBack={back} onConfirm={onConfirm} stage="nurture" />;
+    return (
+      <NurtureScreen
+        onClose={onClose}
+        onBack={back}
+        onConfirm={onConfirm}
+        stage="nurture"
+      />
+    );
   }
 
   // no_show
   const canConfirm = !!razonNoShow;
   const confirm = () => {
-    onConfirm(withNota({
-      pildora: `NO-SHOW · ${(razonNoShow ?? "").split(" · ")[0].toUpperCase()}`,
-      texto: `Registró No-show — ${razonNoShow}`,
-      toast: "No-show registrado",
-      // Se manda la razón COMPLETA, con el separador `·` incluido — el backend la traduce al
-      // valor exacto del dropdown de GHL. La píldora se queda con la primera mitad, pero eso
-      // es una decisión de presentación y no debe recortar el dato que viaja.
-      subcategoriaGhl: razonNoShow ?? undefined,
-      stage: "no_show",
-    }, nota));
+    onConfirm(
+      withNota(
+        {
+          pildora: `NO-SHOW · ${(razonNoShow ?? "").split(" · ")[0].toUpperCase()}`,
+          texto: `Registró No-show — ${razonNoShow}`,
+          toast: "No-show registrado",
+          // Se manda la razón COMPLETA, con el separador `·` incluido — el backend la traduce al
+          // valor exacto del dropdown de GHL. La píldora se queda con la primera mitad, pero eso
+          // es una decisión de presentación y no debe recortar el dato que viaja.
+          subcategoriaGhl: razonNoShow ?? undefined,
+          stage: "no_show",
+        },
+        nota,
+      ),
+    );
   };
   return (
-    <ModalShell onClose={onClose} onBack={back} title="Registrar No-show" subtitle="Selecciona la razón"
-      footer={<ConfirmButton tone="amber" disabled={!canConfirm} onClick={confirm}>Confirmar No-show</ConfirmButton>}>
+    <ModalShell
+      onClose={onClose}
+      onBack={back}
+      title="Registrar No-show"
+      subtitle="Selecciona la razón"
+      footer={
+        <ConfirmButton tone="amber" disabled={!canConfirm} onClick={confirm}>
+          Confirmar No-show
+        </ConfirmButton>
+      }
+    >
       <div>
         <FieldLabel>Razón del no-show</FieldLabel>
         <div className="grid grid-cols-2 gap-2">
           {NO_SHOW_RAZONES.map((r) => (
-            <Chip key={r} tone="amber" selected={razonNoShow === r} onClick={() => setRazonNoShow(r)}>{r}</Chip>
+            <Chip
+              key={r}
+              tone="amber"
+              selected={razonNoShow === r}
+              onClick={() => setRazonNoShow(r)}
+            >
+              {r}
+            </Chip>
           ))}
         </div>
       </div>
@@ -493,14 +767,26 @@ function CloserAvanzar({ onClose, onConfirm }: { onClose: () => void; onConfirm:
 
 /* ---------- Setter: Seguimiento (§ rediseño 2026-07-09 — reemplaza fecha+subcategoría) ---------- */
 
-function GroupLabel({ icon: Icon, iconClassName, title, subtitle }: { icon: typeof Zap; iconClassName?: string; title: string; subtitle: string }) {
+function GroupLabel({
+  icon: Icon,
+  iconClassName,
+  title,
+  subtitle,
+}: {
+  icon: typeof Zap;
+  iconClassName?: string;
+  title: string;
+  subtitle: string;
+}) {
   return (
     <div className="mb-2">
       <div className="flex items-center gap-1.5 text-[13px] font-bold uppercase tracking-wide text-foreground">
         <Icon className={cn("h-3.5 w-3.5", iconClassName)} />
         {title}
       </div>
-      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5 ml-5">{subtitle}</div>
+      <div className="text-[10px] uppercase tracking-wider text-muted-foreground mt-0.5 ml-5">
+        {subtitle}
+      </div>
     </div>
   );
 }
@@ -525,28 +811,40 @@ function SeguimientoRow({
         "w-full flex items-center justify-between px-4 py-3 rounded-xl border text-left transition-colors",
         selected
           ? "border-violet-300 bg-violet-50 dark:bg-violet-500/10 dark:border-violet-500/30"
-          : "border-border bg-background dark:bg-secondary hover:bg-muted/40"
+          : "border-border bg-background dark:bg-secondary hover:bg-muted/40",
       )}
     >
       <span className="flex items-center gap-2 text-sm font-medium text-foreground">
         {Icon && <Icon className="h-4 w-4 text-muted-foreground" />}
         {label}
       </span>
-      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{meta}</span>
+      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+        {meta}
+      </span>
     </button>
   );
 }
 
 /** Grupo automático — opciones distintas por rol (Setter: 2 series; Closer: Recupero). */
-const SETTER_AUTO_SEGUIMIENTO: { key: string; meta: string; icon?: typeof Repeat }[] = [
+const SETTER_AUTO_SEGUIMIENTO: {
+  key: string;
+  meta: string;
+  icon?: typeof Repeat;
+}[] = [
   { key: "Para agendar", meta: "3 toques · 5 días" },
   { key: "Para decisión LT", meta: "2 toques · 3 días" },
 ];
-const CLOSER_AUTO_SEGUIMIENTO: { key: string; meta: string; icon?: typeof Repeat }[] = [
-  { key: "Recupero", meta: "3 toques · 7 días", icon: Repeat },
-];
+const CLOSER_AUTO_SEGUIMIENTO: {
+  key: string;
+  meta: string;
+  icon?: typeof Repeat;
+}[] = [{ key: "Recupero", meta: "3 toques · 7 días", icon: Repeat }];
 
-const MANUAL_SEGUIMIENTO: { key: string; meta: string; icon?: typeof CalendarClock }[] = [
+const MANUAL_SEGUIMIENTO: {
+  key: string;
+  meta: string;
+  icon?: typeof CalendarClock;
+}[] = [
   { key: "Mañana", meta: "En 1 día" },
   { key: "En 3 días", meta: "Corto plazo" },
   { key: "1 semana", meta: "Mediano plazo" },
@@ -555,7 +853,7 @@ const MANUAL_SEGUIMIENTO: { key: string; meta: string; icon?: typeof CalendarClo
 
 /** Etiqueta del chip → preset que entiende el backend. El servidor resuelve la fecha. */
 const PRESET_POR_CHIP: Record<string, string> = {
-  "Mañana": "manana",
+  Mañana: "manana",
   "En 3 días": "en_3_dias",
   "1 semana": "una_semana",
   Personalizada: "personalizada",
@@ -600,7 +898,8 @@ function SeguimientoScreen({
    * el servidor reconoce el reintento en vez de crear dos seguimientos.
    */
   const idempotencyKey = useRef(
-    globalThis.crypto?.randomUUID?.() ?? `av-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    globalThis.crypto?.randomUUID?.() ??
+      `av-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   ).current;
 
   const pickAuto = (key: string) => {
@@ -616,13 +915,18 @@ function SeguimientoScreen({
 
   // El `min` del input es solo una pista visual — se puede tipear igual. La fecha
   // tiene que ser futura de verdad: comparar strings ISO alcanza (ordenan igual que las fechas).
-  const manualOk = manualPick === "Personalizada" ? !!customFecha && customFecha >= isoEnDias(1) : !!manualPick;
+  const manualOk =
+    manualPick === "Personalizada"
+      ? !!customFecha && customFecha >= isoEnDias(1)
+      : !!manualPick;
   const canConfirm = !!autoPick || (!!manualPick && manualOk);
 
   const confirm = () => {
     if (autoPick) {
       onConfirm({
-        pildora: situacionPill ? `SEGUIMIENTO · ${situacionPill}` : `SEGUIMIENTO · ${autoPick.toUpperCase()}`,
+        pildora: situacionPill
+          ? `SEGUIMIENTO · ${situacionPill}`
+          : `SEGUIMIENTO · ${autoPick.toUpperCase()}`,
         texto: `Seguimiento automático · ${autoPick}`,
         toast: "Seguimiento automático activado",
         nota: nota.trim() || undefined,
@@ -636,9 +940,16 @@ function SeguimientoScreen({
       });
       return;
     }
-    const effectiveFecha = manualPick === "Personalizada" ? customFecha : isoEnDias(manualPick === "Mañana" ? 1 : manualPick === "En 3 días" ? 3 : 7);
+    const effectiveFecha =
+      manualPick === "Personalizada"
+        ? customFecha
+        : isoEnDias(
+            manualPick === "Mañana" ? 1 : manualPick === "En 3 días" ? 3 : 7,
+          );
     onConfirm({
-      pildora: situacionPill ? `SEGUIMIENTO · ${situacionPill}` : `SEGUIMIENTO — ${fechaCorta(effectiveFecha).toUpperCase()}`,
+      pildora: situacionPill
+        ? `SEGUIMIENTO · ${situacionPill}`
+        : `SEGUIMIENTO — ${fechaCorta(effectiveFecha).toUpperCase()}`,
       texto: `Seguimiento manual · para el ${fechaCorta(effectiveFecha)}`,
       toast: `Seguimiento programado — ${fechaCorta(effectiveFecha)}`,
       nota: nota.trim() || undefined,
@@ -651,24 +962,64 @@ function SeguimientoScreen({
       // El preset, no la fecha: el servidor la resuelve contra America/Lima. `effectiveFecha`
       // se sigue calculando acá solo para los textos que ve el usuario.
       preset: PRESET_POR_CHIP[manualPick ?? ""] ?? "personalizada",
-      fechaPersonalizada: manualPick === "Personalizada" ? customFecha : undefined,
+      fechaPersonalizada:
+        manualPick === "Personalizada" ? customFecha : undefined,
       idempotencyKey,
     });
   };
 
   return (
-    <ModalShell onClose={onClose} onBack={onBack} title="Programar Seguimiento" subtitle="Selecciona cuándo quieres que te recordemos"
-      footer={<ConfirmButton tone="violet" disabled={!canConfirm} onClick={confirm}>Programar Seguimiento</ConfirmButton>}>
-      <div className={cn("space-y-2 transition-opacity", manualPick && "opacity-40")}>
-        <GroupLabel icon={Zap} iconClassName="text-amber-500" title="Seguimiento automático" subtitle="El sistema persigue por ti" />
+    <ModalShell
+      onClose={onClose}
+      onBack={onBack}
+      title="Programar Seguimiento"
+      subtitle="Selecciona cuándo quieres que te recordemos"
+      footer={
+        <ConfirmButton tone="violet" disabled={!canConfirm} onClick={confirm}>
+          Programar Seguimiento
+        </ConfirmButton>
+      }
+    >
+      <div
+        className={cn(
+          "space-y-2 transition-opacity",
+          manualPick && "opacity-40",
+        )}
+      >
+        <GroupLabel
+          icon={Zap}
+          iconClassName="text-amber-500"
+          title="Seguimiento automático"
+          subtitle="El sistema persigue por ti"
+        />
         {autoOptions.map((o) => (
-          <SeguimientoRow key={o.key} icon={o.icon} label={o.key} meta={o.meta} selected={autoPick === o.key} onClick={() => pickAuto(o.key)} />
+          <SeguimientoRow
+            key={o.key}
+            icon={o.icon}
+            label={o.key}
+            meta={o.meta}
+            selected={autoPick === o.key}
+            onClick={() => pickAuto(o.key)}
+          />
         ))}
       </div>
-      <div className={cn("space-y-2 transition-opacity", autoPick && "opacity-40")}>
-        <GroupLabel icon={User} title="Seguimiento manual" subtitle="Tú lo retomas" />
+      <div
+        className={cn("space-y-2 transition-opacity", autoPick && "opacity-40")}
+      >
+        <GroupLabel
+          icon={User}
+          title="Seguimiento manual"
+          subtitle="Tú lo retomas"
+        />
         {MANUAL_SEGUIMIENTO.map((o) => (
-          <SeguimientoRow key={o.key} icon={o.icon} label={o.key} meta={o.meta} selected={manualPick === o.key} onClick={() => pickManual(o.key)} />
+          <SeguimientoRow
+            key={o.key}
+            icon={o.icon}
+            label={o.key}
+            meta={o.meta}
+            selected={manualPick === o.key}
+            onClick={() => pickManual(o.key)}
+          />
         ))}
         {manualPick === "Personalizada" && (
           <input
@@ -695,12 +1046,48 @@ function SeguimientoScreen({
  * `nivel_de_inters_seguimiento` en GHL — están verificados uno a uno contra la subcuenta,
  * y la fuente de verdad de esa correspondencia es `SITUACIONES` en `ghl/contrato.ts`.
  */
-const CLOSER_SITUACIONES: { slug: SituacionSeguimiento; label: string; desc: string; icon: typeof Flame; tone: string }[] = [
-  { slug: "proximo_a_pagar", label: "Próximo a pagar", desc: "Dijo que sí, es cuestión de días", icon: Flame, tone: "emerald" },
-  { slug: "muy_interesado", label: "Muy interesado", desc: "Quiere, sin fecha de pago aún", icon: Star, tone: "amber" },
-  { slug: "dudando", label: "Dudando", desc: "Tiene una objeción sin resolver", icon: HelpCircle, tone: "violet" },
-  { slug: "enfriandose", label: "Enfriándose", desc: "Perdiendo interés, riesgo de fuga", icon: Snowflake, tone: "blue" },
-  { slug: "otro", label: "Otro", desc: "Situación no listada", icon: CircleDashed, tone: "slate" },
+const CLOSER_SITUACIONES: {
+  slug: SituacionSeguimiento;
+  label: string;
+  desc: string;
+  icon: typeof Flame;
+  tone: string;
+}[] = [
+  {
+    slug: "proximo_a_pagar",
+    label: "Próximo a pagar",
+    desc: "Dijo que sí, es cuestión de días",
+    icon: Flame,
+    tone: "emerald",
+  },
+  {
+    slug: "muy_interesado",
+    label: "Muy interesado",
+    desc: "Quiere, sin fecha de pago aún",
+    icon: Star,
+    tone: "amber",
+  },
+  {
+    slug: "dudando",
+    label: "Dudando",
+    desc: "Tiene una objeción sin resolver",
+    icon: HelpCircle,
+    tone: "violet",
+  },
+  {
+    slug: "enfriandose",
+    label: "Enfriándose",
+    desc: "Perdiendo interés, riesgo de fuga",
+    icon: Snowflake,
+    tone: "blue",
+  },
+  {
+    slug: "otro",
+    label: "Otro",
+    desc: "Situación no listada",
+    icon: CircleDashed,
+    tone: "slate",
+  },
 ];
 
 /** Pantalla 1 (Situación) → pantalla 2 (Modo, = SeguimientoScreen de siempre). La situación decide la subcategoría de la píldora; el modo solo decide automático/manual y la fecha de la 2ª línea. */
@@ -713,15 +1100,30 @@ function CloserSeguimientoFlow({
   onBack: () => void;
   onConfirm: (result: AvanzarResult) => void;
 }) {
-  const [situacion, setSituacion] = useState<(typeof CLOSER_SITUACIONES)[number] | null>(null);
+  const [situacion, setSituacion] = useState<
+    (typeof CLOSER_SITUACIONES)[number] | null
+  >(null);
 
   if (!situacion) {
     return (
-      <ModalShell onClose={onClose} onBack={onBack} eyebrow="Seguimiento" title="¿Cómo está el contacto?"
-        subtitle="Elige la situación real del contacto — decide la subcategoría de la píldora." footer={null}>
+      <ModalShell
+        onClose={onClose}
+        onBack={onBack}
+        eyebrow="Seguimiento"
+        title="¿Cómo está el contacto?"
+        subtitle="Elige la situación real del contacto — decide la subcategoría de la píldora."
+        footer={null}
+      >
         <div className="space-y-2">
           {CLOSER_SITUACIONES.map((s) => (
-            <OptionCard key={s.label} icon={s.icon} label={s.label} desc={s.desc} tone={s.tone} onClick={() => setSituacion(s)} />
+            <OptionCard
+              key={s.label}
+              icon={s.icon}
+              label={s.label}
+              desc={s.desc}
+              tone={s.tone}
+              onClick={() => setSituacion(s)}
+            />
           ))}
         </div>
       </ModalShell>
@@ -743,12 +1145,30 @@ function CloserSeguimientoFlow({
 
 /* ---------- Nurture — compartido Closer/Setter (DISEÑO APROBADO, 2026-07-11) ---------- */
 
-const NURTURE_REASONS: { key: string; label: string; desc: string; icon: typeof Hourglass }[] = [
-  { key: "Pidió tiempo", label: "Pidió tiempo", desc: "Quiere, pero no ahora (presupuesto o timing)", icon: Hourglass },
-  { key: "Se enfrió", label: "Se enfrió", desc: "Perdió el impulso, sin decir que no", icon: Snowflake },
+const NURTURE_REASONS: {
+  key: string;
+  label: string;
+  desc: string;
+  icon: typeof Hourglass;
+}[] = [
+  {
+    key: "Pidió tiempo",
+    label: "Pidió tiempo",
+    desc: "Quiere, pero no ahora (presupuesto o timing)",
+    icon: Hourglass,
+  },
+  {
+    key: "Se enfrió",
+    label: "Se enfrió",
+    desc: "Perdió el impulso, sin decir que no",
+    icon: Snowflake,
+  },
 ];
 
-const NURTURE_PILL: Record<string, string> = { "Pidió tiempo": "PIDIÓ TIEMPO", "Se enfrió": "SE ENFRIÓ" };
+const NURTURE_PILL: Record<string, string> = {
+  "Pidió tiempo": "PIDIÓ TIEMPO",
+  "Se enfrió": "SE ENFRIÓ",
+};
 
 function NurtureScreen({
   onClose,
@@ -786,13 +1206,30 @@ function NurtureScreen({
   };
 
   return (
-    <ModalShell onClose={onClose} onBack={onBack} title="Enviar a Nurture" subtitle="No es ahora, pero no está muerto"
-      footer={<ConfirmButton tone="blue" disabled={!canConfirm} onClick={confirm}>Enviar a Nurture</ConfirmButton>}>
+    <ModalShell
+      onClose={onClose}
+      onBack={onBack}
+      title="Enviar a Nurture"
+      subtitle="No es ahora, pero no está muerto"
+      footer={
+        <ConfirmButton tone="blue" disabled={!canConfirm} onClick={confirm}>
+          Enviar a Nurture
+        </ConfirmButton>
+      }
+    >
       <div>
         <FieldLabel>¿Por qué a nurture?</FieldLabel>
         <div className="space-y-2">
           {NURTURE_REASONS.map((r) => (
-            <OptionCard key={r.key} icon={r.icon} label={r.label} desc={r.desc} tone="blue" selected={motivo === r.key} onClick={() => setMotivo(r.key)} />
+            <OptionCard
+              key={r.key}
+              icon={r.icon}
+              label={r.label}
+              desc={r.desc}
+              tone="blue"
+              selected={motivo === r.key}
+              onClick={() => setMotivo(r.key)}
+            />
           ))}
         </div>
       </div>
@@ -804,11 +1241,29 @@ function NurtureScreen({
 /* ---------- Setter: placeholder genérico (a la espera de las pantallas reales) ---------- */
 
 type FieldDef =
-  | { name: string; type: "currency"; label: string; required?: boolean; prefill?: number }
-  | { name: string; type: "date" | "datetime"; label: string; required?: boolean }
-  | { name: string; type: "select"; label: string; options: string[]; required?: boolean };
+  | {
+      name: string;
+      type: "currency";
+      label: string;
+      required?: boolean;
+      prefill?: number;
+    }
+  | {
+      name: string;
+      type: "date" | "datetime";
+      label: string;
+      required?: boolean;
+    }
+  | {
+      name: string;
+      type: "select";
+      label: string;
+      options: string[];
+      required?: boolean;
+    };
 
-type SetterOutcomeKey = "agendo" | "venta_lt" | "seguimiento" | "no_califica" | "nurture";
+type SetterOutcomeKey =
+  "agendo" | "venta_lt" | "seguimiento" | "no_califica" | "nurture";
 
 type OutputDef = {
   key: SetterOutcomeKey;
@@ -816,54 +1271,177 @@ type OutputDef = {
   fields?: FieldDef[];
 };
 
-const LT_PRODUCTS = ["Masterclass — $97", "Curso Intensivo — $297", "Mentoría Express — $500"];
+const LT_PRODUCTS = [
+  "Masterclass — $97",
+  "Curso Intensivo — $297",
+  "Mentoría Express — $500",
+];
 const ltPrefill = (producto: string) => Number(producto.split("$")[1] ?? 0);
 
 const SETTER_OUTPUTS: OutputDef[] = [
-  { key: "agendo", fields: [
-    { name: "fecha", type: "datetime", label: "Fecha y hora de la cita", required: true },
-  ] },
-  { key: "venta_lt", fields: [
-    { name: "producto", type: "select", label: "Producto", required: true, options: LT_PRODUCTS },
-    { name: "monto", type: "currency", label: "Monto", required: true },
-    { name: "forma_pago", type: "select", label: "Forma de pago", required: true, options: ["Transferencia", "Tarjeta", "Efectivo", "Otro"] },
-  ] },
+  {
+    key: "agendo",
+    fields: [
+      {
+        name: "fecha",
+        type: "datetime",
+        label: "Fecha y hora de la cita",
+        required: true,
+      },
+    ],
+  },
+  {
+    key: "venta_lt",
+    fields: [
+      {
+        name: "producto",
+        type: "select",
+        label: "Producto",
+        required: true,
+        options: LT_PRODUCTS,
+      },
+      { name: "monto", type: "currency", label: "Monto", required: true },
+      {
+        name: "forma_pago",
+        type: "select",
+        label: "Forma de pago",
+        required: true,
+        options: ["Transferencia", "Tarjeta", "Efectivo", "Otro"],
+      },
+    ],
+  },
   { key: "seguimiento" },
-  { key: "no_califica", subcategories: [
-    "Sin capital", "Sin urgencia", "No es el perfil", "Datos falsos",
-  ] },
+  {
+    key: "no_califica",
+    subcategories: [
+      "Sin capital",
+      "Sin urgencia",
+      "No es el perfil",
+      "Datos falsos",
+    ],
+  },
   { key: "nurture" },
 ];
 
 /** Grid "¿Cómo termina?" del setter (referencia de Fabio, 2026-07-10) — icono + label + desc, mismo estilo que CLOSER_CARDS. */
-const SETTER_CARDS: { key: SetterOutcomeKey; label: string; desc: string; icon: typeof Calendar; tone: "emerald" | "blue" | "violet" | "red" | "amber" }[] = [
-  { key: "agendo", label: "Agendó", desc: "Coordinado manualmente", icon: Calendar, tone: "emerald" },
-  { key: "venta_lt", label: "Venta Low-Ticket", desc: "Suma a comisiones", icon: CreditCard, tone: "violet" },
-  { key: "seguimiento", label: "Seguimiento", desc: "Pactar fecha · entra a tu cola", icon: Clock, tone: "amber" },
-  { key: "no_califica", label: "No califica", desc: "Descalifica por perfil", icon: UserX, tone: "red" },
-  { key: "nurture", label: "Nurture", desc: "No es ahora · a maduración", icon: Sprout, tone: "blue" },
+const SETTER_CARDS: {
+  key: SetterOutcomeKey;
+  label: string;
+  desc: string;
+  icon: typeof Calendar;
+  tone: "emerald" | "blue" | "violet" | "red" | "amber";
+}[] = [
+  {
+    key: "agendo",
+    label: "Agendó",
+    desc: "Coordinado manualmente",
+    icon: Calendar,
+    tone: "emerald",
+  },
+  {
+    key: "venta_lt",
+    label: "Venta Low-Ticket",
+    desc: "Suma a comisiones",
+    icon: CreditCard,
+    tone: "violet",
+  },
+  {
+    key: "seguimiento",
+    label: "Seguimiento",
+    desc: "Pactar fecha · entra a tu cola",
+    icon: Clock,
+    tone: "amber",
+  },
+  {
+    key: "no_califica",
+    label: "No califica",
+    desc: "Descalifica por perfil",
+    icon: UserX,
+    tone: "red",
+  },
+  {
+    key: "nurture",
+    label: "Nurture",
+    desc: "No es ahora · a maduración",
+    icon: Sprout,
+    tone: "blue",
+  },
 ];
 
-const SETTER_DETAIL_META: Record<SetterOutcomeKey, { title: string; subtitle: string; cta: string }> = {
-  agendo: { title: "Registrar Agendó", subtitle: "Ingresa la fecha y hora de la cita coordinada", cta: "Guardar" },
-  venta_lt: { title: "Registrar Venta Low-Ticket", subtitle: "Selecciona el producto y confirma el monto", cta: "Guardar Venta" },
-  seguimiento: { title: "Programar Seguimiento", subtitle: "Selecciona cuándo quieres que te recordemos", cta: "Programar Seguimiento" },
-  no_califica: { title: "Descalificar Prospecto", subtitle: "Selecciona la razón principal", cta: "Confirmar Descalificación" },
-  nurture: { title: "Enviar a Nurture", subtitle: "Selecciona el motivo", cta: "Confirmar Nurture" },
+const SETTER_DETAIL_META: Record<
+  SetterOutcomeKey,
+  { title: string; subtitle: string; cta: string }
+> = {
+  agendo: {
+    title: "Registrar Agendó",
+    subtitle: "Ingresa la fecha y hora de la cita coordinada",
+    cta: "Guardar",
+  },
+  venta_lt: {
+    title: "Registrar Venta Low-Ticket",
+    subtitle: "Selecciona el producto y confirma el monto",
+    cta: "Guardar Venta",
+  },
+  seguimiento: {
+    title: "Programar Seguimiento",
+    subtitle: "Selecciona cuándo quieres que te recordemos",
+    cta: "Programar Seguimiento",
+  },
+  no_califica: {
+    title: "Descalificar Prospecto",
+    subtitle: "Selecciona la razón principal",
+    cta: "Confirmar Descalificación",
+  },
+  nurture: {
+    title: "Enviar a Nurture",
+    subtitle: "Selecciona el motivo",
+    cta: "Confirmar Nurture",
+  },
 };
 
-function buildSetterResult(output: OutputDef, subcat: string | null, values: Record<string, string>): AvanzarResult {
+function buildSetterResult(
+  output: OutputDef,
+  subcat: string | null,
+  values: Record<string, string>,
+): AvanzarResult {
   const monto = values.monto ? Number(values.monto) : undefined;
   switch (output.key) {
     case "agendo":
-      return { pildora: "AGENDADO", texto: `Registró Agendó — cita ${values.fecha}`, toast: "Cita agendada", setterStage: "agendado", situacionTone: "emerald", agendaFecha: values.fecha };
+      return {
+        pildora: "AGENDADO",
+        texto: `Registró Agendó — cita ${values.fecha}`,
+        toast: "Cita agendada",
+        setterStage: "agendado",
+        situacionTone: "emerald",
+        agendaFecha: values.fecha,
+      };
     case "venta_lt":
-      return { pildora: `LOW-TICKET · VENDIDO ${money(monto ?? 0)}`, texto: `Registró Venta Low-Ticket — ${values.producto} (${money(monto ?? 0)}, ${values.forma_pago})`, toast: `Venta LT registrada — ${money(monto ?? 0)}`, monto, celebrate: true, setterStage: "low_ticket_ofrecido", situacionTone: "emerald" };
+      return {
+        pildora: `LOW-TICKET · VENDIDO ${money(monto ?? 0)}`,
+        texto: `Registró Venta Low-Ticket — ${values.producto} (${money(monto ?? 0)}, ${values.forma_pago})`,
+        toast: `Venta LT registrada — ${money(monto ?? 0)}`,
+        monto,
+        celebrate: true,
+        setterStage: "low_ticket_ofrecido",
+        situacionTone: "emerald",
+      };
     case "no_califica":
-      return { pildora: "DESCALIFICADO", texto: `Registró No califica — ${subcat}`, toast: "Prospecto descalificado", setterStage: "descalificado", situacionTone: "rose" };
+      return {
+        pildora: "DESCALIFICADO",
+        texto: `Registró No califica — ${subcat}`,
+        toast: "Prospecto descalificado",
+        setterStage: "descalificado",
+        situacionTone: "rose",
+      };
     // "nurture" se intercepta antes de llegar aquí (ver NurtureScreen en SetterAvanzarModal) — nunca se invoca con ese key.
   }
-  return { pildora: "—", texto: "Registró un resultado", toast: "Registrado", setterStage: "en_calificacion", situacionTone: "source" };
+  return {
+    pildora: "—",
+    texto: "Registró un resultado",
+    toast: "Registrado",
+    setterStage: "en_calificacion",
+    situacionTone: "source",
+  };
 }
 
 /** Setter: grid "¿Cómo termina?" (referencia de Fabio, 2026-07-10) + pantallas de detalle, mismo patrón de navegación que CloserAvanzar. */
@@ -894,10 +1472,13 @@ function SetterAvanzarModal({
     setNota("");
   };
 
-  const setField = (fname: string, v: string) => setValues((prev) => ({ ...prev, [fname]: v }));
+  const setField = (fname: string, v: string) =>
+    setValues((prev) => ({ ...prev, [fname]: v }));
 
   const visibleFields = selected?.fields ?? [];
-  const requiredFieldsOk = visibleFields.every((f) => (!("required" in f) || !f.required) || !!values[f.name]?.trim());
+  const requiredFieldsOk = visibleFields.every(
+    (f) => !("required" in f) || !f.required || !!values[f.name]?.trim(),
+  );
   const subcatOk = !selected?.subcategories || !!subcat;
   const canConfirm = !!selected && subcatOk && requiredFieldsOk;
 
@@ -913,7 +1494,10 @@ function SetterAvanzarModal({
 
   const confirm = () => {
     if (!selected || !canConfirm) return;
-    onConfirm({ ...buildSetterResult(selected, subcat, values), nota: nota.trim() || undefined });
+    onConfirm({
+      ...buildSetterResult(selected, subcat, values),
+      nota: nota.trim() || undefined,
+    });
   };
 
   if (selectedKey === "seguimiento") {
@@ -930,22 +1514,57 @@ function SetterAvanzarModal({
   }
 
   if (selectedKey === "nurture") {
-    return <NurtureScreen onClose={onClose} onBack={back} onConfirm={onConfirm} setterStage="nurture" situacionTone="violet" />;
+    return (
+      <NurtureScreen
+        onClose={onClose}
+        onBack={back}
+        onConfirm={onConfirm}
+        setterStage="nurture"
+        situacionTone="violet"
+      />
+    );
   }
 
   if (selected) {
     const card = SETTER_CARDS.find((c) => c.key === selectedKey)!;
     const meta = SETTER_DETAIL_META[selectedKey!];
     return (
-      <ModalShell onClose={onClose} onBack={back} title={meta.title} subtitle={meta.subtitle}
-        footer={<ConfirmButton tone={card.tone} disabled={!canConfirm} onClick={confirm}>{meta.cta}</ConfirmButton>}>
+      <ModalShell
+        onClose={onClose}
+        onBack={back}
+        title={meta.title}
+        subtitle={meta.subtitle}
+        footer={
+          <ConfirmButton
+            tone={card.tone}
+            disabled={!canConfirm}
+            onClick={confirm}
+          >
+            {meta.cta}
+          </ConfirmButton>
+        }
+      >
         {selected.subcategories && (
           <div>
             <FieldLabel>Subcategoría (obligatoria)</FieldLabel>
             <div className="grid grid-cols-2 gap-2">
               {selected.subcategories.map((s, i) => (
-                <div key={s} className={i === selected.subcategories!.length - 1 && selected.subcategories!.length % 2 === 1 ? "col-span-2" : ""}>
-                  <Chip tone={card.tone} selected={subcat === s} onClick={() => setSubcat(s)}>{s}</Chip>
+                <div
+                  key={s}
+                  className={
+                    i === selected.subcategories!.length - 1 &&
+                    selected.subcategories!.length % 2 === 1
+                      ? "col-span-2"
+                      : ""
+                  }
+                >
+                  <Chip
+                    tone={card.tone}
+                    selected={subcat === s}
+                    onClick={() => setSubcat(s)}
+                  >
+                    {s}
+                  </Chip>
                 </div>
               ))}
             </div>
@@ -961,18 +1580,24 @@ function SetterAvanzarModal({
                 onChange={(e) => setField(f.name, e.target.value)}
                 className="w-full rounded-md border border-input bg-background dark:bg-secondary px-3 py-2 text-sm"
               >
-                <option value="" disabled>Elegir…</option>
+                <option value="" disabled>
+                  Elegir…
+                </option>
                 {f.options.map((op) => (
-                  <option key={op} value={op}>{op}</option>
+                  <option key={op} value={op}>
+                    {op}
+                  </option>
                 ))}
               </select>
             ) : f.type === "currency" ? (
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                  $
+                </span>
                 <input
                   type="number"
                   min={0}
-                  value={values[f.name] ?? (f.prefill ?? "")}
+                  value={values[f.name] ?? f.prefill ?? ""}
                   onChange={(e) => setField(f.name, e.target.value)}
                   placeholder="0"
                   className="w-full rounded-md border border-input bg-background dark:bg-secondary pl-7 pr-3 py-2 text-sm"
@@ -995,7 +1620,13 @@ function SetterAvanzarModal({
   }
 
   return (
-    <ModalShell onClose={onClose} eyebrow="Resultado — Llamada o Chat" title={name} subtitle="Registra el avance del prospecto en la fase de pre-agenda." footer={null}>
+    <ModalShell
+      onClose={onClose}
+      eyebrow="Resultado — Llamada o Chat"
+      title={name}
+      subtitle="Registra el avance del prospecto en la fase de pre-agenda."
+      footer={null}
+    >
       <div className="grid grid-cols-2 gap-3">
         {SETTER_CARDS.map((c) => (
           <button
@@ -1003,7 +1634,12 @@ function SetterAvanzarModal({
             onClick={() => pick(c.key)}
             className="text-left p-4 rounded-2xl border border-border/60 hover:border-border hover:shadow-sm transition-all bg-background dark:bg-secondary"
           >
-            <div className={cn("h-9 w-9 rounded-full flex items-center justify-center mb-3", CARD_ICON_TONE[c.tone])}>
+            <div
+              className={cn(
+                "h-9 w-9 rounded-full flex items-center justify-center mb-3",
+                CARD_ICON_TONE[c.tone],
+              )}
+            >
               <c.icon className="h-4.5 w-4.5" />
             </div>
             <div className="text-sm font-bold">{c.label}</div>
@@ -1067,7 +1703,13 @@ function Toast({ message }: { message: string | null }) {
 /* ================================================================== */
 
 type HistorialItem = { fecha: string; texto: string; autor: string };
-type NotaItem = { id: number; contexto: string | null; texto: string; autor: string; fecha: string };
+type NotaItem = {
+  id: number;
+  contexto: string | null;
+  texto: string;
+  autor: string;
+  fecha: string;
+};
 
 /**
  * VACÍOS desde el 2026-08-01 (pedido de Fabio): con contactos reales en la app, un historial
@@ -1115,7 +1757,11 @@ export default function ContactDrawer({
   /** "Marcar como Resuelto" en Intervenciones Urgentes — libera al contacto y reactiva la IA. */
   onResolveIntervention?: () => void;
   /** Cambios de estado del toggle 🤖. */
-  onBotStateChange?: (estado: BotEstado, evento: string, autor?: string) => void;
+  onBotStateChange?: (
+    estado: BotEstado,
+    evento: string,
+    autor?: string,
+  ) => void;
   /** FIJAR (§ toast/pin, 2026-07-11): sube la tarea de Respondieron/Buzón/Oportunidad LT al tope sin completarla. */
   onPin?: () => void;
   /** Completa la tarea — automático (barra de progreso, 5s) o manual (botón "Completar Tarea" en la ficha). */
@@ -1132,9 +1778,12 @@ export default function ContactDrawer({
   const { miCuenta } = useSettings();
 
   // Fallback local — red de seguridad si algún día ContactDrawer se invoca sin contact/setterContact de una store.
-  const [localPildora, setLocalPildora] = useState("EN CALIFICACIÓN · PARCIAL 3/8");
+  const [localPildora, setLocalPildora] = useState(
+    "EN CALIFICACIÓN · PARCIAL 3/8",
+  );
   const [localMonto, setLocalMonto] = useState<number | null>(null);
-  const [localHistorial, setLocalHistorial] = useState<HistorialItem[]>(HISTORIAL_SEED);
+  const [localHistorial, setLocalHistorial] =
+    useState<HistorialItem[]>(HISTORIAL_SEED);
   const [localBotEstado, setLocalBotEstado] = useState<BotEstado>("activo");
   const [localNotas, setLocalNotas] = useState<NotaItem[]>(NOTAS_SEED);
 
@@ -1153,17 +1802,37 @@ export default function ContactDrawer({
 
   if (!name) return null;
 
-  const grade = contact ? contact.grade : setterContact ? setterContact.grade : undefined;
-  const pildora = contact ? contact.situacion : setterContact ? setterContact.situacion : localPildora;
+  const grade = contact
+    ? contact.grade
+    : setterContact
+      ? setterContact.grade
+      : undefined;
+  const pildora = contact
+    ? contact.situacion
+    : setterContact
+      ? setterContact.situacion
+      : localPildora;
   // STAGE_META/TAG_CLS_BY_TONE son fragmentos/clases completas por rol; nunca se mezclan entre sí.
   const pildoraCls = contact
-    ? cn("inline-flex items-center border font-semibold px-2.5 py-1 rounded-md text-[11px] truncate uppercase tracking-wider", STAGE_META[contact.stage].pill)
+    ? cn(
+        "inline-flex items-center border font-semibold px-2.5 py-1 rounded-md text-[11px] truncate uppercase tracking-wider",
+        STAGE_META[contact.stage].pill,
+      )
     : setterContact
       ? TAG_CLS_BY_TONE[setterContact.situacionTone]
       : "inline-flex items-center border font-semibold px-2.5 py-1 rounded-md text-[11px] truncate uppercase tracking-wider bg-cyan-50 text-cyan-700 border-cyan-200/60 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/30";
-  const historial = contact ? contact.historial : setterContact ? setterContact.historial : localHistorial;
-  const notas = contact ? contact.notas : setterContact ? setterContact.notas : localNotas;
-  const urgenteDetail = contact?.urgente?.detail ?? setterContact?.urgente?.detail;
+  const historial = contact
+    ? contact.historial
+    : setterContact
+      ? setterContact.historial
+      : localHistorial;
+  const notas = contact
+    ? contact.notas
+    : setterContact
+      ? setterContact.notas
+      : localNotas;
+  const urgenteDetail =
+    contact?.urgente?.detail ?? setterContact?.urgente?.detail;
   const llamadas = contact?.llamadas ?? setterContact?.llamadas;
 
   /**
@@ -1186,7 +1855,10 @@ export default function ContactDrawer({
           llamadasIaContestadas: countCallsContestadas(setterContact.llamadas),
           llamadasIaIntentos: callsIASummary(setterContact.llamadas).intentos,
           // IG no tiene bot (§11): el canal lo decide antes que cualquier estado.
-          bot: setterContact.canal === "instagram" ? null : (setterContact.botEstado ?? null),
+          bot:
+            setterContact.canal === "instagram"
+              ? null
+              : (setterContact.botEstado ?? null),
           seguimientoAuto: !!setterContact.seguimientoAutomaticoActivo,
           // Setter: `monto` solo lo escribe la salida real `venta_lt`, sin gating por stage.
           ventaMonto: setterContact.monto ?? null,
@@ -1204,12 +1876,26 @@ export default function ContactDrawer({
   const hasReplyTask = contact
     ? !!(contact.respondido || contact.seguimientoPendiente)
     : setterContact
-      ? !!(setterContact.respondido || setterContact.oportunidadLt || setterContact.seguimientoPendiente || setterContact.estancada)
+      ? !!(
+          setterContact.respondido ||
+          setterContact.oportunidadLt ||
+          setterContact.seguimientoPendiente ||
+          setterContact.estancada
+        )
       : false;
-  const isCompletedToday = contact ? !!contact.completedToday : setterContact ? !!setterContact.completedToday : false;
-  const isPinned = contact ? !!contact.pinned : setterContact ? !!setterContact.pinned : false;
+  const isCompletedToday = contact
+    ? !!contact.completedToday
+    : setterContact
+      ? !!setterContact.completedToday
+      : false;
+  const isPinned = contact
+    ? !!contact.pinned
+    : setterContact
+      ? !!setterContact.pinned
+      : false;
   // Tab Perfil (§ auditoría v2, 2026-07-11) — campos reales agrupados por significado, sin importar rol/formulario de origen.
-  const perfilFields: PerfilField[] = contact?.perfil ?? setterContact?.perfil ?? [];
+  const perfilFields: PerfilField[] =
+    contact?.perfil ?? setterContact?.perfil ?? [];
   const videoPreCall: VideoPreCallInfo | undefined = contact?.videoPreCall;
   /**
    * El estado del bot para el TOGGLE del compositor. Sale del mismo bloque que el ícono, así
@@ -1221,12 +1907,19 @@ export default function ContactDrawer({
    * ahora significa lo que dice: no hay evidencia de que el bot esté atendiendo.
    */
   const botEstado: BotEstado | null = indicadores.bot;
-  const handleBotStateChange = (estado: BotEstado, evento: string, autor: string = "Usuario Activo") => {
+  const handleBotStateChange = (
+    estado: BotEstado,
+    evento: string,
+    autor: string = "Usuario Activo",
+  ) => {
     if (onBotStateChange) {
       onBotStateChange(estado, evento, autor);
     } else {
       setLocalBotEstado(estado);
-      setLocalHistorial((prev) => [{ fecha: "Hoy", texto: evento, autor }, ...prev]);
+      setLocalHistorial((prev) => [
+        { fecha: "Hoy", texto: evento, autor },
+        ...prev,
+      ]);
     }
   };
 
@@ -1271,11 +1964,20 @@ export default function ContactDrawer({
       });
     } else {
       setLocalPildora(result.pildora);
-      setLocalHistorial((prev) => [{ fecha: "Hoy", texto: result.texto, autor: "Usuario Activo" }, ...prev]);
+      setLocalHistorial((prev) => [
+        { fecha: "Hoy", texto: result.texto, autor: "Usuario Activo" },
+        ...prev,
+      ]);
       if (result.monto) setLocalMonto(result.monto);
       if (result.nota) {
         setLocalNotas((prev) => [
-          { id: Date.now(), contexto: result.pildora, texto: result.nota!, autor: "Usuario Activo", fecha: "Hoy" },
+          {
+            id: Date.now(),
+            contexto: result.pildora,
+            texto: result.nota!,
+            autor: "Usuario Activo",
+            fecha: "Hoy",
+          },
           ...prev,
         ]);
       }
@@ -1292,7 +1994,17 @@ export default function ContactDrawer({
 
   const handleAddNota = (texto: string) => {
     if (onAddNota) onAddNota(texto);
-    else setLocalNotas((prev) => [{ id: Date.now(), contexto: null, texto, autor: "Usuario Activo", fecha: "Hoy" }, ...prev]);
+    else
+      setLocalNotas((prev) => [
+        {
+          id: Date.now(),
+          contexto: null,
+          texto,
+          autor: "Usuario Activo",
+          fecha: "Hoy",
+        },
+        ...prev,
+      ]);
   };
 
   const handleDeleteNota = (id: number) => {
@@ -1316,7 +2028,9 @@ export default function ContactDrawer({
               <div
                 className={cn(
                   "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0",
-                  grade ? GRADE_CIRCLE[grade] : "bg-muted text-muted-foreground",
+                  grade
+                    ? GRADE_CIRCLE[grade]
+                    : "bg-muted text-muted-foreground",
                 )}
               >
                 {grade ?? "—"}
@@ -1324,7 +2038,9 @@ export default function ContactDrawer({
               <div className="min-w-0">
                 <h2 className="text-lg font-semibold tracking-tight text-foreground truncate flex items-center gap-1.5">
                   {name}
-                  {isPinned && <Pin className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
+                  {isPinned && (
+                    <Pin className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  )}
                 </h2>
                 {/* Teléfono REAL o nada — el "+54 911 3333 4444" hardcodeado se eliminó el
                     2026-08-03 (§4.10: sin dato, el elemento no se renderiza). */}
@@ -1339,7 +2055,11 @@ export default function ContactDrawer({
               {hasReplyTask && !isCompletedToday && (
                 <button
                   onClick={isPinned ? onComplete : onPin}
-                  title={isPinned ? "Cierra la tarea y la mueve a Completadas Hoy" : "Pinea la tarea arriba de su sección — no se completa"}
+                  title={
+                    isPinned
+                      ? "Cierra la tarea y la mueve a Completadas Hoy"
+                      : "Pinea la tarea arriba de su sección — no se completa"
+                  }
                   className={cn(
                     "inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-full border transition-colors whitespace-nowrap",
                     isPinned
@@ -1362,9 +2082,7 @@ export default function ContactDrawer({
 
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              <div className={pildoraCls}>
-                {pildora}
-              </div>
+              <div className={pildoraCls}>{pildora}</div>
               {/* Eliminar lead (pedido de Fabio, 2026-08-03) — lo saca de la plataforma y de
                   Supabase, NUNCA de GHL. Siempre con confirmación. */}
               {onDeleteContact && (
@@ -1378,11 +2096,17 @@ export default function ContactDrawer({
                   </button>
                   {confirmDeleteLead && (
                     <>
-                      <div className="fixed inset-0 z-30" onClick={() => setConfirmDeleteLead(false)} />
+                      <div
+                        className="fixed inset-0 z-30"
+                        onClick={() => setConfirmDeleteLead(false)}
+                      />
                       <div className="absolute left-0 top-full mt-2 z-40 w-64 bg-popover text-popover-foreground border border-border rounded-xl shadow-xl p-3 animate-in fade-in zoom-in-95 duration-150">
-                        <p className="text-xs font-semibold text-foreground mb-1">¿Eliminar este lead?</p>
+                        <p className="text-xs font-semibold text-foreground mb-1">
+                          ¿Eliminar este lead?
+                        </p>
                         <p className="text-[11px] text-muted-foreground mb-3 leading-relaxed">
-                          Desaparece de la plataforma y de la base de datos. En GHL no se borra nada.
+                          Desaparece de la plataforma y de la base de datos. En
+                          GHL no se borra nada.
                         </p>
                         <div className="flex justify-end gap-2">
                           <button
@@ -1436,7 +2160,7 @@ export default function ContactDrawer({
                   ? "text-muted-foreground opacity-40 cursor-not-allowed"
                   : tab === key
                     ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
               )}
             >
               <Icon className="w-3.5 h-3.5" /> {label}
@@ -1466,14 +2190,31 @@ export default function ContactDrawer({
             />
           )}
           {tab === "llamada" && <LlamadaTab llamadas={llamadas} />}
-          {tab === "perfil" && <PerfilTab perfil={perfilFields} videoPreCall={videoPreCall} llamadas={llamadas} />}
+          {tab === "perfil" && (
+            <PerfilTab
+              perfil={perfilFields}
+              videoPreCall={videoPreCall}
+              llamadas={llamadas}
+            />
+          )}
           {tab === "historial" && <HistorialTab items={historial} />}
-          {tab === "notas" && <NotasTab items={notas} onAdd={handleAddNota} onDelete={handleDeleteNota} />}
+          {tab === "notas" && (
+            <NotasTab
+              items={notas}
+              onAdd={handleAddNota}
+              onDelete={handleDeleteNota}
+            />
+          )}
         </div>
       </div>
 
       {avanzarOpen && (
-        <AvanzarModal role={role} name={name} onClose={() => setAvanzarOpen(false)} onConfirm={handleConfirmAvanzar} />
+        <AvanzarModal
+          role={role}
+          name={name}
+          onClose={() => setAvanzarOpen(false)}
+          onConfirm={handleConfirmAvanzar}
+        />
       )}
       <Celebration show={celebrate} />
       <Toast message={toast} />
@@ -1511,9 +2252,15 @@ function CatalogItem({
     >
       <span className="flex items-center min-w-0">
         <Icon className="w-4 h-4 mr-2 text-muted-foreground shrink-0" />
-        <span className="text-sm font-medium text-foreground truncate">{label}</span>
+        <span className="text-sm font-medium text-foreground truncate">
+          {label}
+        </span>
       </span>
-      {meta && <span className="text-xs text-muted-foreground shrink-0 ml-3">{meta}</span>}
+      {meta && (
+        <span className="text-xs text-muted-foreground shrink-0 ml-3">
+          {meta}
+        </span>
+      )}
     </button>
   );
 }
@@ -1599,11 +2346,18 @@ function TaskCompleteBar({ onDone }: { onDone: (fijado: boolean) => void }) {
       onClick={handleFijar}
       className={cn(
         "relative h-7 w-full shrink-0 overflow-hidden cursor-pointer select-none transition-colors",
-        hovering ? "bg-amber-100 dark:bg-amber-900/30" : "bg-emerald-100 dark:bg-emerald-900/30",
+        hovering
+          ? "bg-amber-100 dark:bg-amber-900/30"
+          : "bg-emerald-100 dark:bg-emerald-900/30",
       )}
     >
       <div
-        className={cn("absolute inset-y-0 left-0", hovering ? "bg-amber-400/70 dark:bg-amber-500/40" : "bg-emerald-400 dark:bg-emerald-500/50")}
+        className={cn(
+          "absolute inset-y-0 left-0",
+          hovering
+            ? "bg-amber-400/70 dark:bg-amber-500/40"
+            : "bg-emerald-400 dark:bg-emerald-500/50",
+        )}
         style={{ width: `${progress}%` }}
       />
       <div className="absolute inset-0 flex items-center justify-center gap-1.5 text-[11px] font-bold uppercase tracking-wider">
@@ -1660,7 +2414,9 @@ function ChatTab({
 }) {
   const [message, setMessage] = useState("");
   // Con contactId de GHL arrancamos vacío y traemos la conversación REAL; sin él, el demo de Frank.
-  const [messages, setMessages] = useState<ChatMessage[]>(ghlContactId ? [] : SEED_MESSAGES);
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    ghlContactId ? [] : SEED_MESSAGES,
+  );
   const [convLoading, setConvLoading] = useState(false);
   /**
    * La ventana de servicio de 24 h de WhatsApp (§55). `null` hasta la primera respuesta, y
@@ -1679,11 +2435,15 @@ function ChatTab({
    */
   const [plantillasOpen, setPlantillasOpen] = useState(false);
   const [plantillas, setPlantillas] = useState<PlantillaWhatsapp[]>([]);
-  const [enviandoPlantilla, setEnviandoPlantilla] = useState<string | null>(null);
+  const [enviandoPlantilla, setEnviandoPlantilla] = useState<string | null>(
+    null,
+  );
   const [plantillaAviso, setPlantillaAviso] = useState<string | null>(null);
   const [plusOpen, setPlusOpen] = useState(false);
   const { catalog, categorias, miCuenta } = useSettings();
-  const [confirmDialog, setConfirmDialog] = useState<"apagar" | "normal" | "reforzada" | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<
+    "apagar" | "normal" | "reforzada" | null
+  >(null);
   const [hasSentManual, setHasSentManual] = useState(false);
   const [justActivated, setJustActivated] = useState(false);
   // § toast/pin (2026-07-11): barra de completado tras responder — reemplaza al viejo toggle "mantener".
@@ -1711,7 +2471,9 @@ function ChatTab({
         .then((res) => {
           // El estado entra en la firma: un mensaje que pasa a `failed` no cambia de texto,
           // y sin esto la burbuja se quedaría para siempre como si hubiera salido bien.
-          const sig = res.messages.map((m) => `${m.id}:${m.text}:${m.estado ?? ""}`).join("|");
+          const sig = res.messages
+            .map((m) => `${m.id}:${m.text}:${m.estado ?? ""}`)
+            .join("|");
           if (sig !== lastConvSigRef.current) {
             lastConvSigRef.current = sig;
             setMessages(
@@ -1776,7 +2538,9 @@ function ChatTab({
     } else {
       onBotStateChange(
         "activo",
-        confirmDialog === "reforzada" ? "IA reactivada (recuperada de low-ticket)" : "IA reactivada",
+        confirmDialog === "reforzada"
+          ? "IA reactivada (recuperada de low-ticket)"
+          : "IA reactivada",
         "Usuario Activo",
       );
     }
@@ -1828,7 +2592,8 @@ function ChatTab({
       .then((r) => {
         setPlantillasOpen(false);
         setPlantillaAviso(
-          r.aviso ?? `"${p.nombre}" salió. Va a aparecer en el chat en cuanto GHL la confirme.`,
+          r.aviso ??
+            `"${p.nombre}" salió. Va a aparecer en el chat en cuanto GHL la confirme.`,
         );
       })
       .catch((e: Error) => setPlantillaAviso(`No salió: ${e.message}`))
@@ -1841,11 +2606,17 @@ function ChatTab({
     // Con la ventana cerrada no se manda: el mensaje rebotaría en Meta y el closer se
     // quedaría esperando (§55). El compositor ya está deshabilitado; esto es el cinturón.
     if (ventanaCerrada) return;
-    const time = new Date().toLocaleTimeString("es-AR", { hour: "numeric", minute: "2-digit" });
+    const time = new Date().toLocaleTimeString("es-AR", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
     // Pintado optimista: el mensaje aparece ya. Si el envío real falla, se marca — un
     // mensaje que el contacto nunca recibió no puede quedar como si hubiera salido.
     const idOptimista = Date.now();
-    setMessages((prev) => [...prev, { id: idOptimista, text, time, outgoing: true, estado: "enviando" }]);
+    setMessages((prev) => [
+      ...prev,
+      { id: idOptimista, text, time, outgoing: true, estado: "enviando" },
+    ]);
     setMessage("");
 
     /**
@@ -1861,7 +2632,11 @@ function ChatTab({
     if (ghlContactId) {
       enviarMensaje(ghlContactId, text).catch((e: Error) => {
         setMessages((prev) =>
-          prev.map((m) => (m.id === idOptimista ? { ...m, estado: "failed", errorEnvio: e.message } : m)),
+          prev.map((m) =>
+            m.id === idOptimista
+              ? { ...m, estado: "failed", errorEnvio: e.message }
+              : m,
+          ),
         );
       });
     }
@@ -1869,7 +2644,11 @@ function ChatTab({
     if (isUrgente) {
       setHasSentManual(true);
     } else if (botEstado === "activo" && hasBot) {
-      onBotStateChange("pausa_temporal", "IA en pausa temporal — mensaje manual detectado", "Sistema");
+      onBotStateChange(
+        "pausa_temporal",
+        "IA en pausa temporal — mensaje manual detectado",
+        "Sistema",
+      );
     }
     if (hasReplyTask) {
       // § correcciones toast/pin v2, bug 1: el completado se dispara AL ENVIAR — salir de la
@@ -1886,7 +2665,10 @@ function ChatTab({
         <div className="px-4 py-2.5 bg-rose-500/10 border-b border-rose-500/20 shrink-0">
           <p className="text-xs font-medium text-rose-700 dark:text-rose-400 flex items-start gap-1.5">
             <span className="shrink-0">⚠</span>
-            <span>Intervención requerida. {urgenteDetail ?? "Responde al contacto para poder resolver."}</span>
+            <span>
+              Intervención requerida.{" "}
+              {urgenteDetail ?? "Responde al contacto para poder resolver."}
+            </span>
           </p>
         </div>
       )}
@@ -1918,10 +2700,14 @@ function ChatTab({
             </span>
           </div>
           {convLoading && (
-            <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">Cargando conversación…</div>
+            <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">
+              Cargando conversación…
+            </div>
           )}
           {!convLoading && ghlContactId && messages.length === 0 && (
-            <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">Sin mensajes en esta conversación.</div>
+            <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">
+              Sin mensajes en esta conversación.
+            </div>
           )}
           {messages.map((m) => {
             /**
@@ -1931,7 +2717,13 @@ function ChatTab({
              */
             const fallido = m.estado === "failed";
             return (
-              <div key={m.id} className={cn("flex flex-col max-w-[85%]", m.outgoing ? "self-end" : "self-start")}>
+              <div
+                key={m.id}
+                className={cn(
+                  "flex flex-col max-w-[85%]",
+                  m.outgoing ? "self-end" : "self-start",
+                )}
+              >
                 <div
                   className={cn(
                     "relative px-3 pt-1.5 pb-2 text-[14.5px] shadow-sm leading-relaxed break-words rounded-lg",
@@ -1944,8 +2736,14 @@ function ChatTab({
                 >
                   <span className="whitespace-pre-wrap">{m.text}</span>
                   <span className="float-right text-[10px] text-black/40 dark:text-white/40 ml-3 mt-2 flex items-center gap-1">
-                    {m.estado === "enviando" && <span className="text-black/30 dark:text-white/30">enviando…</span>}
-                    {fallido && <AlertTriangle className="w-3 h-3 text-rose-500" />}
+                    {m.estado === "enviando" && (
+                      <span className="text-black/30 dark:text-white/30">
+                        enviando…
+                      </span>
+                    )}
+                    {fallido && (
+                      <AlertTriangle className="w-3 h-3 text-rose-500" />
+                    )}
                     {m.time}
                   </span>
                 </div>
@@ -1972,7 +2770,9 @@ function ChatTab({
               : "bg-muted text-muted-foreground border-border cursor-not-allowed",
           )}
         >
-          {hasSentManual ? "Marcar como Resuelto" : "Responde al contacto para poder resolver"}
+          {hasSentManual
+            ? "Marcar como Resuelto"
+            : "Responde al contacto para poder resolver"}
         </button>
       )}
       {showCompleteBar && (
@@ -2015,11 +2815,18 @@ function ChatTab({
               Enviar plantilla aprobada
             </button>
           )}
-          {plantillaAviso && <p className="mt-2 text-xs text-muted-foreground leading-relaxed">{plantillaAviso}</p>}
+          {plantillaAviso && (
+            <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+              {plantillaAviso}
+            </p>
+          )}
 
           {plantillasOpen && (
             <>
-              <div className="fixed inset-0 z-10" onClick={() => setPlantillasOpen(false)} />
+              <div
+                className="fixed inset-0 z-10"
+                onClick={() => setPlantillasOpen(false)}
+              />
               <div className="absolute bottom-full left-4 right-4 mb-2 max-h-80 overflow-y-auto scrollbar-thin bg-popover text-popover-foreground border border-border rounded-xl shadow-xl p-2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-150">
                 {plantillas.map((p) => (
                   <button
@@ -2029,15 +2836,25 @@ function ChatTab({
                     className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-foreground">{p.nombre}</span>
+                      <span className="text-sm font-medium text-foreground">
+                        {p.nombre}
+                      </span>
                       {p.idioma && (
                         <span className="text-[9px] uppercase font-bold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
                           {p.idioma}
                         </span>
                       )}
-                      {enviandoPlantilla === p.id && <span className="text-[10px] text-muted-foreground">enviando…</span>}
+                      {enviandoPlantilla === p.id && (
+                        <span className="text-[10px] text-muted-foreground">
+                          enviando…
+                        </span>
+                      )}
                     </div>
-                    {p.descripcion && <p className="text-[11px] text-muted-foreground mt-0.5">{p.descripcion}</p>}
+                    {p.descripcion && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {p.descripcion}
+                      </p>
+                    )}
                     {/*
                       El cuerpo se muestra entero y con sus saltos de línea intactos: una
                       plantilla no se puede editar ni retirar, y a diferencia de un mensaje
@@ -2057,10 +2874,15 @@ function ChatTab({
       <div className="relative p-2 bg-[#f0f2f5] dark:bg-[#202c33] border-t border-border/30 shrink-0 flex items-end gap-1.5">
         {plusOpen && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setPlusOpen(false)} />
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setPlusOpen(false)}
+            />
             <div className="absolute bottom-full left-2 mb-2 w-72 max-h-80 overflow-y-auto scrollbar-thin bg-popover text-popover-foreground border border-border rounded-xl shadow-xl p-2 z-20 animate-in fade-in slide-in-from-bottom-2 duration-150">
               {categorias.map((categoria) => {
-                const links = catalog.filter((l) => l.categoria === categoria && l.scope.includes(role));
+                const links = catalog.filter(
+                  (l) => l.categoria === categoria && l.scope.includes(role),
+                );
                 if (links.length === 0) return null;
                 return (
                   <div key={categoria}>
@@ -2069,7 +2891,11 @@ function ChatTab({
                       <CatalogItem
                         key={l.id}
                         label={l.etiqueta}
-                        meta={l.monto ? `${money2(l.monto)} · ${l.procesador}` : l.procesador}
+                        meta={
+                          l.monto
+                            ? `${money2(l.monto)} · ${l.procesador}`
+                            : l.procesador
+                        }
                         onClick={() => insertLink(l.url)}
                       />
                     ))}
@@ -2083,12 +2909,20 @@ function ChatTab({
                   <CatalogItem
                     icon={CalendarClock}
                     label="Elegir horario yo"
-                    onClick={() => insertLink("Te comparto nuevos horarios disponibles para reagendar tu llamada.")}
+                    onClick={() =>
+                      insertLink(
+                        "Te comparto nuevos horarios disponibles para reagendar tu llamada.",
+                      )
+                    }
                   />
                   <CatalogItem
                     icon={Link2}
                     label="Que elija el contacto"
-                    onClick={() => insertLink(`https://cal.example.com/reagendar/${contact.name.toLowerCase().replace(/\s+/g, "-")}`)}
+                    onClick={() =>
+                      insertLink(
+                        `https://cal.example.com/reagendar/${contact.name.toLowerCase().replace(/\s+/g, "-")}`,
+                      )
+                    }
                   />
                 </div>
               )}
@@ -2107,7 +2941,11 @@ function ChatTab({
                   <CatalogItem
                     icon={Video}
                     label="Link del Meet"
-                    onClick={() => insertLink(`https://meet.google.com/${contact.name.toLowerCase().replace(/\s+/g, "-")}`)}
+                    onClick={() =>
+                      insertLink(
+                        `https://meet.google.com/${contact.name.toLowerCase().replace(/\s+/g, "-")}`,
+                      )
+                    }
                   />
                 </div>
               )}
@@ -2116,22 +2954,38 @@ function ChatTab({
         )}
         {confirmDialog && (
           <>
-            <div className="fixed inset-0 z-10" onClick={() => setConfirmDialog(null)} />
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setConfirmDialog(null)}
+            />
             <div className="absolute bottom-full right-2 mb-2 w-64 bg-popover text-popover-foreground border border-border rounded-xl shadow-xl p-3 z-20 animate-in fade-in slide-in-from-bottom-2 duration-150">
               {confirmDialog === "apagar" ? (
                 <>
-                  <p className="text-sm font-medium mb-1">¿Desactivar agente IA?</p>
-                  <p className="text-xs text-muted-foreground mb-3">El agente dejará de responder a este contacto.</p>
+                  <p className="text-sm font-medium mb-1">
+                    ¿Desactivar agente IA?
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    El agente dejará de responder a este contacto.
+                  </p>
                 </>
               ) : confirmDialog === "reforzada" ? (
                 <>
-                  <p className="text-sm font-medium mb-1">¿Devolver la conversación al agente HT?</p>
-                  <p className="text-xs text-muted-foreground mb-3">Este contacto fue derivado a low-ticket. ¿Devolver la conversación al agente del camino high-ticket?</p>
+                  <p className="text-sm font-medium mb-1">
+                    ¿Devolver la conversación al agente HT?
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    Este contacto fue derivado a low-ticket. ¿Devolver la
+                    conversación al agente del camino high-ticket?
+                  </p>
                 </>
               ) : (
                 <>
-                  <p className="text-sm font-medium mb-1">¿Activar agente IA?</p>
-                  <p className="text-xs text-muted-foreground mb-3">El bot retomará la conversación con este contacto.</p>
+                  <p className="text-sm font-medium mb-1">
+                    ¿Activar agente IA?
+                  </p>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    El bot retomará la conversación con este contacto.
+                  </p>
                 </>
               )}
               <div className="flex justify-end gap-2">
@@ -2145,7 +2999,9 @@ function ChatTab({
                   onClick={confirmToggle}
                   className={cn(
                     "h-8 px-3 rounded-full text-xs font-medium text-white",
-                    confirmDialog === "apagar" ? "bg-slate-600 hover:bg-slate-700" : "bg-emerald-500 hover:bg-emerald-600",
+                    confirmDialog === "apagar"
+                      ? "bg-slate-600 hover:bg-slate-700"
+                      : "bg-emerald-500 hover:bg-emerald-600",
                   )}
                 >
                   Confirmar
@@ -2226,7 +3082,10 @@ function ChatTab({
 
 /* ---------- Llamadas (§ spec de Fabio, 2026-07-10) ---------- */
 
-const CALL_ORIGIN_META: Record<CallOrigin, { label: string; icon: typeof Mic }> = {
+const CALL_ORIGIN_META: Record<
+  CallOrigin,
+  { label: string; icon: typeof Mic }
+> = {
   sales_call: { label: "Sales Call", icon: Mic },
   app_flow_voz: { label: "App Flow Voz", icon: Phone },
   lead_flow_voz: { label: "Lead Flow Voz", icon: Phone },
@@ -2236,9 +3095,15 @@ const CALL_ORIGIN_META: Record<CallOrigin, { label: string; icon: typeof Mic }> 
 };
 
 const SENTIMIENTO_META: Record<Sentimiento, { label: string; cls: string }> = {
-  positivo: { label: "Positivo", cls: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" },
+  positivo: {
+    label: "Positivo",
+    cls: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  },
   neutral: { label: "Neutral", cls: "bg-muted text-muted-foreground" },
-  negativo: { label: "Negativo", cls: "bg-rose-500/10 text-rose-700 dark:text-rose-300" },
+  negativo: {
+    label: "Negativo",
+    cls: "bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  },
 };
 
 function CallCard({ call }: { call: CallRecord }) {
@@ -2253,9 +3118,17 @@ function CallCard({ call }: { call: CallRecord }) {
 
   return (
     <div className="bg-muted/30 rounded-2xl overflow-hidden">
-      <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center justify-between gap-3 p-4 text-left">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-3 p-4 text-left"
+      >
         <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wide shrink-0", chipCls)}>
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wide shrink-0",
+              chipCls,
+            )}
+          >
             <meta.icon className="w-3 h-3" />
             {meta.label}
           </span>
@@ -2264,7 +3137,12 @@ function CallCard({ call }: { call: CallRecord }) {
             {call.resultado && <> · {call.resultado}</>}
           </span>
         </div>
-        <ChevronDown className={cn("w-4 h-4 text-muted-foreground shrink-0 transition-transform", open && "rotate-180")} />
+        <ChevronDown
+          className={cn(
+            "w-4 h-4 text-muted-foreground shrink-0 transition-transform",
+            open && "rotate-180",
+          )}
+        />
       </button>
       {open && (
         <div className="px-4 pb-4 space-y-4 animate-in fade-in slide-in-from-top-1 duration-150">
@@ -2272,10 +3150,14 @@ function CallCard({ call }: { call: CallRecord }) {
             <>
               {call.scoreFinal !== undefined && (
                 <div className="bg-background dark:bg-secondary rounded-xl border border-border/60 p-4 text-center">
-                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Score Final</div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+                    Score Final
+                  </div>
                   <div className="text-3xl font-bold text-emerald-600">
                     {call.scoreFinal}
-                    <span className="text-sm text-muted-foreground font-normal">/100</span>
+                    <span className="text-sm text-muted-foreground font-normal">
+                      /100
+                    </span>
                   </div>
                 </div>
               )}
@@ -2283,11 +3165,17 @@ function CallCard({ call }: { call: CallRecord }) {
                 {call.objeciones && call.objeciones.length > 0 && (
                   <div>
                     <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-rose-600 mb-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Objeciones
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />{" "}
+                      Objeciones
                     </div>
                     <div className="space-y-1.5">
                       {call.objeciones.map((o, i) => (
-                        <div key={i} className="text-xs px-2.5 py-1.5 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-300">{o}</div>
+                        <div
+                          key={i}
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-rose-500/10 text-rose-700 dark:text-rose-300"
+                        >
+                          {o}
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -2295,12 +3183,17 @@ function CallCard({ call }: { call: CallRecord }) {
                 {call.puntosFuertes && call.puntosFuertes.length > 0 && (
                   <div>
                     <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-emerald-600 mb-2">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Puntos Fuertes
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />{" "}
+                      Puntos Fuertes
                     </div>
                     <div className="space-y-1.5">
                       {call.puntosFuertes.map((p, i) => (
-                        <div key={i} className="flex items-center gap-1.5 text-xs text-foreground">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" /> {p}
+                        <div
+                          key={i}
+                          className="flex items-center gap-1.5 text-xs text-foreground"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />{" "}
+                          {p}
                         </div>
                       ))}
                     </div>
@@ -2310,12 +3203,17 @@ function CallCard({ call }: { call: CallRecord }) {
               {call.aMejorar && call.aMejorar.length > 0 && (
                 <div>
                   <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-amber-600 mb-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> A Mejorar
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> A
+                    Mejorar
                   </div>
                   <div className="space-y-1.5">
                     {call.aMejorar.map((a, i) => (
-                      <div key={i} className="flex items-center gap-1.5 text-xs text-foreground">
-                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" /> {a}
+                      <div
+                        key={i}
+                        className="flex items-center gap-1.5 text-xs text-foreground"
+                      >
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />{" "}
+                        {a}
                       </div>
                     ))}
                   </div>
@@ -2330,77 +3228,116 @@ function CallCard({ call }: { call: CallRecord }) {
           ) : call.contestada ? (
             <>
               {/**
-                * El veredicto del AUDITOR — distinto del sentimiento de la plataforma, que viaja
-                * al lado del resumen. Sin análisis no se renderiza nada: un verde no medido sería
-                * un dato falso (regla 1).
-                */}
+               * El veredicto del AUDITOR — distinto del sentimiento de la plataforma, que viaja
+               * al lado del resumen. Sin análisis no se renderiza nada: un verde no medido sería
+               * un dato falso (regla 1).
+               */}
               {call.veredicto && (
                 <div
                   className={cn(
                     "rounded-lg border px-3 py-2 text-xs leading-relaxed",
-                    call.veredicto.nivel === "rojo" && "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
-                    call.veredicto.nivel === "amarillo" && "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
-                    call.veredicto.nivel === "verde" && "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+                    call.veredicto.nivel === "rojo" &&
+                      "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
+                    call.veredicto.nivel === "amarillo" &&
+                      "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+                    call.veredicto.nivel === "verde" &&
+                      "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
                   )}
                 >
                   <span className="font-semibold uppercase text-[10px] tracking-wider">
                     Auditor IA · {call.veredicto.nivel}
                   </span>
-                  {call.veredicto.motivo && <p className="mt-0.5 text-foreground">{call.veredicto.motivo}</p>}
+                  {call.veredicto.motivo && (
+                    <p className="mt-0.5 text-foreground">
+                      {call.veredicto.motivo}
+                    </p>
+                  )}
                 </div>
               )}
               {call.resumenIA && (
                 <div>
                   <div className="flex items-center gap-2 mb-1.5">
-                    <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">Resumen de la IA</span>
+                    <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
+                      Resumen de la IA
+                    </span>
                     {call.sentimiento && (
-                      <span className={cn("text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full", SENTIMIENTO_META[call.sentimiento].cls)}>
+                      <span
+                        className={cn(
+                          "text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full",
+                          SENTIMIENTO_META[call.sentimiento].cls,
+                        )}
+                      >
                         {SENTIMIENTO_META[call.sentimiento].label}
                       </span>
                     )}
                   </div>
-                  <p className="text-sm text-foreground leading-relaxed">{call.resumenIA}</p>
+                  <p className="text-sm text-foreground leading-relaxed">
+                    {call.resumenIA}
+                  </p>
                 </div>
               )}
               {/**
-                * ── La transcripción, hermana del resumen y no adentro ──────────
-                *
-                * Va como bloque propio porque el del resumen está condicionado a `resumenIA`: una
-                * llamada contestada con turnos y sin resumen de la plataforma no habría renderizado
-                * nada. Son dos datos de fuentes distintas —el resumen lo escribe la plataforma de
-                * voz, los turnos son la transcripción cruda— y cada uno aparece si existe.
-                */}
+               * ── La transcripción, hermana del resumen y no adentro ──────────
+               *
+               * Va como bloque propio porque el del resumen está condicionado a `resumenIA`: una
+               * llamada contestada con turnos y sin resumen de la plataforma no habría renderizado
+               * nada. Son dos datos de fuentes distintas —el resumen lo escribe la plataforma de
+               * voz, los turnos son la transcripción cruda— y cada uno aparece si existe.
+               */}
               {call.transcripcion && (
                 <div>
-                  <span className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground">
-                    Transcripción · {call.transcripcion.length} turnos
-                  </span>
-                  <div className="mt-1.5 space-y-2 max-h-72 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
-                    {call.transcripcion.map((t, i) => (
-                      <div key={i} className="text-sm leading-relaxed">
-                        <span
-                          className={cn(
-                            "text-[10px] font-bold uppercase tracking-wider mr-1.5",
-                            t.rol === "agente" && "text-primary",
-                            t.rol === "contacto" && "text-foreground",
-                            /* Un rol que no reconocemos se atenúa y se nombra por lo que es: no se
+                  {/*
+                    Desplegable y cerrado por defecto (pedido de Fabio, 2026-08-10). Una llamada de
+                    dos minutos son ~16 turnos, y desplegados empujan el resumen y el veredicto —
+                    que es lo que se mira primero— fuera de la pantalla. El contador de turnos va en
+                    el botón para que se sepa que hay algo antes de abrirlo.
+
+                    `<details>` nativo en vez de un `useState` más: no necesita estado, el navegador
+                    le da el teclado y el `aria-expanded` gratis, y no compite con el `open` que
+                    esta tarjeta ya usa para su propio colapso.
+                  */}
+                  <details className="group/tr">
+                    <summary className="flex items-center gap-1.5 cursor-pointer list-none text-[10px] uppercase tracking-wider font-semibold text-muted-foreground hover:text-foreground transition-colors">
+                      <ChevronDown className="w-3 h-3 transition-transform group-open/tr:rotate-180" />
+                      Transcripción · {call.transcripcion.length} turnos
+                    </summary>
+                    <div className="mt-1.5 space-y-2 max-h-72 overflow-y-auto rounded-lg border border-border/50 bg-muted/20 p-3">
+                      {call.transcripcion.map((t, i) => (
+                        <div key={i} className="text-sm leading-relaxed">
+                          <span
+                            className={cn(
+                              "text-[10px] font-bold uppercase tracking-wider mr-1.5",
+                              t.rol === "agente" && "text-primary",
+                              t.rol === "contacto" && "text-foreground",
+                              /* Un rol que no reconocemos se atenúa y se nombra por lo que es: no se
                                le atribuye al contacto. */
-                            t.rol === "otro" && "text-muted-foreground/60",
-                          )}
-                        >
-                          {t.rol === "agente" ? "Agente IA" : t.rol === "contacto" ? "Contacto" : "Origen no identificado"}
-                        </span>
-                        <span className={cn(t.rol === "otro" && "text-muted-foreground")}>{t.texto}</span>
-                      </div>
-                    ))}
-                  </div>
+                              t.rol === "otro" && "text-muted-foreground/60",
+                            )}
+                          >
+                            {t.rol === "agente"
+                              ? "Agente IA"
+                              : t.rol === "contacto"
+                                ? "Contacto"
+                                : "Origen no identificado"}
+                          </span>
+                          <span
+                            className={cn(
+                              t.rol === "otro" && "text-muted-foreground",
+                            )}
+                          >
+                            {t.texto}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
                 </div>
               )}
               {/**
-                * El audio pasa a ser un enlace REAL. Antes era un `<button>` sin `onClick`: un
-                * control que no hace nada enseña que la pantalla está rota. `noreferrer` para no
-                * mandarle el origen de la app al hosting de la grabación.
-                */}
+               * El audio pasa a ser un enlace REAL. Antes era un `<button>` sin `onClick`: un
+               * control que no hace nada enseña que la pantalla está rota. `noreferrer` para no
+               * mandarle el origen de la app al hosting de la grabación.
+               */}
               {call.audioUrl && (
                 <a
                   href={call.audioUrl}
@@ -2413,7 +3350,9 @@ function CallCard({ call }: { call: CallRecord }) {
               )}
             </>
           ) : (
-            <p className="text-xs text-muted-foreground">Sin conexión - Buzón de voz</p>
+            <p className="text-xs text-muted-foreground">
+              Sin conexión - Buzón de voz
+            </p>
           )}
         </div>
       )}
@@ -2427,8 +3366,13 @@ function LlamadaTab({ llamadas }: { llamadas?: CallRecord[] }) {
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center px-8 animate-in fade-in duration-200">
         <Phone className="w-12 h-12 text-muted-foreground/25" />
         <div>
-          <p className="text-sm font-medium text-foreground">Sin registro de llamadas</p>
-          <p className="text-xs text-muted-foreground mt-1">Las llamadas del agente de IA o del equipo de ventas aparecerán aquí.</p>
+          <p className="text-sm font-medium text-foreground">
+            Sin registro de llamadas
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Las llamadas del agente de IA o del equipo de ventas aparecerán
+            aquí.
+          </p>
         </div>
       </div>
     );
@@ -2445,11 +3389,21 @@ function LlamadaTab({ llamadas }: { llamadas?: CallRecord[] }) {
 }
 
 /* ---------- Perfil ---------- */
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-1 md:gap-4">
-      <div className="col-span-1 text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">{label}</div>
-      <div className="col-span-2 text-sm font-medium text-foreground">{children}</div>
+      <div className="col-span-1 text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">
+        {label}
+      </div>
+      <div className="col-span-2 text-sm font-medium text-foreground">
+        {children}
+      </div>
     </div>
   );
 }
@@ -2460,7 +3414,12 @@ const PERFIL_GROUP_LABEL: Record<PerfilGroup, string> = {
   calificacion: "Calificación",
   interacciones: "Interacciones",
 };
-const PERFIL_GROUP_ORDER: PerfilGroup[] = ["detalles", "origen", "calificacion", "interacciones"];
+const PERFIL_GROUP_ORDER: PerfilGroup[] = [
+  "detalles",
+  "origen",
+  "calificacion",
+  "interacciones",
+];
 
 /** § Perfil — Form VSL/Meta (2026-07-16): mismo par de preguntas, campos DISTINTOS por formulario. */
 const PERFIL_FORMULARIO_LABEL: Record<PerfilFormulario, string> = {
@@ -2473,7 +3432,12 @@ function PerfilFieldRow({ f }: { f: PerfilField }) {
   return (
     <Field label={f.label}>
       {f.value}
-      {f.procedencia && <span className="text-xs text-muted-foreground font-normal"> · {f.procedencia}</span>}
+      {f.procedencia && (
+        <span className="text-xs text-muted-foreground font-normal">
+          {" "}
+          · {f.procedencia}
+        </span>
+      )}
     </Field>
   );
 }
@@ -2488,17 +3452,32 @@ function PerfilFieldRow({ f }: { f: PerfilField }) {
  * regla 10, §4 — acá la ausencia del BLOQUE es en sí misma información: ese lead nunca llenó ese
  * formulario). Mismo criterio aplicado a "Interacciones", que ahora suma Llamadas IA al Video pre-call.
  */
-function PerfilTab({ perfil, videoPreCall, llamadas }: { perfil: PerfilField[]; videoPreCall?: VideoPreCallInfo; llamadas?: CallRecord[] }) {
+function PerfilTab({
+  perfil,
+  videoPreCall,
+  llamadas,
+}: {
+  perfil: PerfilField[];
+  videoPreCall?: VideoPreCallInfo;
+  llamadas?: CallRecord[];
+}) {
   const iaCalls = callsIASummary(llamadas);
-  const groups = PERFIL_GROUP_ORDER
-    .map((group) => ({ group, fields: perfil.filter((f) => f.group === group) }))
-    .filter(({ group, fields }) => fields.length > 0 || (group === "interacciones" && (videoPreCall || iaCalls.intentos > 0)));
+  const groups = PERFIL_GROUP_ORDER.map((group) => ({
+    group,
+    fields: perfil.filter((f) => f.group === group),
+  })).filter(
+    ({ group, fields }) =>
+      fields.length > 0 ||
+      (group === "interacciones" && (videoPreCall || iaCalls.intentos > 0)),
+  );
 
   if (groups.length === 0) {
     return (
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-card text-center px-10">
         <UserCheck className="w-8 h-8 text-muted-foreground/30" />
-        <p className="text-sm text-muted-foreground">Sin datos de perfil todavía.</p>
+        <p className="text-sm text-muted-foreground">
+          Sin datos de perfil todavía.
+        </p>
       </div>
     );
   }
@@ -2516,7 +3495,9 @@ function PerfilTab({ perfil, videoPreCall, llamadas }: { perfil: PerfilField[]; 
               {group === "calificacion" ? (
                 <div className="space-y-6">
                   {PERFIL_FORMULARIO_ORDER.map((formulario) => {
-                    const formFields = fields.filter((f) => f.formulario === formulario);
+                    const formFields = fields.filter(
+                      (f) => f.formulario === formulario,
+                    );
                     return (
                       <div key={formulario}>
                         <div className="text-[11px] font-bold text-violet-600 dark:text-violet-400 uppercase tracking-wider mb-3">
@@ -2524,10 +3505,14 @@ function PerfilTab({ perfil, videoPreCall, llamadas }: { perfil: PerfilField[]; 
                         </div>
                         {formFields.length > 0 ? (
                           <div className="space-y-4">
-                            {formFields.map((f) => <PerfilFieldRow key={f.label} f={f} />)}
+                            {formFields.map((f) => (
+                              <PerfilFieldRow key={f.label} f={f} />
+                            ))}
                           </div>
                         ) : (
-                          <p className="text-xs text-muted-foreground italic">Sin datos de este formulario.</p>
+                          <p className="text-xs text-muted-foreground italic">
+                            Sin datos de este formulario.
+                          </p>
                         )}
                       </div>
                     );
@@ -2535,19 +3520,34 @@ function PerfilTab({ perfil, videoPreCall, llamadas }: { perfil: PerfilField[]; 
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {fields.map((f) => <PerfilFieldRow key={f.label} f={f} />)}
+                  {fields.map((f) => (
+                    <PerfilFieldRow key={f.label} f={f} />
+                  ))}
                   {group === "interacciones" && videoPreCall && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-1 md:gap-4">
-                      <div className="col-span-1 text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">Video pre-call</div>
+                      <div className="col-span-1 text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">
+                        Video pre-call
+                      </div>
                       <div className="col-span-2">
                         {videoPreCall.visto ? (
                           <>
-                            <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">{videoPreCall.pct}% visto</span>
-                            <span className="text-xs text-muted-foreground"> · vía tracking{videoPreCall.fecha ? ` · ${videoPreCall.fecha}` : ""}</span>
+                            <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                              {videoPreCall.pct}% visto
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {" "}
+                              · vía tracking
+                              {videoPreCall.fecha
+                                ? ` · ${videoPreCall.fecha}`
+                                : ""}
+                            </span>
                           </>
                         ) : (
                           <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
-                            Enviado · sin abrir{videoPreCall.diasSinAbrir ? ` hace ${videoPreCall.diasSinAbrir} días` : ""}
+                            Enviado · sin abrir
+                            {videoPreCall.diasSinAbrir
+                              ? ` hace ${videoPreCall.diasSinAbrir} días`
+                              : ""}
                           </span>
                         )}
                       </div>
@@ -2555,14 +3555,28 @@ function PerfilTab({ perfil, videoPreCall, llamadas }: { perfil: PerfilField[]; 
                   )}
                   {group === "interacciones" && iaCalls.intentos > 0 && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-1 md:gap-4">
-                      <div className="col-span-1 text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">Llamadas IA</div>
+                      <div className="col-span-1 text-[10px] uppercase tracking-wider text-muted-foreground pt-0.5">
+                        Llamadas IA
+                      </div>
                       <div className="col-span-2">
-                        <span className="text-sm font-semibold text-foreground">{iaCalls.contestadas}</span>
-                        <span className="text-sm text-muted-foreground"> contestadas de </span>
-                        <span className="text-sm font-semibold text-foreground">{iaCalls.intentos}</span>
-                        <span className="text-sm text-muted-foreground"> intentos</span>
+                        <span className="text-sm font-semibold text-foreground">
+                          {iaCalls.contestadas}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {" "}
+                          contestadas de{" "}
+                        </span>
+                        <span className="text-sm font-semibold text-foreground">
+                          {iaCalls.intentos}
+                        </span>
+                        <span className="text-sm text-muted-foreground">
+                          {" "}
+                          intentos
+                        </span>
                         {iaCalls.ultimoResultado && (
-                          <div className="text-xs text-muted-foreground mt-0.5">Último resultado: {iaCalls.ultimoResultado}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            Último resultado: {iaCalls.ultimoResultado}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2590,7 +3604,9 @@ function HistorialTab({ items }: { items: HistorialItem[] }) {
                 <span className="text-[10px] text-muted-foreground font-semibold uppercase tracking-[0.15em]">
                   {h.fecha} · {h.autor}
                 </span>
-                <div className="text-[14px] text-foreground font-medium leading-relaxed mt-1">{h.texto}</div>
+                <div className="text-[14px] text-foreground font-medium leading-relaxed mt-1">
+                  {h.texto}
+                </div>
               </div>
             </div>
           ))}
@@ -2601,7 +3617,15 @@ function HistorialTab({ items }: { items: HistorialItem[] }) {
 }
 
 /* ---------- Notas ---------- */
-function NotasTab({ items, onAdd, onDelete }: { items: NotaItem[]; onAdd: (texto: string) => void; onDelete: (id: number) => void }) {
+function NotasTab({
+  items,
+  onAdd,
+  onDelete,
+}: {
+  items: NotaItem[];
+  onAdd: (texto: string) => void;
+  onDelete: (id: number) => void;
+}) {
   const [draft, setDraft] = useState("");
 
   const submit = () => {
@@ -2616,7 +3640,10 @@ function NotasTab({ items, onAdd, onDelete }: { items: NotaItem[]; onAdd: (texto
       <div className="flex-1 p-6 overflow-y-auto scrollbar-thin">
         <div className="space-y-4">
           {items.map((n) => (
-            <div key={n.id} className="group relative bg-muted/40 p-4 rounded-2xl text-sm border border-border/40 shadow-sm">
+            <div
+              key={n.id}
+              className="group relative bg-muted/40 p-4 rounded-2xl text-sm border border-border/40 shadow-sm"
+            >
               {/* X roja al pasar el mouse (pedido de Fabio, 2026-08-03): borra la nota de la
                   pantalla Y de la base cuando es real. Sin confirmación — es una nota, no un lead. */}
               <button
@@ -2635,7 +3662,9 @@ function NotasTab({ items, onAdd, onDelete }: { items: NotaItem[]; onAdd: (texto
                   n.texto
                 )}
               </p>
-              <p className="text-[10px] text-muted-foreground mt-3 text-right font-medium tracking-wide">{n.fecha}</p>
+              <p className="text-[10px] text-muted-foreground mt-3 text-right font-medium tracking-wide">
+                {n.fecha}
+              </p>
             </div>
           ))}
         </div>

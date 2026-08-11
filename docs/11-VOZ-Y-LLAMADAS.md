@@ -134,6 +134,20 @@ al mismo endpoint y la vista no cambia.
 - ~~**Reproducir el audio.**~~ El botón dejó de ser un `<button>` sin `onClick` (2026-08-10): ahora
   es un enlace real a `grabacion_url`, con `noreferrer` para no mandarle el origen de la app al
   hosting de la grabación. Un reproductor embebido sigue pendiente, pero el control ya no miente.
+- ⚠️ **La grabación NO está en nuestra base, y su enlace es público.** Verificado el 2026-08-10:
+  `grabacion_url` es una URL de un bucket **público** de Cloudflare R2
+  (`https://pub-….r2.dev/recordings/….mp3`), sin firma y sin vencimiento — un `HEAD` sin
+  autenticación devuelve `200` con el audio. Nosotros guardamos **solo el enlace** (112 bytes por
+  llamada); el MP3 vive en la infraestructura del proveedor de voz.
+
+  Consecuencia concreta: **cualquiera que consiga ese link escucha la conversación**, sin sesión y
+  para siempre. Hoy la única protección es que el nombre del archivo es un UUID —seguridad por
+  URL secreta— y que la URL viaja solo a usuarios autenticados. Pero desde que la tarjeta la
+  renderiza, esa URL está en el DOM del browser, y si alguien la copia sale de nuestro control.
+
+  Se destraba de dos formas, las dos del lado del proveedor o nuestro: pedirle URLs **firmadas con
+  vencimiento**, o servir el audio por un endpoint propio que valide la sesión y haga de proxy —
+  con eso la URL de R2 nunca llegaría al browser. **Decisión pendiente de Fabio.**
 - **La transcripción se ve en la ficha** (2026-08-10). Reemplazó al botón muerto, como bloque
   hermano del resumen —no adentro— porque una llamada contestada con turnos y sin resumen de la
   plataforma no habría renderizado nada. Los turnos se mapean campo por campo a `{rol, texto}` en
