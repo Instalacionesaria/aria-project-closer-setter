@@ -29,7 +29,7 @@ import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 import { ghl } from "../_lib/ghl/index.js";
-import { TAGS_BOT } from "../../src/lib/ghl/contrato.js";
+import { TAGS_BOT, TAGS_FALLO_AUDITOR } from "../../src/lib/ghl/contrato.js";
 
 const DIAS_POR_DEFECTO = 30;
 
@@ -131,9 +131,21 @@ async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
   let tagQuitado: { ok: boolean; aplicado?: boolean; error?: string };
   try {
     const dia = new Date().toISOString().slice(0, 10);
+    /**
+     * Se quitan LOS TRES tags de fallo, no el del agente que corresponda.
+     *
+     * Desde el 2026-08-16 el auditor aplica `bot_desactivado_appflow` o `_leadflow` según quién
+     * falló, y antes aplicaba `bot_pausado_fallo`. Al resolver no se sabe —ni hace falta saber—
+     * con cuál quedó marcado este contacto: puede tener el viejo (marcado antes del cambio) o
+     * uno de los nuevos. Quitar solo uno dejaría al contacto volviendo a Urgentes en el próximo
+     * tick con la alerta ya resuelta, que es exactamente el bug que este bloque vino a cerrar.
+     *
+     * Quitar un tag que el contacto no tiene es un no-op en GHL, así que pedir los tres no cuesta
+     * nada y no puede equivocarse.
+     */
     const r = await ghl().removerTags({
       ghlContactId,
-      tags: [TAGS_BOT.botPausadoFallo.valor],
+      tags: [...TAGS_FALLO_AUDITOR],
       idempotencyKey: `resolver-humano:${ghlContactId}:${dia}`,
     });
     /**
@@ -146,7 +158,7 @@ async function resolverPorHumano(req: VercelRequest, res: VercelResponse) {
       : { ok: false, error: r.error };
     if (!r.ok) {
       console.error(
-        `[alertas] no se pudo quitar ${TAGS_BOT.botPausadoFallo.valor} de ${ghlContactId}: ${r.error}`,
+        `[alertas] no se pudieron quitar los tags de fallo de ${ghlContactId}: ${r.error}`,
       );
     }
   } catch (e) {

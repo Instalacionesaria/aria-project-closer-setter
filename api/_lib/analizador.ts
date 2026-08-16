@@ -56,7 +56,13 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { botAtendiendo, TAGS } from "../../src/lib/ghl/contrato.js";
+import {
+  botAtendiendo,
+  TAGS,
+  TAGS_BOT,
+  TAGS_BOT_POR_TERRITORIO,
+  tieneFalloDeAuditor,
+} from "../../src/lib/ghl/contrato.js";
 import {
   ETIQUETA_AUTOR,
   type AutorMensaje,
@@ -104,7 +110,22 @@ export const MODELO_AUDITOR = "claude-sonnet-5";
 export const ESFUERZO_AUDITOR = "high";
 
 /** El tag que enciende la cola roja y apaga al agente de GHL. */
-export const TAG_FALLO = "bot_pausado_fallo";
+/**
+ * El tag que el auditor APLICA cuando encuentra un fallo grave, según quién falló.
+ *
+ * ── Por qué dejó de ser uno solo (2026-08-16, decisión de Fabio) ──────
+ *
+ * Era `bot_pausado_fallo`, uno para los dos agentes de chat. Con los dos auditores corriendo eso
+ * ya no alcanza: GHL necesita saber **cuál** bot pausar, y un tag único pausaría a los dos o a
+ * ninguno. Ahora el Appointment Flow apaga con `bot_desactivado_appflow` y el Lead Flow con
+ * `bot_desactivado_leadflow`, y el workflow de GHL reacciona a cada uno por su lado.
+ *
+ * Para LEER —¿este contacto ya está marcado?— sigue dando igual cuál fue: eso lo responde
+ * `tieneFalloDeAuditor()`, que incluye los dos nuevos y el legado.
+ */
+export function tagFalloDe(territorio: Territorio): string {
+  return TAGS_BOT_POR_TERRITORIO[territorio].desactivado;
+}
 
 /** Prefijo de la nota, para poder releerla después sin confundirla con notas humanas. */
 export const PREFIJO_NOTA = "[IA]";
@@ -1600,7 +1621,7 @@ export interface DecisionAuditor {
  * ── Por qué existe esta función y no cada carril con su filtro ────────
  *
  * El carril amarillo nació copiando el filtro del endpoint manual —`botAtendiendo(tags) &&
- * !TAG_FALLO`— y contra los datos reales de producción eso matchea **cero contactos**: los
+ * sin tag de fallo`— y contra los datos reales de producción eso matchea **cero contactos**: los
  * workflows de GHL que aplican `bot_activado` (🟦 08.1 / 08.2) siguen en BORRADOR, así que hoy
  * nadie lleva el tag. El cron habría corrido todos los días devolviendo "sin conversaciones" sin
  * que nada fallara — el mismo modo de falla que los prompts que no existían mientras el panel
@@ -1613,9 +1634,13 @@ export interface DecisionAuditor {
  * El día que Fabio publique los workflows, la escotilla se apaga y **los dos carriles** pasan
  * a regirse por el tag a la vez.
  */
-export function elAgenteAtiende(tags: readonly string[]): boolean {
-  if (tags.includes(TAG_FALLO)) return false; // ya tiene veredicto rojo y su tarea
-  return botAtendiendo(tags) || env.auditorSinPortonTags();
+export function elAgenteAtiende(
+  tags: readonly string[],
+  territorio?: Territorio,
+): boolean {
+  // Cualquiera de los tres tags de fallo: ya tiene veredicto rojo y su tarea abierta.
+  if (tieneFalloDeAuditor(tags)) return false;
+  return botAtendiendo(tags, territorio) || env.auditorSinPortonTags();
 }
 
 export async function decidirAnalisis(
@@ -1833,17 +1858,28 @@ export async function analizarYMarcar(
      * la conversación. Ese es el chequeo factual, y saltearlo sería volver a evaluar una IA
      * que no habló — el bug original.
      */
-    if (!botAtendiendo(tags) && !opts.dryRun && !env.auditorSinPortonTags()) {
+    if (
+      !botAtendiendo(tags, territorio) &&
+      !opts.dryRun &&
+      !env.auditorSinPortonTags()
+    ) {
       return {
         analizado: false,
+        /**
+         * El motivo nombra el tag QUE FALTA, no "un tag de bot": desde que son por agente, ver
+         * "sin bot_activado" sobre un contacto que sí tiene `bot_activado_leadflow` mandaría a
+         * buscar el problema al lado equivocado.
+         */
         motivo:
-          "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",
+          `el agente de IA no está atendiendo a este contacto (sin ` +
+          `${TAGS_BOT_POR_TERRITORIO[territorio].activado} ni bot_reactivar)`,
         territorio,
       };
     }
 
     /* ── Portón 3: ya está en la cola ─────────────────────────────────── */
-    if (tags.includes(TAG_FALLO)) {
+    // Los tres tags de fallo: da igual cuál agente lo marcó, el contacto ya espera a un humano.
+    if (tieneFalloDeAuditor(tags)) {
       return { analizado: false, motivo: "ya marcado como fallo", territorio };
     }
 
@@ -2077,9 +2113,14 @@ export async function analizarYMarcar(
       return { ...base, fallo: true, tagAplicado: false };
     }
 
+    /**
+     * El tag del agente QUE FALLÓ, no uno genérico: es lo que le dice a GHL cuál bot pausar. El
+     * territorio ya está resuelto arriba y es la misma fuente de la que salió `agenteId`, así que
+     * no puede apuntar a un agente distinto del que se acaba de juzgar.
+     */
     const aplicacion = await ghl().aplicarTags({
       ghlContactId,
-      tags: [TAG_FALLO],
+      tags: [tagFalloDe(territorio)],
       idempotencyKey: `${idempotencyKey}:tag`,
     });
 

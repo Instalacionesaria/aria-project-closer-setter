@@ -19,7 +19,9 @@ TERRITORIO
 
 ESTADO DEL AGENTE DE IA
 
-3. bot_activado: mientras el chatbot está atendiendo al contacto. Lo aplica GHL y lo quita cuando el bot deja de atender. (lo escribe GHL / lo lee CC)
+3. bot_activado_appflow: mientras el agente de chat POST-AGENDA (Appointment Flow) está atendiendo al contacto. Lo aplica GHL y lo quita cuando ese bot deja de atender. Es lo que habilita a su auditor: sin este tag, Comando Central no analiza a ese contacto. (lo escribe GHL / lo lee CC)
+
+3b. bot_activado_leadflow: lo mismo para el agente de chat PRE-AGENDA (Lead Flow). Son dos tags y no uno porque el auditor tiene que saber CUÁL agente está atendiendo: juzgar al Appointment Flow por una conversación que atendió el Lead Flow le imputaría el fallo al equivocado. (lo escribe GHL / lo lee CC)
 
 4. bot_reactivar: cuando se da la orden de volver a encender el bot. Lo aplica GHL. (lo escribe GHL / lo lee GHL / lo lee CC)
 
@@ -29,7 +31,11 @@ ESTADO DEL AGENTE DE IA
 
 7. bot_desactivado_postcall: cuando el closer registra cualquier salida de Avanzar menos No-show. Lo aplica Comando Central. (lo escribe CC / lo lee GHL / lo lee CC)
 
-8. bot_pausado_fallo: cuando el auditor de IA detecta un fallo grave. Lo aplica y lo quita Comando Central. (lo escribe CC / lo lee GHL / lo lee CC)
+8. bot_desactivado_appflow: cuando el auditor de IA detecta un fallo grave del agente de chat POST-AGENDA. Lo aplica Comando Central, y **GHL tiene que reaccionar pausando ese bot**. Lo quita Comando Central cuando un humano resuelve la intervención. (lo escribe CC / lo lee GHL / lo lee CC)
+
+8b. bot_desactivado_leadflow: lo mismo para el agente de chat PRE-AGENDA. Cada uno pausa a su bot: con un tag único, un fallo del Lead Flow apagaría también al Appointment Flow, que puede estar trabajando bien. (lo escribe CC / lo lee GHL / lo lee CC)
+
+8c. bot_pausado_fallo: LEGADO. Era el tag único que hacía lo de 8 y 8b antes del 2026-08-16. Comando Central ya no lo aplica, pero lo sigue leyendo —y quitando al resolver— porque quedaron contactos con él puesto. No hace falta crearlo en GHL ni ponerlo en ningún workflow nuevo. (lo lee CC)
 
 
 RESULTADOS DE AVANZAR — CLOSER

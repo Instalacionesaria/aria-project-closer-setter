@@ -950,3 +950,44 @@ Y ahora hay un test (`_denominadorVerdes.test.ts`) que lee las dos mitades —la
 el SQL de la vista— y falla si dejan de decir lo mismo. Las dos mitades viven en lenguajes
 distintos y lo único que las ata es que coincidan; eso no se ve desde una aserción sobre un
 resultado.
+
+---
+
+## D52 · Los tags del bot pasan a ser por agente
+
+**2026-08-16, decisión de Fabio.** `bot_activado` y `bot_pausado_fallo` eran uno para los dos
+agentes de chat. Con los dos auditores corriendo eso deja de alcanzar, y por un motivo que no es
+cosmético: **GHL necesita saber cuál de los dos bots pausar.** Un tag único los pausa a los dos o a
+ninguno, así que un fallo del Lead Flow apagaría también al Appointment Flow, que puede estar
+trabajando bien — apagar al inocente por el error del otro, que es exactamente lo que ya se había
+decidido evitar en voz (ver `elRojoApagaElBot`).
+
+    Appointment Flow (post-agenda) → bot_activado_appflow  / bot_desactivado_appflow
+    Lead Flow        (pre-agenda)  → bot_activado_leadflow / bot_desactivado_leadflow
+
+**El portón del auditor cambia de pregunta.** `botAtendiendo(tags)` respondía "¿hay algún bot
+atendiendo?". Ahora acepta un territorio y responde "¿está atendiendo **el bot que voy a
+juzgar**?". La diferencia no es teórica: un contacto en `zona_closer` con `bot_activado_leadflow`
+—posible en pleno swap al agendar— tiene un bot activo que no es el que el auditor del closer va a
+evaluar. Auditarlo ahí es el mismo bug que el portón vino a cerrar en agosto, con otro disfraz.
+
+**Leer y escribir dejan de ser la misma pregunta.** Para escribir hace falta saber quién falló
+(`tagFalloDe(territorio)`). Para leer —¿este contacto ya está marcado?— da igual: Urgentes y el
+portón "ya tiene veredicto" solo necesitan saber que un humano tiene que entrar, y eso lo responde
+`tieneFalloDeAuditor()`, que cubre los tres tags. Con dos tags nuevos, preguntar por uno solo habría
+dejado la mitad de las urgencias fuera de la cola sin que nada fallara.
+
+**Los viejos se leen y no se escriben** (expand, no replace). Al hacer el cambio había un contacto
+en GHL con `bot_pausado_fallo` puesto por el propio auditor: dejar de reconocerlo lo habría sacado
+de Urgentes en silencio, con la alerta sin resolver. Y al resolver por humano se quitan **los
+tres** — no se sabe con cuál quedó marcado un contacto viejo, y quitar un tag que no está es un
+no-op en GHL. El contract se hace cuando `closer_contactos.tags` no tenga ninguno.
+
+**El parecido peligroso, anotado antes de que muerda:** `bot_desactivado_postcall` empieza igual que
+los dos nuevos y significa lo contrario — "el ciclo terminó bien", lo aplican las salidas de
+Avanzar, y hoy lo tienen 12 contactos. Toda comparación es por igualdad exacta y nunca por prefijo;
+hay un test que lo fija.
+
+**Lo que falta del otro lado:** los workflows de GHL tienen que aplicar los dos `_activado` y
+reaccionar a los dos `_desactivado` pausando el bot correspondiente. Hasta entonces el auditor de
+chat sigue en cero — que es el estado correcto, no un bug.

@@ -23,8 +23,16 @@
  * dejado dos lógicas trenzadas para ahorrar una query base.
  */
 
-import { estadoBotDesdeTags, TAGS, TAGS_BOT } from "../../src/lib/ghl/contrato.js";
-import { derivarFila, type Seguimiento } from "../../src/lib/seguimientos/dominio.js";
+import {
+  estadoBotDesdeTags,
+  TAGS,
+  TAGS_BOT,
+  tieneFalloDeAuditor,
+} from "../../src/lib/ghl/contrato.js";
+import {
+  derivarFila,
+  type Seguimiento,
+} from "../../src/lib/seguimientos/dominio.js";
 import { clasificarCaso } from "./miDia.js";
 import { offsetOrg } from "./citas.js";
 import { db, hoyOrg } from "./repo.js";
@@ -49,10 +57,12 @@ interface FilaContacto {
   atribucion_setter_id: string | null;
 }
 
-const normalizar = (tags: string[] | null) => (tags ?? []).map((t) => t.trim().toLowerCase());
+const normalizar = (tags: string[] | null) =>
+  (tags ?? []).map((t) => t.trim().toLowerCase());
 
 /** Pertenece al territorio del setter. Es el portón de entrada al módulo, como `zona_closer`. */
-const esDelSetter = (c: FilaContacto) => normalizar(c.tags).includes(TAGS.zonaSetter.valor);
+const esDelSetter = (c: FilaContacto) =>
+  normalizar(c.tags).includes(TAGS.zonaSetter.valor);
 
 function resumen(c: FilaContacto) {
   return {
@@ -73,8 +83,13 @@ export async function ejecutarMiDiaSetter() {
   const finDia = `${hoy}T23:59:59${offsetOrg(hoy)}`;
 
   /* ── La query base: una sola, para tres de las seis colas ──────────── */
-  const { data: filas } = await db().from("closer_contactos").select(COLUMNAS).limit(2000);
-  const todos = ((filas ?? []) as unknown as FilaContacto[]).filter(esDelSetter);
+  const { data: filas } = await db()
+    .from("closer_contactos")
+    .select(COLUMNAS)
+    .limit(2000);
+  const todos = ((filas ?? []) as unknown as FilaContacto[]).filter(
+    esDelSetter,
+  );
 
   /* ── 1. Urgentes ───────────────────────────────────────────────────── */
   /**
@@ -87,7 +102,7 @@ export async function ejecutarMiDiaSetter() {
    * existe es un hecho distinto de vacía porque no hay urgencias hoy.
    */
   const urgentes = todos
-    .filter((c) => !c.congelado && normalizar(c.tags).includes(TAGS_BOT.botPausadoFallo.valor))
+    .filter((c) => !c.congelado && tieneFalloDeAuditor(c.tags ?? []))
     .map(resumen);
 
   /* ── 2. Conversaciones estancadas ──────────────────────────────────── */
@@ -97,7 +112,9 @@ export async function ejecutarMiDiaSetter() {
    * estancó — eso lo mide GHL contra su propia ventana de inactividad.
    */
   const estancadas = todos
-    .filter((c) => !c.congelado && normalizar(c.tags).includes(TAGS.estancado.valor))
+    .filter(
+      (c) => !c.congelado && normalizar(c.tags).includes(TAGS.estancado.valor),
+    )
     .map(resumen);
 
   /* ── 3. Oportunidades low-ticket ───────────────────────────────────── */
@@ -108,7 +125,10 @@ export async function ejecutarMiDiaSetter() {
    * (ver `resultadosSetter.ts`).
    */
   const oportunidades = todos
-    .filter((c) => !c.congelado && normalizar(c.tags).includes(TAGS_BOT.derivadoLt.valor))
+    .filter(
+      (c) =>
+        !c.congelado && normalizar(c.tags).includes(TAGS_BOT.derivadoLt.valor),
+    )
     .map(resumen);
 
   /* ── 4. Buzón general ──────────────────────────────────────────────── */
@@ -127,12 +147,20 @@ export async function ejecutarMiDiaSetter() {
       if (!c.ultimo_entrante_el) return false;
       return !c.buzon_resuelto_el || c.ultimo_entrante_el > c.buzon_resuelto_el;
     })
-    .sort((a, b) => (b.ultimo_entrante_el ?? "").localeCompare(a.ultimo_entrante_el ?? ""))
-    .map((c) => ({ ...resumen(c), ultimoEntranteEl: c.ultimo_entrante_el, texto: c.ultimo_entrante_texto }));
+    .sort((a, b) =>
+      (b.ultimo_entrante_el ?? "").localeCompare(a.ultimo_entrante_el ?? ""),
+    )
+    .map((c) => ({
+      ...resumen(c),
+      ultimoEntranteEl: c.ultimo_entrante_el,
+      texto: c.ultimo_entrante_texto,
+    }));
 
   /* ── 5. Seguimientos de hoy ────────────────────────────────────────── */
   const porId = new Map(todos.map((c) => [c.ghl_contact_id, c]));
-  const { data: segs } = await db().from("closer_seguimientos_de_hoy").select("*");
+  const { data: segs } = await db()
+    .from("closer_seguimientos_de_hoy")
+    .select("*");
 
   const seguimientos = (segs ?? [])
     // La vista no sabe de territorios: se filtra contra los contactos del setter que ya tenemos.
@@ -150,7 +178,9 @@ export async function ejecutarMiDiaSetter() {
         fechaObjetivo: f.fecha_objetivo,
         estado: f.estado,
         nota: f.nota ?? undefined,
-        serie: f.serie_key ? { key: f.serie_key, toques: f.serie_toques, dias: f.serie_dias } : undefined,
+        serie: f.serie_key
+          ? { key: f.serie_key, toques: f.serie_toques, dias: f.serie_dias }
+          : undefined,
         creadoEl: f.creado_el,
         creadoPor: f.creado_por,
       };
@@ -165,7 +195,11 @@ export async function ejecutarMiDiaSetter() {
         fila: derivarFila(seg),
       };
     })
-    .sort((a, b) => Number(b.fijada) - Number(a.fijada) || String(a.fechaObjetivo).localeCompare(String(b.fechaObjetivo)));
+    .sort(
+      (a, b) =>
+        Number(b.fijada) - Number(a.fijada) ||
+        String(a.fechaObjetivo).localeCompare(String(b.fechaObjetivo)),
+    );
 
   /* ── 6. Completadas hoy ────────────────────────────────────────────── */
   /**
@@ -180,13 +214,21 @@ export async function ejecutarMiDiaSetter() {
     .gte("created_at", inicioDia)
     .lte("created_at", finDia);
 
-  const completadas = ((avances ?? []) as { ghl_contact_id: string; salida: string; detalle: Record<string, unknown>; created_at: string }[])
+  const completadas = (
+    (avances ?? []) as {
+      ghl_contact_id: string;
+      salida: string;
+      detalle: Record<string, unknown>;
+      created_at: string;
+    }[]
+  )
     .map((a) => ({
       contactId: a.ghl_contact_id,
       // Un avance de un contacto que ya no está en la caché se muestra igual, sin inventarle datos.
       name: porId.get(a.ghl_contact_id)?.nombre ?? a.ghl_contact_id,
       motivo: `avanzar:${a.salida}`,
-      pildora: typeof a.detalle?.pildora === "string" ? a.detalle.pildora : null,
+      pildora:
+        typeof a.detalle?.pildora === "string" ? a.detalle.pildora : null,
       cuando: a.created_at,
     }))
     .sort((a, b) => b.cuando.localeCompare(a.cuando));
@@ -205,7 +247,8 @@ export async function ejecutarMiDiaSetter() {
       oportunidades: oportunidades.length,
       buzon: buzon.length,
       // Los automáticos en curso no son tarea de nadie hoy: están corriendo solos.
-      seguimientos: seguimientos.filter((s) => s.caso !== "automatico_en_curso").length,
+      seguimientos: seguimientos.filter((s) => s.caso !== "automatico_en_curso")
+        .length,
       completadas: completadas.length,
     },
     /**

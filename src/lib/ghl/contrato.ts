@@ -77,7 +77,8 @@ export const TAGS = {
   seguimientoTerminado: {
     valor: "seguimiento_terminado",
     confianza: "pendiente",
-    fuente: "Encontrado en la subcuenta el 2026-07-25 — no documentado en CONTRATO-GHL.md",
+    fuente:
+      "Encontrado en la subcuenta el 2026-07-25 — no documentado en CONTRATO-GHL.md",
     uso: "Candidato a disparador de 'serie agotada'. Solo lectura hasta confirmar su semántica.",
   },
 
@@ -108,19 +109,22 @@ export const TAGS = {
   setterNuevo: {
     valor: "setter_nuevo",
     confianza: "pendiente",
-    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
+    fuente:
+      "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
     uso: "Lead que entró y todavía nadie tocó. Primera etapa del pipeline del setter.",
   },
   setterEnCalificacion: {
     valor: "setter_en_calificacion",
     confianza: "pendiente",
-    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
+    fuente:
+      "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
     uso: "El setter está calificándolo: hay conversación en curso pero todavía no hay veredicto.",
   },
   setterCalificado: {
     valor: "setter_calificado",
     confianza: "pendiente",
-    fuente: "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
+    fuente:
+      "Propuesto por nosotros el 2026-08-08. Pendiente de crearlo en la subcuenta.",
     uso: "Califica para high-ticket pero todavía no agendó. Es la etapa 🔥 del pipeline.",
   },
 
@@ -252,7 +256,10 @@ export const TAGS_SEGUIMIENTO_EXCLUYENTES: readonly TagKey[] = [
  * que el filtro dejaría la app vacía. Se pone en `true` cuando los contactos lleguen de
  * GHL de verdad.
  */
-export function perteneceAlCloser(tags: readonly string[], exigirZonaCloser = false): boolean {
+export function perteneceAlCloser(
+  tags: readonly string[],
+  exigirZonaCloser = false,
+): boolean {
   if (!exigirZonaCloser) return true;
   return tags.includes(TAGS.zonaCloser.valor);
 }
@@ -273,11 +280,59 @@ export function perteneceAlCloser(tags: readonly string[], exigirZonaCloser = fa
  * riesgo. Lo que SÍ bloquea es al auditor: ver `docs/07-AUDITOR-IA.md`.
  */
 export const TAGS_BOT = {
+  /* ---- Por agente (2026-08-16, decisión de Fabio) ------------------- */
+
+  botActivadoAppflow: {
+    valor: "bot_activado_appflow",
+    confianza: "confirmado",
+    fuente: "Decisión de Fabio 2026-08-16 — lo aplica su workflow de GHL",
+    uso: "El agente de chat POST-AGENDA (Appointment Flow) está atendiendo. Solo lectura.",
+  },
+  botActivadoLeadflow: {
+    valor: "bot_activado_leadflow",
+    confianza: "confirmado",
+    fuente: "Decisión de Fabio 2026-08-16 — lo aplica su workflow de GHL",
+    uso: "El agente de chat PRE-AGENDA (Lead Flow) está atendiendo. Solo lectura.",
+  },
+  botDesactivadoAppflow: {
+    valor: "bot_desactivado_appflow",
+    confianza: "confirmado",
+    fuente:
+      "Decisión de Fabio 2026-08-16 — lo APLICA el auditor, GHL pausa al recibirlo",
+    uso:
+      "El auditor encontró un fallo grave del Appointment Flow de chat. Lo aplica el auditor y " +
+      "lo quita `api/agentes/alertas.ts` al resolver la intervención. En GHL dispara la pausa.",
+  },
+  botDesactivadoLeadflow: {
+    valor: "bot_desactivado_leadflow",
+    confianza: "confirmado",
+    fuente:
+      "Decisión de Fabio 2026-08-16 — lo APLICA el auditor, GHL pausa al recibirlo",
+    uso:
+      "El auditor encontró un fallo grave del Lead Flow de chat. Lo aplica el auditor y lo quita " +
+      "`api/agentes/alertas.ts` al resolver la intervención. En GHL dispara la pausa.",
+  },
+
+  /* ---- Legado: se LEEN, ya no se escriben --------------------------- */
+
+  /**
+   * ── Por qué siguen acá ────────────────────────────────────────────
+   *
+   * El 2026-08-16 los tags del bot pasaron a ser por agente, y estos dos quedaron sin
+   * reemplazo directo: `bot_activado` no dice CUÁL agente atiende, que es justo lo que el
+   * auditor necesita para no juzgar al equivocado.
+   *
+   * No se borran porque **en GHL todavía existen**: al momento del cambio había un contacto
+   * con `bot_pausado_fallo` puesto por el propio auditor. Dejar de leerlo lo habría sacado de
+   * Urgentes en silencio, con la alerta sin resolver. Se leen, no se escriben — expand ahora,
+   * contract cuando GHL no tenga ninguno (consultá `closer_contactos.tags` antes de sacarlos).
+   */
   botActivado: {
     valor: "bot_activado",
     confianza: "confirmado",
-    fuente: "CONTEXTO-CLOSER-Conexiones-Polling.md §2 — lo aplica el workflow de GHL",
-    uso: "El chatbot de GHL está atendiendo al contacto. Solo lectura.",
+    fuente:
+      "CONTEXTO-CLOSER-Conexiones-Polling.md §2 — LEGADO, reemplazado por los _appflow/_leadflow",
+    uso: "El chatbot de GHL está atendiendo, sin decir cuál agente. Solo lectura, solo legado.",
   },
   botReactivar: {
     valor: "bot_reactivar",
@@ -294,12 +349,12 @@ export const TAGS_BOT = {
   botPausadoFallo: {
     valor: "bot_pausado_fallo",
     confianza: "confirmado",
-    fuente: "api/_lib/analizador.ts (el auditor de lo aplica el workflow)",
+    fuente:
+      "api/_lib/analizador.ts — LEGADO, reemplazado por bot_desactivado_appflow/_leadflow",
     uso:
-      "El auditor IA apagó el bot por fallo grave. Lo APLICA el auditor y lo QUITA " +
-      "`api/agentes/alertas.ts` al resolver la intervención por humano (§10 de la espec " +
-      "multiempresa, 2026-08-07). Antes decía 'solo lectura': sin quitarlo, el contacto volvía a " +
-      "Urgentes en el próximo tick con la alerta ya resuelta.",
+      "El auditor IA apagó el bot por fallo grave, sin decir cuál agente falló. Desde el " +
+      "2026-08-16 **no se aplica más**: se sigue leyendo para que los contactos que ya lo tienen " +
+      "no desaparezcan de Urgentes, y se sigue quitando al resolver.",
   },
   botApagadoManual: {
     valor: "bot_apagado_manual",
@@ -314,6 +369,52 @@ export const TAGS_BOT = {
     uso: "El bot derivó la conversación a low-ticket y se pausó al hacerlo. Solo lectura.",
   },
 } as const satisfies Record<string, Literal>;
+
+/**
+ * Qué par de tags le corresponde a cada territorio.
+ *
+ * El territorio es lo que este tool ya sabe derivar de `zona_closer`/`zona_setter`, y es lo que
+ * decide qué agente de chat atiende: post-agenda → Appointment Flow, pre-agenda → Lead Flow. Se
+ * indexa por territorio y no por `agenteId` para que este archivo no tenga que conocer los ids del
+ * auditor — el contrato describe GHL, no el motor.
+ */
+export const TAGS_BOT_POR_TERRITORIO = {
+  closer: {
+    activado: TAGS_BOT.botActivadoAppflow.valor,
+    desactivado: TAGS_BOT.botDesactivadoAppflow.valor,
+  },
+  setter: {
+    activado: TAGS_BOT.botActivadoLeadflow.valor,
+    desactivado: TAGS_BOT.botDesactivadoLeadflow.valor,
+  },
+} as const satisfies Record<
+  "closer" | "setter",
+  { activado: string; desactivado: string }
+>;
+
+export type TerritorioBot = keyof typeof TAGS_BOT_POR_TERRITORIO;
+
+/**
+ * Todos los tags que significan "el auditor apagó este bot por un fallo".
+ *
+ * Los dos nuevos más el legado. Lo usan las colas de Urgentes y el portón "ya tiene veredicto
+ * rojo": para ESAS preguntas da igual cuál agente falló — el contacto necesita a un humano.
+ *
+ * Ojo con el parecido: `bot_desactivado_postcall` empieza igual y NO es esto. Significa "ya tuvo
+ * su sales call" y lo aplican las salidas de Avanzar. Por eso todas las comparaciones son por
+ * igualdad exacta y nunca por prefijo.
+ */
+export const TAGS_FALLO_AUDITOR: readonly string[] = [
+  TAGS_BOT.botDesactivadoAppflow.valor,
+  TAGS_BOT.botDesactivadoLeadflow.valor,
+  TAGS_BOT.botPausadoFallo.valor,
+];
+
+/** `true` si alguno de los tags dice que el auditor apagó el bot. Normaliza antes de comparar. */
+export function tieneFalloDeAuditor(tags: readonly string[]): boolean {
+  const t = tags.map((x) => x.trim().toLowerCase());
+  return TAGS_FALLO_AUDITOR.some((f) => t.includes(f));
+}
 
 /**
  * El tag que dispara el workflow de seguimiento AUTOMÁTICO post-call en GHL.
@@ -369,14 +470,26 @@ export const FUENTE_IG = "📷 IG PROFILE";
  * tiene evidencia de que el bot esté atendiendo". Afirmar lo contrario contradiría el ruteo
  * del Buzón, que con ese mismo default ya está mandando esos mensajes al closer.
  */
-export function botDesdeTags(tags: readonly string[], fuente?: string | null): BotEstado | null {
+export function botDesdeTags(
+  tags: readonly string[],
+  fuente?: string | null,
+): BotEstado | null {
   if (fuente === FUENTE_IG) return null;
   const t = tags.map((x) => x.trim().toLowerCase());
-  if (t.includes(TAGS_BOT.botPausadoFallo.valor)) return "pausado_fallo";
-  if (t.includes(TAGS_BOT.botDesactivadoPostcall.valor)) return "muerto_postcall";
+  // Los tres de fallo (dos por agente + el legado) caen en el mismo estado: para la ficha y para
+  // Urgentes lo que importa es que un humano tiene que entrar, no cuál de los dos agentes falló.
+  if (TAGS_FALLO_AUDITOR.some((f) => t.includes(f))) return "pausado_fallo";
+  if (t.includes(TAGS_BOT.botDesactivadoPostcall.valor))
+    return "muerto_postcall";
   if (t.includes(TAGS_BOT.derivadoLt.valor)) return "derivado_lt";
   if (t.includes(TAGS_BOT.botApagadoManual.valor)) return "apagado_manual";
-  if (t.includes(TAGS_BOT.botActivado.valor)) return "activo";
+  if (
+    t.includes(TAGS_BOT.botActivadoAppflow.valor) ||
+    t.includes(TAGS_BOT.botActivadoLeadflow.valor) ||
+    t.includes(TAGS_BOT.botActivado.valor)
+  ) {
+    return "activo";
+  }
   return null;
 }
 
@@ -407,12 +520,37 @@ export function estadoBotDesdeTags(tags: readonly string[]): EstadoBot {
  * esa distinción importa (todavía no está prendido); para el auditor no (ya hay un agente que
  * va a contestar, y su respuesta es auditable). Un tag de apagado sigue ganando sobre los dos.
  */
-export function botAtendiendo(tags: readonly string[]): boolean {
+export function botAtendiendo(
+  tags: readonly string[],
+  territorio?: TerritorioBot,
+): boolean {
   const estado = botDesdeTags(tags);
+  const t = tags.map((x) => x.trim().toLowerCase());
+
+  /**
+   * ── Con territorio: se pregunta por ESE agente ──────────────────────
+   *
+   * Desde que los tags son por agente (2026-08-16), "hay un bot atendiendo" y "el bot QUE VOY A
+   * AUDITAR está atendiendo" dejaron de ser la misma pregunta. Un contacto con `zona_closer` y
+   * `bot_activado_leadflow` —posible en pleno swap al agendar— tiene un bot activo que **no** es
+   * el que el auditor del closer va a juzgar. Auditarlo ahí es el bug que este portón existe para
+   * evitar, con otro disfraz.
+   *
+   * El legado `bot_activado` sirve para los dos: no dice cuál agente atiende, y mientras existan
+   * contactos con él lo honesto es aceptarlo en vez de dejarlos fuera del auditor.
+   */
+  if (estado !== null && estado !== "activo") return false; // un apagado gana siempre
+
+  if (territorio) {
+    if (t.includes(TAGS_BOT_POR_TERRITORIO[territorio].activado)) return true;
+    if (t.includes(TAGS_BOT.botActivado.valor)) return true;
+    // `bot_reactivar` tampoco distingue agente: misma lógica que el legado.
+    return t.includes(TAGS_BOT.botReactivar.valor);
+  }
+
   if (estado === "activo") return true;
   // `bot_reactivar` solo cuenta si NINGÚN tag de apagado lo contradice.
-  if (estado !== null) return false;
-  return tags.map((t) => t.trim().toLowerCase()).includes(TAGS_BOT.botReactivar.valor);
+  return t.includes(TAGS_BOT.botReactivar.valor);
 }
 
 /* ================================================================== */
@@ -492,7 +630,8 @@ export type CampoKey = keyof typeof CAMPOS;
  * `api/`) y aquel es un componente de React. Si divergen, lo canta el endpoint que arma la
  * respuesta, porque la forma que espera `PerfilTab` es la de allá.
  */
-export type GrupoPerfil = "detalles" | "origen" | "calificacion" | "interacciones";
+export type GrupoPerfil =
+  "detalles" | "origen" | "calificacion" | "interacciones";
 export type FormularioPerfil = "vsl" | "meta";
 
 export interface CampoPerfil extends Literal {
@@ -536,7 +675,8 @@ export const CAMPOS_PERFIL = {
     formulario: "vsl",
   },
   vslMayorObstaculo: {
-    valor: "contact._cul_es_el_mayor_obstculo_que_te_est_impidiendo_llegar_a_ese_objetivo",
+    valor:
+      "contact._cul_es_el_mayor_obstculo_que_te_est_impidiendo_llegar_a_ese_objetivo",
     confianza: "confirmado",
     fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
     uso: 'Pregunta "¿Cuál es el mayor obstáculo que te está impidiendo llegar a ese objetivo?". Solo lectura.',
@@ -545,7 +685,8 @@ export const CAMPOS_PERFIL = {
     formulario: "vsl",
   },
   vslListoParaEmpezar: {
-    valor: "contact._si_somos_una_buena_opcin_para_ti_y_tenemos_cupo_disponible_estaras_listo_para_empezar_ahora",
+    valor:
+      "contact._si_somos_una_buena_opcin_para_ti_y_tenemos_cupo_disponible_estaras_listo_para_empezar_ahora",
     confianza: "confirmado",
     fuente: "CONTRATO-GHL.md §4 · Carpeta Calificación — form VSL",
     uso: 'Pregunta "Si somos una buena opción y hay cupo, ¿estarías listo para empezar ahora?". Solo lectura.',
@@ -603,7 +744,8 @@ export const CAMPOS_PERFIL = {
     formulario: "meta",
   },
   metaMayorObstaculo: {
-    valor: "contact.cual_es_el_mayor_obstaculo_que_te_esta_impidiendo_llegar_a_ese_objetivo",
+    valor:
+      "contact.cual_es_el_mayor_obstaculo_que_te_esta_impidiendo_llegar_a_ese_objetivo",
     confianza: "confirmado",
     fuente: "CONTRATO-GHL.md §4 · Carpeta Meta Lead Ads — form Meta",
     uso: 'Pregunta "Cual es el mayor obstaculo...?". Campo propio de Meta. Solo lectura.',
@@ -690,14 +832,16 @@ export type CampoPerfilKey = keyof typeof CAMPOS_PERFIL;
  * repetir un cast en cada caller. El ORDEN es el de declaración, y es el que termina viendo
  * el usuario dentro de cada grupo — cambiarlo reordena la ficha.
  */
-export const CAMPOS_PERFIL_ORDENADOS: readonly CampoPerfil[] = Object.values(CAMPOS_PERFIL);
+export const CAMPOS_PERFIL_ORDENADOS: readonly CampoPerfil[] =
+  Object.values(CAMPOS_PERFIL);
 
 /* ================================================================== */
 /* SITUACIÓN DEL SEGUIMIENTO                                          */
 /* ================================================================== */
 
 /** Slug interno. Estable aunque cambie la etiqueta que ve el usuario. */
-export type SituacionSeguimiento = "proximo_a_pagar" | "muy_interesado" | "dudando" | "enfriandose" | "otro";
+export type SituacionSeguimiento =
+  "proximo_a_pagar" | "muy_interesado" | "dudando" | "enfriandose" | "otro";
 
 export interface SituacionDef {
   readonly slug: SituacionSeguimiento;
@@ -717,7 +861,11 @@ export interface SituacionDef {
  * son los valores literales del dropdown, no etiquetas de UI.
  */
 export const SITUACIONES: readonly SituacionDef[] = [
-  { slug: "proximo_a_pagar", label: "Próximo a pagar", confianza: "confirmado" },
+  {
+    slug: "proximo_a_pagar",
+    label: "Próximo a pagar",
+    confianza: "confirmado",
+  },
   { slug: "muy_interesado", label: "Muy interesado", confianza: "confirmado" },
   { slug: "dudando", label: "Dudando", confianza: "confirmado" },
   { slug: "enfriandose", label: "Enfriándose", confianza: "confirmado" },
@@ -728,7 +876,9 @@ export const situacionPorSlug = (slug: SituacionSeguimiento): SituacionDef =>
   SITUACIONES.find((s) => s.slug === slug)!;
 
 /** Para leer lo que GHL devuelve en el custom field. Devuelve `undefined` si no matchea. */
-export function situacionDesdeGhl(valor: string | null | undefined): SituacionSeguimiento | undefined {
+export function situacionDesdeGhl(
+  valor: string | null | undefined,
+): SituacionSeguimiento | undefined {
   if (!valor) return undefined;
   const normalizado = valor.trim().toLowerCase();
   return SITUACIONES.find((s) => s.label.toLowerCase() === normalizado)?.slug;
@@ -764,7 +914,9 @@ export const STAGE_GHL_A_FRONT: Readonly<Record<string, string>> = {
  * las anteriores, así que un contacto acumula varios campos llenos. La píldora muestra solo
  * la del stage ACTUAL; el resto queda como historial invisible, disponible para Gerencia.
  */
-export const CAMPO_SUBCATEGORIA_POR_STAGE: Readonly<Partial<Record<string, CampoKey>>> = {
+export const CAMPO_SUBCATEGORIA_POR_STAGE: Readonly<
+  Partial<Record<string, CampoKey>>
+> = {
   ganado: "formaPagoVenta",
   seguimiento: "nivelInteresSeguimiento",
   no_show: "razonNoshow",
@@ -796,10 +948,13 @@ export class LiteralNoConfirmadoError extends Error {
  * ningún workflow y nadie se entera.
  */
 export function assertEnviable(literal: Literal, modoReal: boolean): void {
-  if (modoReal && literal.confianza === "pendiente") throw new LiteralNoConfirmadoError(literal);
+  if (modoReal && literal.confianza === "pendiente")
+    throw new LiteralNoConfirmadoError(literal);
 }
 
 /** Inventario para el arranque del server y para el doc — qué falta confirmar. */
 export function literalesPendientes(): Literal[] {
-  return [...Object.values(TAGS), ...Object.values(CAMPOS)].filter((l) => l.confianza === "pendiente");
+  return [...Object.values(TAGS), ...Object.values(CAMPOS)].filter(
+    (l) => l.confianza === "pendiente",
+  );
 }

@@ -3,12 +3,12 @@
 Un agente que audita a los otros agentes. Lee la conversación entre el chatbot de GHL y el
 contacto, la evalúa contra una rúbrica, y produce **dos salidas que no hay que mezclar**:
 
-- **Intervención** — hay daño en curso y un humano tiene que tomar la conversación *ahora*.
+- **Intervención** — hay daño en curso y un humano tiene que tomar la conversación _ahora_.
   Aplica `bot_pausado_fallo` + una nota `[IA] …`. Eso enciende la cola roja.
 - **Hallazgos** — qué se puede corregir en el **prompt** del agente. No interrumpe a nadie:
   alimenta la lista de trabajo del técnico en Auditoría de Agentes.
 
-> Que fueran lo mismo es lo que hacía que un *"podría ser más breve"* le apagara el bot a una
+> Que fueran lo mismo es lo que hacía que un _"podría ser más breve"_ le apagara el bot a una
 > persona real.
 
 ## ⚠️ Hoy no está analizando nada, y es a propósito
@@ -46,15 +46,22 @@ Dos renglones de ese endpoint son alarmas tempranas:
 
 ## Los cinco portones
 
+> **Los tags son por agente desde el 2026-08-16** (ver [D52](09-DECISIONES.md)). El portón ya no
+> pregunta "¿hay un bot?" sino "¿está atendiendo **el bot que voy a juzgar**?":
+> `bot_activado_appflow` para post-agenda, `bot_activado_leadflow` para pre-agenda. Y cuando
+> encuentra un fallo aplica `bot_desactivado_appflow` o `bot_desactivado_leadflow` según quién
+> falló — es lo que le dice a GHL cuál bot pausar. El viejo `bot_pausado_fallo` se sigue leyendo
+> pero ya no se escribe.
+
 En orden, de más barato a más caro de evaluar. Cada uno evita gasto.
 
-| # | Portón | Nota |
-|---|---|---|
-| 1 | Territorio `zona_closer` | Este es el auditor de **chat del closer**. El del setter será su propio agente |
-| 2 | `botAtendiendo(tags)` | **Bloquea al 100% hoy** — ver arriba |
-| 3 | No tiene ya `bot_pausado_fallo` | Ya está en la cola; re-analizar duplicaría la nota |
-| 4 | **Debounce: 5 mensajes nuevos de la IA** | `AUDITOR_UMBRAL_IA` |
-| 5 | Hay ≥1 mensaje clasificado como `agente_ia` | Los **hechos**, no los tags |
+| #   | Portón                                      | Nota                                                                           |
+| --- | ------------------------------------------- | ------------------------------------------------------------------------------ |
+| 1   | Territorio `zona_closer`                    | Este es el auditor de **chat del closer**. El del setter será su propio agente |
+| 2   | `botAtendiendo(tags)`                       | **Bloquea al 100% hoy** — ver arriba                                           |
+| 3   | No tiene ya `bot_pausado_fallo`             | Ya está en la cola; re-analizar duplicaría la nota                             |
+| 4   | **Debounce: 5 mensajes nuevos de la IA**    | `AUDITOR_UMBRAL_IA`                                                            |
+| 5   | Hay ≥1 mensaje clasificado como `agente_ia` | Los **hechos**, no los tags                                                    |
 
 **El portón 5 no es redundante con el 2.** Un tag puede mentir: quedó puesto, el workflow no
 corrió, alguien lo editó a mano. Sin una sola línea del agente en la conversación no hay nada
@@ -100,20 +107,20 @@ a ~2.
 
 ### El nivel 0 — el agujero del debounce, cerrado (2026-08-07)
 
-> Hasta esta fecha acá decía: *"una conversación donde la IA manda 4 mensajes y el contacto se va
-> enojado nunca se audita. Es consecuencia matemática de la regla, no un bug tapable."* Era cierto,
+> Hasta esta fecha acá decía: _"una conversación donde la IA manda 4 mensajes y el contacto se va
+> enojado nunca se audita. Es consecuencia matemática de la regla, no un bug tapable."_ Era cierto,
 > y era el caso que más duele. Ya no pasa.
 
 Antes de rendirse, el debounce corre **cinco heurísticas de costo cero** sobre `closer_mensajes`
 —nuestra caché, no GHL— y si alguna levanta, adelanta el análisis:
 
-| Señal | Qué mira |
-|---|---|
-| `frustracion_lexica` | el contacto se quejó, en sus 3 mensajes más recientes |
-| `intencion_de_pago` | quiere pagar o comprar **ahora** |
-| `pregunta_repetida` | repitió sustancialmente la misma pregunta, no en mensajes contiguos |
-| `agente_se_repite` | el agente mandó dos mensajes casi idénticos |
-| `contacto_se_fue` | último mensaje del agente + 60 min de silencio, habiendo hablado antes |
+| Señal                | Qué mira                                                               |
+| -------------------- | ---------------------------------------------------------------------- |
+| `frustracion_lexica` | el contacto se quejó, en sus 3 mensajes más recientes                  |
+| `intencion_de_pago`  | quiere pagar o comprar **ahora**                                       |
+| `pregunta_repetida`  | repitió sustancialmente la misma pregunta, no en mensajes contiguos    |
+| `agente_se_repite`   | el agente mandó dos mensajes casi idénticos                            |
+| `contacto_se_fue`    | último mensaje del agente + 60 min de silencio, habiendo hablado antes |
 
 El portón queda: **`delta ≥ 5`, o `delta ≥ 1` con alarma.**
 
@@ -166,11 +173,11 @@ criterio flojo produce ruido, y el ruido le enseña al técnico a ignorar la pes
 
 Es una dimensión aparte, con su propia escala:
 
-| Nivel | Qué es | ¿Hallazgo? |
-|---|---|---|
-| `acompano` | el agente leyó dónde estaba el lead y respondió a eso | no |
-| `respondio` | contestó bien, pero pasó por alto una señal del lead | **no**, a propósito |
-| `desacompaso` | el lead estaba en un lugar y el agente siguió con su agenda | sí |
+| Nivel         | Qué es                                                      | ¿Hallazgo?          |
+| ------------- | ----------------------------------------------------------- | ------------------- |
+| `acompano`    | el agente leyó dónde estaba el lead y respondió a eso       | no                  |
+| `respondio`   | contestó bien, pero pasó por alto una señal del lead        | **no**, a propósito |
+| `desacompaso` | el lead estaba en un lugar y el agente siguió con su agenda | sí                  |
 
 `respondio` se mide y se descarta: casi toda conversación tiene algo que se podía decir mejor, así
 que reportarlo sería un amarillo diario garantizado sin señal adentro. Se pide igual en el esquema
@@ -252,8 +259,8 @@ estricto es más frágil que una obligatoria que puede ser `null`.
 
 ## El prompt del agente auditado, adentro
 
-Para que el veredicto no diga solo *"prometió un financiamiento que no existe"* sino *"esta
-línea del prompt lo permite, reemplazala por esta otra"*.
+Para que el veredicto no diga solo _"prometió un financiamiento que no existe"_ sino _"esta
+línea del prompt lo permite, reemplazala por esta otra"_.
 
 Vive en **la configuración de la empresa**: las columnas `prompt_*` de `closer_org_config`, que
 se editan en **Auditoría de Agentes › Prompts**. Sin prompt cargado todo degrada
@@ -285,8 +292,8 @@ Dos cosas que importan:
 - **Se versiona por hash del contenido.** El hash se recalcula del texto en cada lectura y NO se
   lee de la columna `*_hash` que el panel guarda al lado: esa dice qué hash tenía el texto al
   guardarse, y el que vale para comparar contra `closer_hallazgo_agente.prompt_hash` es el del
-  texto que el auditor está usando ahora. Es lo que permite avisar *"el prompt cambió desde que
-  se detectó esto"* — sin él, el técnico pega un reemplazo de un fragmento que ya no existe.
+  texto que el auditor está usando ahora. Es lo que permite avisar _"el prompt cambió desde que
+  se detectó esto"_ — sin él, el técnico pega un reemplazo de un fragmento que ya no existe.
 - **El caché de prompts está indexado por empresa + agente.** Una instancia caliente de Vercel
   que ya cacheó el de ARIA no puede servírselo al auditor de otra empresa.
 - Con la mudanza se cayó la dependencia de **`includeFiles` en `vercel.json`**, y con ella su
@@ -297,13 +304,13 @@ Dos cosas que importan:
 
 Desde el 2026-08-07 el auditor es por empresa en todo lo que importa:
 
-| Qué | De dónde sale | Si falta |
-|---|---|---|
-| API key de Anthropic | `closer_org_config.anthropic_key_cifrada` | **No audita**, y lo dice con el nombre de la empresa |
-| Modelo y esfuerzo | **Ya no salen de la empresa.** Son constantes del código (`028`) | — |
-| El prompt del agente auditado | `prompt_appointment_texto` / `prompt_lead_texto` | Degrada limpio: corrección como instrucción autónoma |
-| El candado | `closer_auditor_claim(p_org_id, …)` | — |
-| La caché del prompt | Indexada por **empresa + agente** | — |
+| Qué                           | De dónde sale                                                    | Si falta                                             |
+| ----------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- |
+| API key de Anthropic          | `closer_org_config.anthropic_key_cifrada`                        | **No audita**, y lo dice con el nombre de la empresa |
+| Modelo y esfuerzo             | **Ya no salen de la empresa.** Son constantes del código (`028`) | —                                                    |
+| El prompt del agente auditado | `prompt_appointment_texto` / `prompt_lead_texto`                 | Degrada limpio: corrección como instrucción autónoma |
+| El candado                    | `closer_auditor_claim(p_org_id, …)`                              | —                                                    |
+| La caché del prompt           | Indexada por **empresa + agente**                                | —                                                    |
 
 > `new Anthropic()` sin argumentos lee `process.env.ANTHROPIC_API_KEY`, así que hasta ese día
 > **todas las auditorías se le facturaban a ARIA** — las de sus clientes también. No era una fuga de
@@ -314,12 +321,12 @@ con la cuenta de un tercero es peor que no auditar.
 
 ## El costo
 
-| | |
-|---|---|
-| Modelo | `claude-sonnet-5`, **constante del código** (`MODELO_AUDITOR`) |
-| Esfuerzo | `high`, ídem (`ESFUERZO_AUDITOR`) |
-| Por análisis | **~US$0,01–0,02** |
-| Techo | `max_tokens: 8000` — cubre pensamiento **más** texto |
+|              |                                                                |
+| ------------ | -------------------------------------------------------------- |
+| Modelo       | `claude-sonnet-5`, **constante del código** (`MODELO_AUDITOR`) |
+| Esfuerzo     | `high`, ídem (`ESFUERZO_AUDITOR`)                              |
+| Por análisis | **~US$0,01–0,02**                                              |
+| Techo        | `max_tokens: 8000` — cubre pensamiento **más** texto           |
 
 > **Dejó de ser configurable el 2026-08-07, y es a propósito.** Era `CLAUDE_MODEL` /
 > `AUDITOR_EFFORT`, más dos columnas por empresa. El motivo sale de este mismo repo:
@@ -355,11 +362,11 @@ re-mandar el transcript entero, y auditar solo en el saliente.
 
 Todo análisis auditable termina en **uno** de tres. No es opcional y no hay un cuarto.
 
-| Nivel | Qué significa | Qué produce |
-|---|---|---|
-| 🟢 `verde` | El agente trabajó bien | `destacado` + `evidencia`: qué hizo bien, con su cita. Sin corrección |
-| 🟡 `amarillo` | **Al menos un hallazgo** de severidad amarilla | Los hallazgos, sin corrección de prompt |
-| 🔴 `rojo` | Fallo crítico | Diagnóstico + corrección de prompt citada contra el prompt de esa empresa |
+| Nivel         | Qué significa                                  | Qué produce                                                               |
+| ------------- | ---------------------------------------------- | ------------------------------------------------------------------------- |
+| 🟢 `verde`    | El agente trabajó bien                         | `destacado` + `evidencia`: qué hizo bien, con su cita. Sin corrección     |
+| 🟡 `amarillo` | **Al menos un hallazgo** de severidad amarilla | Los hallazgos, sin corrección de prompt                                   |
+| 🔴 `rojo`     | Fallo crítico                                  | Diagnóstico + corrección de prompt citada contra el prompt de esa empresa |
 
 Y los **tres** traen `resumen` y `observaciones` (`039`) — ver abajo.
 
@@ -405,11 +412,11 @@ calificación nunca" es un hallazgo, y lleva su corrección.
 
 Los tres estados de la columna están declarados, y el tercero es el que importa:
 
-| Valor | Qué significa |
-|---|---|
+| Valor  | Qué significa                                                                        |
+| ------ | ------------------------------------------------------------------------------------ |
 | `null` | **No se pidieron.** Pasa con `auditable = false` y con las filas del carril amarillo |
-| `[]` | **Se pidieron y el auditor no vio ninguna.** Un hecho medido, distinto del anterior |
-| `[…]` | Las que vio |
+| `[]`   | **Se pidieron y el auditor no vio ninguna.** Un hecho medido, distinto del anterior  |
+| `[…]`  | Las que vio                                                                          |
 
 Un CHECK de la `039` impide observaciones sobre un análisis no auditable: observar algo de una
 conversación que el propio auditor declaró imposible de juzgar es juzgarla. Misma técnica que el
@@ -442,7 +449,7 @@ check ((nivel = 'rojo') = fallo)
 ```
 
 Y por eso `derivarNivel()` **no le cree al modelo**: si devolviera `"amarillo"` junto a
-`requiere_intervencion: true`, el CHECK tumbaría el INSERT *después* de haber gastado la
+`requiere_intervencion: true`, el CHECK tumbaría el INSERT _después_ de haber gastado la
 inferencia. Derivar del hecho convierte un error del modelo en una fila correcta. Hay un test que
 barre las 48 combinaciones y verifica que `rojo` equivalga siempre a pedir intervención.
 
@@ -453,12 +460,12 @@ viejas con `fallo = false` se quedaron en `null` a propósito: el modelo de ante
 
 ### La única diferencia entre chat y voz está en el rojo
 
-| | Rojo en **chat** | Rojo en **voz** |
-|---|---|---|
-| Apaga el agente | **Sí** — aplica `bot_pausado_fallo` | **No puede**: la llamada ya terminó |
-| Cola de Intervenciones Urgentes | **Sí** | No |
-| Nota `[IA] …` en el contacto | Sí | Sí |
-| Corrección de prompt | **Sí** | **Sí** |
+|                                 | Rojo en **chat**                    | Rojo en **voz**                     |
+| ------------------------------- | ----------------------------------- | ----------------------------------- |
+| Apaga el agente                 | **Sí** — aplica `bot_pausado_fallo` | **No puede**: la llamada ya terminó |
+| Cola de Intervenciones Urgentes | **Sí**                              | No                                  |
+| Nota `[IA] …` en el contacto    | Sí                                  | Sí                                  |
+| Corrección de prompt            | **Sí**                              | **Sí**                              |
 
 Lo decide `elRojoApagaElBot()`. En voz no es una limitación que se resigna: aplicar el tag por una
 llamada mala **pausaría el agente de chat de ese contacto**, que es otro agente y puede estar
@@ -488,12 +495,12 @@ el acto (`api/_lib/analizadorVoz.ts`). Es el mismo motor del chat con otro medio
 
 Lo que lo hace distinto del chat, con motivo:
 
-| Chat | Voz | Por qué |
-|---|---|---|
-| Debounce de 5 mensajes | **Sin debounce**: 1 análisis por llamada | Una llamada ya es una conversación completa |
-| Candado `closer_auditor_claim` | **Dedupe por `call_id`** | El claim es por contacto: chat y voz se pisarían |
+| Chat                                          | Voz                                                          | Por qué                                                                                                 |
+| --------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Debounce de 5 mensajes                        | **Sin debounce**: 1 análisis por llamada                     | Una llamada ya es una conversación completa                                                             |
+| Candado `closer_auditor_claim`                | **Dedupe por `call_id`**                                     | El claim es por contacto: chat y voz se pisarían                                                        |
 | El rojo aplica `bot_pausado_fallo` → Urgentes | **El rojo NO aplica tag**: nota `[IA] [llamada]` + Auditoría | La llamada ya terminó, y el tag pausaría al agente de CHAT del contacto (decisión de Fabio, 2026-08-10) |
-| `disparo: webhook` | `disparo: llamada` | Para poder separarlos en las métricas |
+| `disparo: webhook`                            | `disparo: llamada`                                           | Para poder separarlos en las métricas                                                                   |
 
 Un `origen` sin agente identificado (`voz_ia`, `sales_call`) **no se audita**: imputar fallos "al
 más parecido" es peor que no auditar. El veredicto se ve en la tarjeta del agente en Auditoría y
@@ -505,12 +512,12 @@ tiene que aparecer en un diff que alguien mire.
 
 ## Los cuatro auditores
 
-| Auditor | Estado | Su tarjeta |
-|---|---|---|
-| Chat · closer | ✅ construido | `appointment-flow-ai` |
-| Chat · setter | ❌ no existe | `lead-flow-ai` |
-| Llamadas · closer | ❌ no existe | `appointment-flow-voz` |
-| Llamadas · setter | ❌ no existe | `lead-flow-voz` |
+| Auditor           | Estado        | Su tarjeta             |
+| ----------------- | ------------- | ---------------------- |
+| Chat · closer     | ✅ construido | `appointment-flow-ai`  |
+| Chat · setter     | ❌ no existe  | `lead-flow-ai`         |
+| Llamadas · closer | ❌ no existe  | `appointment-flow-voz` |
+| Llamadas · setter | ❌ no existe  | `lead-flow-voz`        |
 
 **El de setter no es "el mismo con otro contexto".** La rúbrica de post-agenda juzga confirmar
 y acompañar una cita; la de pre-agenda juzga calificar y conseguir que agende. Por eso el

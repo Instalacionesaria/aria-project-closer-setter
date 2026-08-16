@@ -13,8 +13,7 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { TAGS } from "../../src/lib/ghl/contrato.js";
-import { TAG_FALLO } from "../_lib/analizador.js";
+import { TAGS, tieneFalloDeAuditor } from "../../src/lib/ghl/contrato.js";
 import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
@@ -60,11 +59,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .select("ghl_contact_id, nombre, fuente, tags, congelado");
 
     const delSetter = ((filas ?? []) as FilaCache[]).filter((c) =>
-      (c.tags ?? []).map((t) => t.trim().toLowerCase()).includes(TAGS.zonaSetter.valor),
+      (c.tags ?? [])
+        .map((t) => t.trim().toLowerCase())
+        .includes(TAGS.zonaSetter.valor),
     );
     const contactos = delSetter
-      .filter((c) => !c.congelado && (c.tags ?? []).map((t) => t.trim().toLowerCase()).includes(TAG_FALLO))
-      .map((c) => ({ id: c.ghl_contact_id, nombre: c.nombre ?? c.ghl_contact_id, fuente: c.fuente, tags: c.tags ?? [] }));
+      .filter((c) => !c.congelado && tieneFalloDeAuditor(c.tags ?? []))
+      .map((c) => ({
+        id: c.ghl_contact_id,
+        nombre: c.nombre ?? c.ghl_contact_id,
+        fuente: c.fuente,
+        tags: c.tags ?? [],
+      }));
 
     /**
      * El motivo del fallo, en UNA query — antes era `ultimaNotaIa(c.id)` por contacto dentro
@@ -80,10 +86,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from("closer_analisis_agente")
         .select("ghl_contact_id, motivo, analizado_el")
         .eq("fallo", true)
-        .in("ghl_contact_id", contactos.map((c) => c.id))
+        .in(
+          "ghl_contact_id",
+          contactos.map((c) => c.id),
+        )
         .order("analizado_el", { ascending: false });
       for (const a of data ?? []) {
-        if (a.motivo && !motivos.has(a.ghl_contact_id)) motivos.set(a.ghl_contact_id, a.motivo);
+        if (a.motivo && !motivos.has(a.ghl_contact_id))
+          motivos.set(a.ghl_contact_id, a.motivo);
       }
     }
 

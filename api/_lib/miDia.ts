@@ -33,19 +33,35 @@
  * dos colas. Por eso el string del select vive acá y la lectura no se recibe por parámetro.
  */
 
-import { estadoBotDesdeTags, perteneceAlCloser, TAGS_BOT } from "../../src/lib/ghl/contrato.js";
+import {
+  estadoBotDesdeTags,
+  perteneceAlCloser,
+  TAGS_BOT,
+  tieneFalloDeAuditor,
+} from "../../src/lib/ghl/contrato.js";
 import { etapaDesdeTags, type StageKey } from "../../src/lib/ghl/etapas.js";
 import { hoyISO } from "../../src/lib/fechas.js";
-import { derivarFila, type Seguimiento } from "../../src/lib/seguimientos/dominio.js";
-import { INDICADORES_VACIOS, type IndicadoresContacto } from "../../src/lib/indicadores.js";
+import {
+  derivarFila,
+  type Seguimiento,
+} from "../../src/lib/seguimientos/dominio.js";
+import {
+  INDICADORES_VACIOS,
+  type IndicadoresContacto,
+} from "../../src/lib/indicadores.js";
 import { offsetOrg } from "./citas.js";
 import { env } from "./env.js";
 import { cargarIndicadores } from "./indicadores.js";
 import { db, hoyOrg } from "./repo.js";
 
-export type CasoSeguimiento = "manual_de_hoy" | "manual_vencido" | "serie_agotada" | "automatico_en_curso";
+export type CasoSeguimiento =
+  "manual_de_hoy" | "manual_vencido" | "serie_agotada" | "automatico_en_curso";
 
-export function clasificarCaso(modo: string, estado: string, diasVencido: number): CasoSeguimiento {
+export function clasificarCaso(
+  modo: string,
+  estado: string,
+  diasVencido: number,
+): CasoSeguimiento {
   if (estado === "agotado") return "serie_agotada";
   if (modo === "automatico") return "automatico_en_curso";
   return diasVencido > 0 ? "manual_vencido" : "manual_de_hoy";
@@ -75,14 +91,20 @@ const COLUMNAS_CONTACTO =
 
 /** Supabase manda; sin stage_key se deriva de los tags (cae en `agendado`, la entrada). */
 const etapaDe = (c: FilaContacto): StageKey =>
-  ((c.stage_key as StageKey | null) ?? etapaDesdeTags((c.tags ?? []).map((t) => t.trim().toLowerCase()))) as StageKey;
+  ((c.stage_key as StageKey | null) ??
+    etapaDesdeTags(
+      (c.tags ?? []).map((t) => t.trim().toLowerCase()),
+    )) as StageKey;
 
 /**
  * El resumen que viaja en TODAS las colas. Lleva los `indicadores` para que los 6 íconos se
  * vean iguales acá que en el Pipeline y en la ficha — el pedido de Fabio de que la
  * información acompañe al contacto a donde se muestre.
  */
-const resumenContacto = (c: FilaContacto, indicadores: Map<string, IndicadoresContacto>) => ({
+const resumenContacto = (
+  c: FilaContacto,
+  indicadores: Map<string, IndicadoresContacto>,
+) => ({
   ghlContactId: c.ghl_contact_id,
   nombre: c.nombre,
   telefono: c.telefono,
@@ -109,7 +131,8 @@ export async function ejecutarMiDia() {
     .from("closer_contactos")
     .select(COLUMNAS_CONTACTO)
     .limit(2000);
-  if (errContactos) throw new Error(`closer_contactos: ${errContactos.message}`);
+  if (errContactos)
+    throw new Error(`closer_contactos: ${errContactos.message}`);
   const contactos = (contactosData ?? []) as unknown as FilaContacto[];
   const porId = new Map(contactos.map((c) => [c.ghl_contact_id, c]));
 
@@ -128,7 +151,8 @@ export async function ejecutarMiDia() {
 
   /* ── Urgentes: bot_pausado_fallo en tags cacheados ───────────────────── */
   const urgentesFilas = contactos.filter(
-    (c) => !c.congelado && (c.tags ?? []).map((t) => t.trim().toLowerCase()).includes(TAGS_BOT.botPausadoFallo.valor),
+    // Los tres tags de fallo: el nuevo del appflow, el del leadflow y el legado.
+    (c) => !c.congelado && tieneFalloDeAuditor(c.tags ?? []),
   );
 
   // El motivo del fallo lo escribió el analizador en SOFIA — leerlo de acá reemplaza el
@@ -139,16 +163,22 @@ export async function ejecutarMiDia() {
       .from("closer_analisis_agente")
       .select("ghl_contact_id, motivo, analizado_el")
       .eq("fallo", true)
-      .in("ghl_contact_id", urgentesFilas.map((c) => c.ghl_contact_id))
+      .in(
+        "ghl_contact_id",
+        urgentesFilas.map((c) => c.ghl_contact_id),
+      )
       .order("analizado_el", { ascending: false });
     for (const a of analisis ?? []) {
-      if (a.motivo && !motivos.has(a.ghl_contact_id)) motivos.set(a.ghl_contact_id, a.motivo);
+      if (a.motivo && !motivos.has(a.ghl_contact_id))
+        motivos.set(a.ghl_contact_id, a.motivo);
     }
   }
 
   const urgentes = urgentesFilas.map((c) => ({
     ...resumenContacto(c, indicadores),
-    fallo: motivos.get(c.ghl_contact_id) ?? "requiere intervención — revisar conversación",
+    fallo:
+      motivos.get(c.ghl_contact_id) ??
+      "requiere intervención — revisar conversación",
   }));
   const enUrgentes = new Set(urgentes.map((u) => u.ghlContactId));
 
@@ -160,7 +190,9 @@ export async function ejecutarMiDia() {
       if (!perteneceAlCloser(tags, true)) return false;
       if (estadoBotDesdeTags(tags) !== "apagado") return false;
       if (!c.ultimo_entrante_el) return false;
-      const resuelto = c.buzon_resuelto_el ? new Date(c.buzon_resuelto_el).getTime() : 0;
+      const resuelto = c.buzon_resuelto_el
+        ? new Date(c.buzon_resuelto_el).getTime()
+        : 0;
       return new Date(c.ultimo_entrante_el).getTime() > resuelto;
     })
     .map((c) => ({
@@ -168,12 +200,16 @@ export async function ejecutarMiDia() {
       ultimoEntranteEl: c.ultimo_entrante_el,
       snippet: (c.ultimo_entrante_texto ?? "").slice(0, 80) || null,
     }))
-    .sort((a, b) => (b.ultimoEntranteEl ?? "").localeCompare(a.ultimoEntranteEl ?? ""));
+    .sort((a, b) =>
+      (b.ultimoEntranteEl ?? "").localeCompare(a.ultimoEntranteEl ?? ""),
+    );
 
   /* ── Citas de hoy ────────────────────────────────────────────────────── */
   const { data: citasData, error: errCitas } = await db()
     .from("closer_citas")
-    .select("ghl_appointment_id, ghl_contact_id, fecha_hora, estado_ghl, titulo, meet_url")
+    .select(
+      "ghl_appointment_id, ghl_contact_id, fecha_hora, estado_ghl, titulo, meet_url",
+    )
     .gte("fecha_hora", inicioDia)
     .lte("fecha_hora", finDia)
     .neq("estado_ghl", "cancelled")
@@ -185,7 +221,9 @@ export async function ejecutarMiDia() {
     return {
       id: c.ghl_appointment_id,
       ghlContactId: c.ghl_contact_id,
-      nombre: contacto?.nombre ?? ((c.titulo ?? "").replace(/^.*?-\s*/, "").trim() || null),
+      nombre:
+        contacto?.nombre ??
+        ((c.titulo ?? "").replace(/^.*?-\s*/, "").trim() || null),
       fechaHora: c.fecha_hora,
       estado: c.estado_ghl,
       meetUrl: c.meet_url,
@@ -219,7 +257,9 @@ export async function ejecutarMiDia() {
       fechaObjetivo: f.fecha_objetivo,
       estado: f.estado,
       nota: f.nota ?? undefined,
-      serie: f.serie_key ? { key: f.serie_key, toques: f.serie_toques, dias: f.serie_dias } : undefined,
+      serie: f.serie_key
+        ? { key: f.serie_key, toques: f.serie_toques, dias: f.serie_dias }
+        : undefined,
       creadoEl: f.creado_el,
       creadoPor: f.creado_por,
     };
@@ -249,7 +289,10 @@ export async function ejecutarMiDia() {
   if (errAvances) throw new Error(`closer_avances: ${errAvances.message}`);
 
   const resueltosBuzonHoy = contactos.filter(
-    (c) => c.buzon_resuelto_el && c.buzon_resuelto_el >= inicioDia && c.buzon_resuelto_el <= finDia,
+    (c) =>
+      c.buzon_resuelto_el &&
+      c.buzon_resuelto_el >= inicioDia &&
+      c.buzon_resuelto_el <= finDia,
   );
 
   const completadasHoy = [
@@ -293,7 +336,9 @@ export async function ejecutarMiDia() {
       citas: citasHoy.length,
       urgentes: urgentes.length,
       buzon: buzon.length,
-      seguimientos: seguimientosHoy.filter((s) => s.caso !== "automatico_en_curso").length,
+      seguimientos: seguimientosHoy.filter(
+        (s) => s.caso !== "automatico_en_curso",
+      ).length,
       completadas: completadasHoy.length,
     },
     total: seguimientosHoy.length,

@@ -21,9 +21,15 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { botAtendiendo, botDesdeTags, TAGS, TAGS_BOT } from "../../src/lib/ghl/contrato.js";
+import {
+  botAtendiendo,
+  botDesdeTags,
+  TAGS,
+  TAGS_BOT,
+  tieneFalloDeAuditor,
+} from "../../src/lib/ghl/contrato.js";
 import { AUTORES, type AutorMensaje } from "../../src/lib/ghl/autoria.js";
-import { AUDITORES_ACTIVOS, TAG_FALLO, territorioDe } from "../_lib/analizador.js";
+import { AUDITORES_ACTIVOS, territorioDe } from "../_lib/analizador.js";
 import { estadoDeLosPrompts } from "../_lib/promptAgente.js";
 import { env } from "../_lib/env.js";
 import { db } from "../_lib/repo.js";
@@ -78,17 +84,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .limit(20000);
     const iaPorContacto = new Map<string, number>();
     for (const m of (msgs ?? []) as { ghl_contact_id: string }[]) {
-      iaPorContacto.set(m.ghl_contact_id, (iaPorContacto.get(m.ghl_contact_id) ?? 0) + 1);
+      iaPorContacto.set(
+        m.ghl_contact_id,
+        (iaPorContacto.get(m.ghl_contact_id) ?? 0) + 1,
+      );
     }
 
     const { data: analisis } = await db()
       .from("closer_analisis_agente")
-      .select("ghl_contact_id, ia_cache_al_analizar, analizado_el, fallo, auditable")
+      .select(
+        "ghl_contact_id, ia_cache_al_analizar, analizado_el, fallo, auditable",
+      )
       .order("analizado_el", { ascending: false })
       .limit(5000);
     const lineaBase = new Map<string, number>();
-    for (const a of (analisis ?? []) as { ghl_contact_id: string; ia_cache_al_analizar: number | null }[]) {
-      if (!lineaBase.has(a.ghl_contact_id)) lineaBase.set(a.ghl_contact_id, Number(a.ia_cache_al_analizar ?? 0));
+    for (const a of (analisis ?? []) as {
+      ghl_contact_id: string;
+      ia_cache_al_analizar: number | null;
+    }[]) {
+      if (!lineaBase.has(a.ghl_contact_id))
+        lineaBase.set(a.ghl_contact_id, Number(a.ia_cache_al_analizar ?? 0));
     }
 
     const umbral = env.auditorUmbralIa();
@@ -102,7 +117,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
       // El auditor de chat del setter todavía no existe: sus contactos no se cuentan como
       // bloqueados por el bot, se cuentan como "no hay quién los audite".
-      if (territorio === "setter" || !AUDITORES_ACTIVOS.includes("appointment-flow-ai")) {
+      if (
+        territorio === "setter" ||
+        !AUDITORES_ACTIVOS.includes("appointment-flow-ai")
+      ) {
         embudo.territorioSetter++;
         continue;
       }
@@ -110,34 +128,66 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // embudo tampoco debe contarlo: si el diagnóstico siguiera restando acá, diría que el
       // auditor está bloqueado justo mientras está analizando. Un diagnóstico que se
       // contradice con la realidad es peor que no tenerlo.
-      if (!botAtendiendo(tags) && !env.auditorSinPortonTags()) {
+      if (!botAtendiendo(tags, territorio) && !env.auditorSinPortonTags()) {
         embudo.botNoAtendiendo++;
         continue;
       }
-      if (tags.includes(TAG_FALLO)) {
+      if (tieneFalloDeAuditor(tags)) {
         embudo.yaMarcadoFallo++;
         continue;
       }
-      const delta = (iaPorContacto.get(c.ghl_contact_id) ?? 0) - (lineaBase.get(c.ghl_contact_id) ?? 0);
+      const delta =
+        (iaPorContacto.get(c.ghl_contact_id) ?? 0) -
+        (lineaBase.get(c.ghl_contact_id) ?? 0);
       if (delta < umbral) embudo.debouncePendiente++;
       else embudo.listosParaAnalizar++;
     }
 
     /* ── Los tags de bot, contados sobre la caché ────────────────────────── */
     const cuentaTag = (tag: string) =>
-      contactos.filter((c) => (c.tags ?? []).map((t) => t.trim().toLowerCase()).includes(tag)).length;
+      contactos.filter((c) =>
+        (c.tags ?? []).map((t) => t.trim().toLowerCase()).includes(tag),
+      ).length;
 
+    /**
+     * Los diez, uno por uno y por su nombre real.
+     *
+     * Es el panel al que Fabio va a mirar el día que publique los workflows para saber si el
+     * auditor se destrabó. Si contara solo `bot_activado` —el legado— seguiría diciendo "0
+     * contactos con bot" mientras GHL manda `bot_activado_appflow` a cientos: un diagnóstico que
+     * afirma un bloqueo inexistente es peor que no tener panel.
+     */
     const tagsDeBot = {
+      [TAGS_BOT.botActivadoAppflow.valor]: cuentaTag(
+        TAGS_BOT.botActivadoAppflow.valor,
+      ),
+      [TAGS_BOT.botActivadoLeadflow.valor]: cuentaTag(
+        TAGS_BOT.botActivadoLeadflow.valor,
+      ),
+      [TAGS_BOT.botDesactivadoAppflow.valor]: cuentaTag(
+        TAGS_BOT.botDesactivadoAppflow.valor,
+      ),
+      [TAGS_BOT.botDesactivadoLeadflow.valor]: cuentaTag(
+        TAGS_BOT.botDesactivadoLeadflow.valor,
+      ),
       [TAGS_BOT.botActivado.valor]: cuentaTag(TAGS_BOT.botActivado.valor),
       [TAGS_BOT.botReactivar.valor]: cuentaTag(TAGS_BOT.botReactivar.valor),
-      [TAGS_BOT.botPausadoFallo.valor]: cuentaTag(TAGS_BOT.botPausadoFallo.valor),
-      [TAGS_BOT.botDesactivadoPostcall.valor]: cuentaTag(TAGS_BOT.botDesactivadoPostcall.valor),
-      [TAGS_BOT.botApagadoManual.valor]: cuentaTag(TAGS_BOT.botApagadoManual.valor),
+      [TAGS_BOT.botPausadoFallo.valor]: cuentaTag(
+        TAGS_BOT.botPausadoFallo.valor,
+      ),
+      [TAGS_BOT.botDesactivadoPostcall.valor]: cuentaTag(
+        TAGS_BOT.botDesactivadoPostcall.valor,
+      ),
+      [TAGS_BOT.botApagadoManual.valor]: cuentaTag(
+        TAGS_BOT.botApagadoManual.valor,
+      ),
       [TAGS_BOT.derivadoLt.valor]: cuentaTag(TAGS_BOT.derivadoLt.valor),
     };
 
     /* ── Salientes por autoría: la alarma temprana ───────────────────────── */
-    const desde = new Date(Date.now() - DIAS_MENSAJES * 86_400_000).toISOString();
+    const desde = new Date(
+      Date.now() - DIAS_MENSAJES * 86_400_000,
+    ).toISOString();
     const { data: salientes } = await db()
       .from("closer_mensajes")
       .select("autor")
@@ -153,8 +203,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     /* ── Análisis recientes ──────────────────────────────────────────────── */
-    const recientes = ((analisis ?? []) as { analizado_el: string; fallo: boolean }[]).filter(
-      (a) => Date.parse(a.analizado_el) >= Date.now() - DIAS_MENSAJES * 86_400_000,
+    const recientes = (
+      (analisis ?? []) as { analizado_el: string; fallo: boolean }[]
+    ).filter(
+      (a) =>
+        Date.parse(a.analizado_el) >= Date.now() - DIAS_MENSAJES * 86_400_000,
     );
     const { count: hallazgosActivos } = await db()
       .from("closer_hallazgo_agente")
@@ -163,12 +216,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     /* ── Qué falta, en castellano llano ──────────────────────────────────── */
     const loQueFalta: string[] = [];
-    const conBot = tagsDeBot[TAGS_BOT.botActivado.valor] + tagsDeBot[TAGS_BOT.botReactivar.valor];
-    const delTerritorio = contactos.filter((c) => (c.tags ?? []).includes(TAGS.zonaCloser.valor)).length;
+    /**
+     * Cuántos contactos tienen ALGÚN tag que habilite al auditor. Se suman los dos nuevos, el
+     * legado y la orden de reactivar: mientras convivan, contar uno solo daría un número que no
+     * explica por qué el embudo avanza (o por qué no).
+     */
+    const conBot =
+      tagsDeBot[TAGS_BOT.botActivadoAppflow.valor] +
+      tagsDeBot[TAGS_BOT.botActivadoLeadflow.valor] +
+      tagsDeBot[TAGS_BOT.botActivado.valor] +
+      tagsDeBot[TAGS_BOT.botReactivar.valor];
+    const delTerritorio = contactos.filter((c) =>
+      (c.tags ?? []).includes(TAGS.zonaCloser.valor),
+    ).length;
 
     if (env.auditorSinPortonTags()) {
       loQueFalta.push(
-        "⚠️ MODO PRUEBA (2026-08-06): el portón del tag 'bot_activado' está SALTEADO, así que el auditor " +
+        "⚠️ MODO PRUEBA (2026-08-06): el portón de los tags 'bot_activado_appflow'/'bot_activado_leadflow' " +
+          "está SALTEADO, así que el auditor " +
           "analiza cualquier contacto del territorio que junte 5 mensajes del agente, y puede escribir tags " +
           "en GHL. Se apaga con AUDITOR_SIN_PORTON_TAGS=0. Cuando Fabio publique los workflows " +
           "🟦 08.1 / 08.2, esto se saca y vuelve a regir el portón por tags.",
@@ -195,7 +260,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       );
     }
     const marcadosSinAnalisis = contactos.filter(
-      (c) => (c.tags ?? []).includes(TAG_FALLO) && !lineaBase.has(c.ghl_contact_id),
+      (c) =>
+        tieneFalloDeAuditor(c.tags ?? []) && !lineaBase.has(c.ghl_contact_id),
     );
     if (marcadosSinAnalisis.length > 0) {
       loQueFalta.push(
@@ -248,7 +314,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         territorio: territorioDe(c.tags ?? []),
         bot: botDesdeTags(c.tags ?? []),
         atendiendo: botAtendiendo(c.tags ?? []),
-        marcadoFallo: (c.tags ?? []).includes(TAG_FALLO),
+        marcadoFallo: tieneFalloDeAuditor(c.tags ?? []),
         mensajesIa: iaPorContacto.get(c.ghl_contact_id) ?? 0,
         lineaBase: lineaBase.get(c.ghl_contact_id) ?? null,
       })),
