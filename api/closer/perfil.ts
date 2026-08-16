@@ -28,14 +28,29 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { ghl } from "../_lib/ghl/index.js";
 import { CAMPOS_PERFIL } from "../../src/lib/ghl/contrato.js";
-import { leerCampo, leerEntero, perfilDesdeContacto } from "../_lib/ghl/lectura.js";
+import {
+  leerCampo,
+  leerEntero,
+  perfilDesdeContacto,
+} from "../_lib/ghl/lectura.js";
 import { db } from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
-  const ctx = await exigir(req, res, ["closer", "setter"]);
+  /**
+   * `tecnico` entra desde el 2026-08-15, decisión de Fabio.
+   *
+   * Esta ficha se abre desde **Auditoría de Agentes**, que es una pantalla de rol `tecnico`
+   * (`App.tsx`). Sin este rol acá, quien audita abría la ficha de una persona real y veía los tabs
+   * vacíos: el 403 se lo tragaba el `catch` del front y parecía "este contacto no tiene nada".
+   *
+   * No es un permiso nuevo en el producto: `closer/llamadas.ts` ya lo tenía por exactamente el
+   * mismo motivo —el tab Llamada de esta misma ficha— y los otros cuatro endpoints se quedaron
+   * atrás. Lo que se corrige es la incoherencia, no la política.
+   */
+  const ctx = await exigir(req, res, ["closer", "setter", "tecnico"]);
   if (!ctx) return;
   // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
   activar(ctx.credenciales);
@@ -45,13 +60,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({
       ok: false,
       codigo: "solo_lectura",
-      error: "Solo GET: los campos del Perfil los escriben los formularios y los agentes de GHL, no el tool.",
+      error:
+        "Solo GET: los campos del Perfil los escriben los formularios y los agentes de GHL, no el tool.",
     });
   }
 
   const ghlContactId = contactoDeLaQuery(req);
   if (!ghlContactId) {
-    return res.status(400).json({ ok: false, codigo: "contacto_faltante", error: "Falta ghlContactId." });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "contacto_faltante",
+        error: "Falta ghlContactId.",
+      });
   }
 
   const cliente = ghl();
@@ -98,13 +120,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     void db()
       .from("closer_contactos")
       .update({
-        llamadas_ia_intentos: leerEntero(contacto, CAMPOS_PERFIL.llamadasIaIntentos.valor),
-        llamadas_ia_contestadas: leerEntero(contacto, CAMPOS_PERFIL.llamadasIaContestadas.valor),
-        ultima_llamada_ia_resultado: leerCampo(contacto, CAMPOS_PERFIL.ultimaLlamadaIaResultado.valor),
+        llamadas_ia_intentos: leerEntero(
+          contacto,
+          CAMPOS_PERFIL.llamadasIaIntentos.valor,
+        ),
+        llamadas_ia_contestadas: leerEntero(
+          contacto,
+          CAMPOS_PERFIL.llamadasIaContestadas.valor,
+        ),
+        ultima_llamada_ia_resultado: leerCampo(
+          contacto,
+          CAMPOS_PERFIL.ultimaLlamadaIaResultado.valor,
+        ),
       })
       .eq("ghl_contact_id", contacto.id)
       .then(({ error }) => {
-        if (error) console.error("perfil: no se cachearon los contadores de llamadas:", error.message);
+        if (error)
+          console.error(
+            "perfil: no se cachearon los contadores de llamadas:",
+            error.message,
+          );
       });
 
     return res.status(200).json({
@@ -135,7 +170,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 /** Mismo criterio que `/api/closer/historial`: `ghlContactId` es el canónico, `contactId` el alias. */
 function contactoDeLaQuery(req: VercelRequest): string | undefined {
-  const v = unParametro(req.query.ghlContactId) ?? unParametro(req.query.contactId);
+  const v =
+    unParametro(req.query.ghlContactId) ?? unParametro(req.query.contactId);
   return v?.trim() || undefined;
 }
 

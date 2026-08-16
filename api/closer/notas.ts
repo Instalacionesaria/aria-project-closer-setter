@@ -25,7 +25,12 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { acotarLimite, crearNota, eliminarNota, leerNotas } from "../_lib/repo.js";
+import {
+  acotarLimite,
+  crearNota,
+  eliminarNota,
+  leerNotas,
+} from "../_lib/repo.js";
 import { activar } from "../_lib/credenciales.js";
 import { exigir } from "../_lib/auth.js";
 
@@ -34,7 +39,18 @@ const NOTAS_POR_DEFECTO = 100;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
-  const ctx = await exigir(req, res, ["closer", "setter"]);
+  /**
+   * `tecnico` entra desde el 2026-08-15, decisión de Fabio.
+   *
+   * Esta ficha se abre desde **Auditoría de Agentes**, que es una pantalla de rol `tecnico`
+   * (`App.tsx`). Sin este rol acá, quien audita abría la ficha de una persona real y veía los tabs
+   * vacíos: el 403 se lo tragaba el `catch` del front y parecía "este contacto no tiene nada".
+   *
+   * No es un permiso nuevo en el producto: `closer/llamadas.ts` ya lo tenía por exactamente el
+   * mismo motivo —el tab Llamada de esta misma ficha— y los otros cuatro endpoints se quedaron
+   * atrás. Lo que se corrige es la incoherencia, no la política.
+   */
+  const ctx = await exigir(req, res, ["closer", "setter", "tecnico"]);
   if (!ctx) return;
   // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
   activar(ctx.credenciales);
@@ -51,10 +67,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 async function listar(req: VercelRequest, res: VercelResponse) {
   const ghlContactId = contactoDeLaQuery(req);
-  if (!ghlContactId) return malo(res, "Falta ghlContactId.", "contacto_faltante");
+  if (!ghlContactId)
+    return malo(res, "Falta ghlContactId.", "contacto_faltante");
 
   try {
-    const notas = await leerNotas(ghlContactId, acotarLimite(unParametro(req.query.limite), NOTAS_POR_DEFECTO));
+    const notas = await leerNotas(
+      ghlContactId,
+      acotarLimite(unParametro(req.query.limite), NOTAS_POR_DEFECTO),
+    );
 
     return res.status(200).json({
       ok: true,
@@ -71,11 +91,19 @@ async function listar(req: VercelRequest, res: VercelResponse) {
 
 /* ── POST ────────────────────────────────────────────────────────────── */
 
-async function crear(req: VercelRequest, res: VercelResponse, autorSesion: string) {
+async function crear(
+  req: VercelRequest,
+  res: VercelResponse,
+  autorSesion: string,
+) {
   const cuerpo = typeof req.body === "string" ? safeJson(req.body) : req.body;
-  if (!cuerpo || typeof cuerpo !== "object") return malo(res, "Cuerpo JSON inválido.", "cuerpo_invalido");
+  if (!cuerpo || typeof cuerpo !== "object")
+    return malo(res, "Cuerpo JSON inválido.", "cuerpo_invalido");
 
-  const { ghlContactId, texto, autor, contexto } = cuerpo as Record<string, unknown>;
+  const { ghlContactId, texto, autor, contexto } = cuerpo as Record<
+    string,
+    unknown
+  >;
 
   if (typeof ghlContactId !== "string" || !ghlContactId.trim()) {
     return malo(res, "Falta ghlContactId.", "contacto_faltante");
@@ -92,7 +120,8 @@ async function crear(req: VercelRequest, res: VercelResponse, autorSesion: strin
 
   // Estrictos con los opcionales: un `autor: 123` que se ignorara en silencio guardaría la
   // nota firmada por el closer por defecto y nadie se enteraría hasta leerla en la ficha.
-  if (autor !== undefined && typeof autor !== "string") return malo(res, "El autor debe ser texto.", "autor_invalido");
+  if (autor !== undefined && typeof autor !== "string")
+    return malo(res, "El autor debe ser texto.", "autor_invalido");
   if (contexto !== undefined && typeof contexto !== "string") {
     return malo(res, "El contexto debe ser texto.", "contexto_invalido");
   }
@@ -127,7 +156,14 @@ async function eliminar(req: VercelRequest, res: VercelResponse) {
     const borrada = await eliminarNota(id);
     // 404 honesto: si el id no existe (ya borrada en otra pestaña, o un id inventado), quien
     // llama tiene que enterarse — un 200 dejaría al front creyendo que borró algo real.
-    if (!borrada) return res.status(404).json({ ok: false, codigo: "nota_inexistente", error: "No existe una nota con ese id." });
+    if (!borrada)
+      return res
+        .status(404)
+        .json({
+          ok: false,
+          codigo: "nota_inexistente",
+          error: "No existe una nota con ese id.",
+        });
     return res.status(200).json({ ok: true, id });
   } catch (e) {
     return res.status(500).json({ ok: false, error: (e as Error).message });
@@ -142,7 +178,8 @@ async function eliminar(req: VercelRequest, res: VercelResponse) {
  * una trampa gratuita para quien cablea el front.
  */
 function contactoDeLaQuery(req: VercelRequest): string | undefined {
-  const v = unParametro(req.query.ghlContactId) ?? unParametro(req.query.contactId);
+  const v =
+    unParametro(req.query.ghlContactId) ?? unParametro(req.query.contactId);
   return v?.trim() || undefined;
 }
 
@@ -151,7 +188,8 @@ function unParametro(valor: string | string[] | undefined): string | undefined {
   return Array.isArray(valor) ? valor[0] : valor;
 }
 
-const malo = (res: VercelResponse, error: string, codigo: string) => res.status(400).json({ ok: false, codigo, error });
+const malo = (res: VercelResponse, error: string, codigo: string) =>
+  res.status(400).json({ ok: false, codigo, error });
 
 function safeJson(s: string): unknown {
   try {

@@ -34,7 +34,18 @@ const EVENTOS_POR_DEFECTO = 200;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
-  const ctx = await exigir(req, res, ["closer", "setter"]);
+  /**
+   * `tecnico` entra desde el 2026-08-15, decisión de Fabio.
+   *
+   * Esta ficha se abre desde **Auditoría de Agentes**, que es una pantalla de rol `tecnico`
+   * (`App.tsx`). Sin este rol acá, quien audita abría la ficha de una persona real y veía los tabs
+   * vacíos: el 403 se lo tragaba el `catch` del front y parecía "este contacto no tiene nada".
+   *
+   * No es un permiso nuevo en el producto: `closer/llamadas.ts` ya lo tenía por exactamente el
+   * mismo motivo —el tab Llamada de esta misma ficha— y los otros cuatro endpoints se quedaron
+   * atrás. Lo que se corrige es la incoherencia, no la política.
+   */
+  const ctx = await exigir(req, res, ["closer", "setter", "tecnico"]);
   if (!ctx) return;
   // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
   activar(ctx.credenciales);
@@ -44,15 +55,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({
       ok: false,
       codigo: "solo_lectura",
-      error: "Solo GET: el historial es append-only y lo escriben los casos de uso, no el usuario.",
+      error:
+        "Solo GET: el historial es append-only y lo escriben los casos de uso, no el usuario.",
     });
   }
 
   const ghlContactId = contactoDeLaQuery(req);
-  if (!ghlContactId) return res.status(400).json({ ok: false, codigo: "contacto_faltante", error: "Falta ghlContactId." });
+  if (!ghlContactId)
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "contacto_faltante",
+        error: "Falta ghlContactId.",
+      });
 
   try {
-    const eventos = await leerEventos(ghlContactId, acotarLimite(unParametro(req.query.limite), EVENTOS_POR_DEFECTO));
+    const eventos = await leerEventos(
+      ghlContactId,
+      acotarLimite(unParametro(req.query.limite), EVENTOS_POR_DEFECTO),
+    );
 
     return res.status(200).json({
       ok: true,
@@ -68,7 +90,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
 /** Mismo criterio que `/api/closer/notas`: `ghlContactId` es el canónico, `contactId` el alias. */
 function contactoDeLaQuery(req: VercelRequest): string | undefined {
-  const v = unParametro(req.query.ghlContactId) ?? unParametro(req.query.contactId);
+  const v =
+    unParametro(req.query.ghlContactId) ?? unParametro(req.query.contactId);
   return v?.trim() || undefined;
 }
 

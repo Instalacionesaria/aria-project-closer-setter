@@ -90,6 +90,37 @@ describe("Auditoría de Agentes no tapa el camino propio de la ficha", () => {
   });
 });
 
+describe("desde Auditoría se audita, no se opera", () => {
+  /**
+   * El bug que motivó ocultarlo: `closerStore.advance()` guarda TODA su persistencia dentro de
+   * un `if (c)`, y `c` es undefined cuando el contacto no está en el mapa del día — que es el
+   * caso normal de esta vista. El drawer, en cambio, disparaba el toast, el confeti y el sonido
+   * de venta sin condición. Registrar una venta desde Auditoría festejaba y no escribía nada.
+   */
+  it("Auditoría no le pasa al drawer con qué registrar", () => {
+    expect(AUDITORIA).not.toContain("onAdvance={");
+    expect(AUDITORIA).not.toContain("onSetterAdvance={");
+  });
+
+  it("y sin quien registre, el drawer esconde el botón Avanzar", () => {
+    expect(DRAWER).toContain(
+      "const puedeAvanzar = Boolean(onAdvance || onSetterAdvance);",
+    );
+    // El botón vive dentro del guard: si el guard desaparece, vuelve el festejo sin escritura.
+    const i = DRAWER.indexOf("setAvanzarOpen(true)");
+    expect(i).toBeGreaterThan(-1);
+    expect(DRAWER.slice(0, i)).toMatch(/\{puedeAvanzar && \($/m);
+  });
+
+  /** Closer y Setter siguen operando: lo que se sacó es la ficha de Auditoría, no el Avanzar. */
+  it("Closer y Setter conservan su Avanzar", () => {
+    const closer = fuente("src/views/CloserAI.tsx");
+    const setter = fuente("src/views/SetterView.tsx");
+    expect(closer).toContain("onAdvance={");
+    expect(setter).toContain("onSetterAdvance={");
+  });
+});
+
 describe("NotaItem es uno solo", () => {
   /**
    * El drawer tenía su propia copia del tipo, idéntica salvo por `realId` —el uuid de

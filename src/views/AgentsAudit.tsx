@@ -2018,22 +2018,14 @@ export default function AgentsAudit() {
         role={setterFicha && !contactoFicha ? "setter" : "closer"}
         contact={contactoFicha}
         setterContact={setterFicha}
-        /* `situacion: result.situacionSlug` es obligatorio, igual que en CloserAI.tsx:2173.
-           Sin ese mapeo el guard de `closerStore.advance()` —que exige `situacion` y `modo`
-           para hacer el POST— nunca se cumplía, así que un Seguimiento registrado desde esta
-           vista se veía guardado y solo vivía en memoria. */
-        onAdvance={(result) =>
-          fichaAbierta &&
-          result.stage &&
-          closer.advance(fichaAbierta, {
-            ...result,
-            stage: result.stage,
-            situacion: result.situacionSlug,
-          })
-        }
-        onSetterAdvance={(result) =>
-          fichaAbierta && setter.advance(fichaAbierta, result)
-        }
+        /* Sin `onAdvance` ni `onSetterAdvance`: acá se AUDITA, no se opera (decisión de Fabio,
+           2026-08-15), y el drawer oculta el botón cuando no hay quien registre.
+
+           No es un recorte de alcance por comodidad: la ficha que abre esta vista es casi
+           siempre de alguien que no está en las colas de hoy, y sobre ese contacto
+           `closer.advance()` no escribía nada —toda su persistencia vive dentro de un `if (c)`—
+           mientras el drawer disparaba el toast, el confeti y el sonido de venta igual. Se saca
+           la acción, no el síntoma. */
         /**
          * `undefined` cuando el contacto no es de ningún store, y eso es lo que arregla el bug.
          *

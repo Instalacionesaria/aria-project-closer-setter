@@ -17,7 +17,18 @@ import { exigir } from "../_lib/auth.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
-  const ctx = await exigir(req, res, ["closer", "setter"]);
+  /**
+   * `tecnico` entra desde el 2026-08-15, decisión de Fabio.
+   *
+   * Esta ficha se abre desde **Auditoría de Agentes**, que es una pantalla de rol `tecnico`
+   * (`App.tsx`). Sin este rol acá, quien audita abría la ficha de una persona real y veía los tabs
+   * vacíos: el 403 se lo tragaba el `catch` del front y parecía "este contacto no tiene nada".
+   *
+   * No es un permiso nuevo en el producto: `closer/llamadas.ts` ya lo tenía por exactamente el
+   * mismo motivo —el tab Llamada de esta misma ficha— y los otros cuatro endpoints se quedaron
+   * atrás. Lo que se corrige es la incoherencia, no la política.
+   */
+  const ctx = await exigir(req, res, ["closer", "setter", "tecnico"]);
   if (!ctx) return;
   // Desde acá, env.ghlApiKey() y env.ghlLocationId() son las de ESTA empresa (§5.2).
   activar(ctx.credenciales);
@@ -28,7 +39,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const contactId = String(req.query.contactId ?? "");
-  if (!contactId) return res.status(400).json({ ok: false, error: "Falta contactId." });
+  if (!contactId)
+    return res.status(400).json({ ok: false, error: "Falta contactId." });
 
   try {
     /**
@@ -44,7 +56,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
      */
     const { data: recientes, error } = await db()
       .from("closer_mensajes")
-      .select("id, conversation_id, direccion, body, timestamp_ghl, estado, error_envio")
+      .select(
+        "id, conversation_id, direccion, body, timestamp_ghl, estado, error_envio",
+      )
       .eq("ghl_contact_id", contactId)
       .order("timestamp_ghl", { ascending: false })
       .limit(200);
@@ -94,7 +108,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       ghlModo: env.ghlModo(),
       fuente: "cache",
       count: messages.length,
-      ventana: ventanaWhatsapp(contacto?.ultimo_entrante_el as string | null | undefined),
+      ventana: ventanaWhatsapp(
+        contacto?.ultimo_entrante_el as string | null | undefined,
+      ),
       messages,
     });
   } catch (e) {

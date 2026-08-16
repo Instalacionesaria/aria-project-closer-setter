@@ -1843,6 +1843,9 @@ export default function ContactDrawer({
    */
   const fichaHuerfana = Boolean(ghlContactId) && !contact && !setterContact;
 
+  /** Solo hay Avanzar si alguien va a registrarlo. Ver el comentario del botón. */
+  const puedeAvanzar = Boolean(onAdvance || onSetterAdvance);
+
   useEffect(() => {
     if (!fichaHuerfana || !ghlContactId) return;
     let vivo = true;
@@ -2247,14 +2250,29 @@ export default function ContactDrawer({
             <StatusIcons ind={indicadores} size="header" />
           </div>
 
-          <div className="w-full mt-1">
-            <button
-              onClick={() => setAvanzarOpen(true)}
-              className="inline-flex items-center justify-center gap-2 whitespace-nowrap px-4 py-2 w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 text-white rounded-xl h-12 text-base font-medium shadow-md transition-all"
-            >
-              Avanzar
-            </button>
-          </div>
+          {/*
+            Sin quien registre el resultado, no hay botón.
+
+            Auditoría de Agentes abre esta misma ficha para auditar, no para operar, así que no
+            pasa `onAdvance` ni `onSetterAdvance`. Antes el botón salía igual y el Avanzar era un
+            no-op con premio: `closerStore.advance()` protege TODA su persistencia dentro de un
+            `if (c)` —y `c` es undefined cuando el contacto no está en el mapa del día— pero el
+            drawer disparaba el toast, el confeti y el sonido de venta sin condición. Registrar
+            una venta desde Auditoría festejaba y no escribía nada (2026-08-15).
+
+            Se oculta el control en vez de arreglar el festejo: un botón que no puede cumplir no
+            debería estar, y "se audita, no se opera" es la regla que Fabio eligió.
+          */}
+          {puedeAvanzar && (
+            <div className="w-full mt-1">
+              <button
+                onClick={() => setAvanzarOpen(true)}
+                className="inline-flex items-center justify-center gap-2 whitespace-nowrap px-4 py-2 w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-200 text-white rounded-xl h-12 text-base font-medium shadow-md transition-all"
+              >
+                Avanzar
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Tab bar */}

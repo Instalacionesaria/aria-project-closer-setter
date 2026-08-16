@@ -835,13 +835,19 @@ Así que la ficha se arregla sola: cuando tiene `ghlContactId` y ningún store l
 (`fichaHuerfana`), pide sus notas y persiste las que se escriban. `onAddNota` pasa a ser
 `undefined` en ese caso — es lo que le cede el paso.
 
-**Límite conocido, y es una decisión, no un olvido.** `/api/closer/notas` exige rol `closer` o
-`setter`, y Auditoría de Agentes la ve `tecnico`. Un `super_admin` pasa (`auth.ts` lo exceptúa), así
-que para Fabio funciona; un técnico puro recibe **403** y ahora ve _"⚠ no se guardó"_ en vez de
-perder la nota en silencio. No se agregó `tecnico` al endpoint porque el trabajo del técnico está
-definido —prompts y salud de los agentes— y anotar sobre el lead de un cliente es otra cosa.
-Ampliar un permiso de escritura sobre datos de personas es decisión de Fabio, no un efecto
-colateral de arreglar un bug. Si la quiere, es una palabra en `api/closer/notas.ts`.
+**El rol: se corrigió una incoherencia, no se aflojó una política.** La primera versión de esta
+decisión dejaba el límite abierto —`/api/closer/notas` exige `closer` o `setter`, y Auditoría la ve
+`tecnico`— argumentando que ampliar un permiso de escritura era decisión de Fabio. El argumento
+estaba **mal informado**: `closer/llamadas.ts` ya incluía `tecnico`, por exactamente este motivo (el
+tab Llamada de esta misma ficha). Los otros cuatro endpoints se habían quedado atrás, y el efecto
+era una ficha que se veía a medias: el tab Llamada con datos, y Chat, Perfil, Historial y Notas
+vacíos.
+
+Ese es el modo de fallo que importa y el que fija el test: **un 403 acá no se ve como error, se ve
+como dato vacío** — el `catch` del front lo convierte en "este contacto no tiene nada". Los cinco
+endpoints de la ficha aceptan ahora el mismo conjunto de roles, y `_rolesFicha.test.ts` falla si
+alguno se sale del conjunto. `closer/mi-dia.ts` queda **fuera** a propósito: es la cola de trabajo
+del closer, no un tab de la ficha.
 
 ## D48 · Los avisos del servidor llegan a la pantalla
 
@@ -864,3 +870,30 @@ convierte cualquier 4xx/5xx en excepción). Esa rama era inalcanzable y la excep
 optimista quedándose en pantalla como si el Avanzar hubiera entrado. Ahora hay `try/catch`, el
 aviso sale, y la recarga corre **siempre** — con éxito trae lo que el servidor dejó, y con error
 deshace el pintado.
+
+---
+
+## D49 · La ficha de Auditoría es de solo lectura
+
+**2026-08-15.** Lo encontró la verificación adversarial del propio arreglo de D47, y era peor que
+el bug que se estaba arreglando.
+
+`closerStore.advance()` guarda **toda** su persistencia dentro de un `if (c)`, donde `c` es
+`contactsRef.current[name]`. Para la ficha huérfana —la que abre Auditoría, casi siempre alguien que
+no está en las colas de hoy— `c` es `undefined`: no hay POST, no hay proyección, y el `setContacts`
+final devuelve `prev` sin tocar nada. El drawer, en cambio, ejecutaba `setToast(result.toast)`,
+`setCelebrate(true)` y `playSaleSound()` **sin condición**.
+
+O sea: registrar una **venta** desde Auditoría mostraba "Venta registrada — $5.000", confeti y
+sonido, y no escribía absolutamente nada. La regla 2 al revés y con premio. Y el canal de avisos de
+D48 vive dentro de ese mismo `if (c)`, así que para esta ficha nunca podía dispararse.
+
+**Se sacó la acción, no el síntoma** (decisión de Fabio). Auditoría deja de pasar `onAdvance` y
+`onSetterAdvance`, y el drawer oculta el botón cuando no hay quien registre (`puedeAvanzar`). Un
+botón que no puede cumplir no debería estar, y el rol de esa pantalla es `tecnico`: se audita, no se
+opera. Closer y Setter conservan su Avanzar intacto — hay un test que lo verifica, porque "arreglar
+Auditoría" no puede terminar apagándole el botón a quien vive de él.
+
+**El hallazgo salió de mandar a revisar el propio arreglo.** Vale anotarlo: el bug del confeti no lo
+introdujo el cambio de D47 —estaba en producción desde antes y nadie lo había visto— y apareció
+porque alguien recorrió esa ruta preguntando "¿y si el store no tiene el contacto?".
