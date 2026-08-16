@@ -21,7 +21,12 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { exigir } from "../_lib/auth.js";
 import { activar } from "../_lib/credenciales.js";
 import { db } from "../_lib/repo.js";
-import { proyectarAvance, registrarSeguimiento, type EfectoGhl } from "../_lib/seguimientos.js";
+import {
+  guardarNotaDeAvance,
+  proyectarAvance,
+  registrarSeguimiento,
+  type EfectoGhl,
+} from "../_lib/seguimientos.js";
 import { SeguimientoInvalidoError } from "../../src/lib/seguimientos/dominio.js";
 import { aplicarEfectosSetter } from "../_lib/setter/efectos.js";
 import { TAGS } from "../../src/lib/ghl/contrato.js";
@@ -45,8 +50,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ ok: false, error: "Solo POST." });
   }
 
-  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) as Record<string, unknown> | null;
-  if (!cuerpo) return res.status(400).json({ ok: false, codigo: "cuerpo_invalido", error: "Cuerpo JSON inválido." });
+  const cuerpo = (
+    typeof req.body === "string" ? safeJson(req.body) : req.body
+  ) as Record<string, unknown> | null;
+  if (!cuerpo)
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "cuerpo_invalido",
+        error: "Cuerpo JSON inválido.",
+      });
 
   const texto = (clave: string): string | undefined => {
     const v = cuerpo[clave];
@@ -56,16 +70,36 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   const ghlContactId = texto("ghlContactId");
-  if (!ghlContactId) return res.status(400).json({ ok: false, codigo: "contacto_faltante", error: "Falta ghlContactId." });
+  if (!ghlContactId)
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "contacto_faltante",
+        error: "Falta ghlContactId.",
+      });
 
   const idempotencyKey = texto("idempotencyKey");
   if (!idempotencyKey) {
-    return res.status(400).json({ ok: false, codigo: "idempotency_faltante", error: "Falta idempotencyKey." });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "idempotency_faltante",
+        error: "Falta idempotencyKey.",
+      });
   }
 
   const nota = texto("nota");
   const resultado = texto("resultado");
-  if (!resultado) return res.status(400).json({ ok: false, codigo: "resultado_faltante", error: "Falta el resultado." });
+  if (!resultado)
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "resultado_faltante",
+        error: "Falta el resultado.",
+      });
   if (!esResultadoSetter(resultado)) {
     return res.status(400).json({
       ok: false,
@@ -77,12 +111,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (resultado === "seguimiento") {
-      return await salidaSeguimiento({ req, res, ctx, ghlContactId, idempotencyKey, nota, cuerpo, texto });
+      return await salidaSeguimiento({
+        req,
+        res,
+        ctx,
+        ghlContactId,
+        idempotencyKey,
+        nota,
+        cuerpo,
+        texto,
+      });
     }
-    return await otraSalida({ res, ctx, ghlContactId, idempotencyKey, nota, resultado, cuerpo, texto });
+    return await otraSalida({
+      res,
+      ctx,
+      ghlContactId,
+      idempotencyKey,
+      nota,
+      resultado,
+      cuerpo,
+      texto,
+    });
   } catch (e) {
     if (e instanceof SeguimientoInvalidoError) {
-      return res.status(400).json({ ok: false, codigo: e.codigo, error: e.message });
+      return res
+        .status(400)
+        .json({ ok: false, codigo: e.codigo, error: e.message });
     }
     return res.status(500).json({ ok: false, error: (e as Error).message });
   }
@@ -111,12 +165,24 @@ async function salidaSeguimiento(a: {
 
   const situacion = texto("situacion");
   if (!situacion) {
-    return res.status(400).json({ ok: false, codigo: "situacion_faltante", error: "Falta la situación." });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "situacion_faltante",
+        error: "Falta la situación.",
+      });
   }
 
   const modo = texto("modo") ?? "manual";
   if (modo !== "automatico" && modo !== "manual") {
-    return res.status(400).json({ ok: false, codigo: "modo_invalido", error: 'El modo es "automatico" o "manual".' });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "modo_invalido",
+        error: 'El modo es "automatico" o "manual".',
+      });
   }
 
   /**
@@ -169,6 +235,7 @@ async function salidaSeguimiento(a: {
     fechaObjetivo: r.fechaObjetivo,
     reemplazo: r.reemplazo,
     toast: r.toast,
+    ...(r.advertencias.length ? { advertencias: r.advertencias } : {}),
     ...resumen(efectos),
   });
 }
@@ -185,19 +252,45 @@ async function otraSalida(a: {
   cuerpo: Record<string, unknown>;
   texto: (c: string) => string | undefined;
 }) {
-  const { res, ctx, ghlContactId, idempotencyKey, nota, resultado, cuerpo, texto } = a;
+  const {
+    res,
+    ctx,
+    ghlContactId,
+    idempotencyKey,
+    nota,
+    resultado,
+    cuerpo,
+    texto,
+  } = a;
   const def = RESULTADOS_SETTER[resultado];
 
   /* ── Monto ── */
   let monto: number | undefined;
   if (def.requiereMonto) {
     const crudo = cuerpo.monto;
-    const n = typeof crudo === "number" ? crudo : typeof crudo === "string" ? Number(crudo) : NaN;
+    const n =
+      typeof crudo === "number"
+        ? crudo
+        : typeof crudo === "string"
+          ? Number(crudo)
+          : NaN;
     if (crudo === undefined || crudo === null || crudo === "") {
-      return res.status(400).json({ ok: false, codigo: "monto_faltante", error: "Esta salida necesita el monto." });
+      return res
+        .status(400)
+        .json({
+          ok: false,
+          codigo: "monto_faltante",
+          error: "Esta salida necesita el monto.",
+        });
     }
     if (!Number.isFinite(n) || n <= 0) {
-      return res.status(400).json({ ok: false, codigo: "monto_invalido", error: "El monto tiene que ser un número mayor a cero." });
+      return res
+        .status(400)
+        .json({
+          ok: false,
+          codigo: "monto_invalido",
+          error: "El monto tiene que ser un número mayor a cero.",
+        });
     }
     monto = n;
   }
@@ -206,7 +299,11 @@ async function otraSalida(a: {
   let subcategoria: string | undefined;
   if (def.opciones.length > 0) {
     // Se aceptan los alias que ya manda el frontend, igual que en el endpoint del closer.
-    const pedida = texto("subcategoria") ?? texto("razon") ?? texto("formaPago") ?? texto("forma_pago");
+    const pedida =
+      texto("subcategoria") ??
+      texto("razon") ??
+      texto("formaPago") ??
+      texto("forma_pago");
     if (!pedida) {
       return res.status(400).json({
         ok: false,
@@ -227,7 +324,11 @@ async function otraSalida(a: {
     subcategoria = pedida;
   }
 
-  const pildora = [def.categoriaPildora, subcategoria, monto ? `$${monto.toLocaleString("es-PE")}` : null]
+  const pildora = [
+    def.categoriaPildora,
+    subcategoria,
+    monto ? `$${monto.toLocaleString("es-PE")}` : null,
+  ]
     .filter(Boolean)
     .join(" · ");
 
@@ -239,10 +340,18 @@ async function otraSalida(a: {
   const advertencias: string[] = [];
   const { error: errCerrar } = await db()
     .from("closer_seguimientos")
-    .update({ estado: "cancelado", motivo_cierre: "avanzar", cerrado_el: ahora, cerrado_por: ctx.usuarioId })
+    .update({
+      estado: "cancelado",
+      motivo_cierre: "avanzar",
+      cerrado_el: ahora,
+      cerrado_por: ctx.usuarioId,
+    })
     .eq("ghl_contact_id", ghlContactId)
     .in("estado", ["pendiente", "agotado"]);
-  if (errCerrar) advertencias.push(`no se pudo cerrar el seguimiento abierto: ${errCerrar.message}`);
+  if (errCerrar)
+    advertencias.push(
+      `no se pudo cerrar el seguimiento abierto: ${errCerrar.message}`,
+    );
 
   /* ── La proyección: el avance, la etapa y el latch ── */
   advertencias.push(
@@ -263,6 +372,22 @@ async function otraSalida(a: {
       },
       tagsEnviados: def.tag ? [TAGS[def.tag].valor] : [],
       autorUsuarioId: ctx.usuarioId,
+    })),
+  );
+
+  /**
+   * La nota, al tab Notas. `proyectarAvance()` la guarda dentro de `closer_avances.detalle`, que
+   * es el JSON del timeline: sirve para reconstruir qué se registró, no para pintar la ficha.
+   * Sin esta llamada, cada nota que un setter escribía al avanzar se veía en pantalla y no
+   * quedaba en ninguna tabla que la ficha lea (arreglo del 2026-08-15).
+   */
+  advertencias.push(
+    ...(await guardarNotaDeAvance({
+      ghlContactId,
+      nota,
+      pildora,
+      autor: ctx.nombre,
+      usuarioId: ctx.usuarioId,
     })),
   );
 
@@ -302,10 +427,13 @@ function resumen(efectos: EfectoGhl[]) {
       campo: campo ? campo.aplicado : null,
     },
     ghl: {
-      todoAplicado: efectos.length > 0 && efectos.every((e) => e.ok && e.aplicado),
+      todoAplicado:
+        efectos.length > 0 && efectos.every((e) => e.ok && e.aplicado),
       efectos,
       ...(fallidos.length > 0
-        ? { advertencia: `No se aplicó: ${fallidos.map((e) => `${e.operacion} (${e.error})`).join("; ")}` }
+        ? {
+            advertencia: `No se aplicó: ${fallidos.map((e) => `${e.operacion} (${e.error})`).join("; ")}`,
+          }
         : {}),
     },
   };

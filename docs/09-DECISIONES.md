@@ -9,8 +9,8 @@ Lo que cambió y cuándo lo tiene git. Acá está el argumento.
 
 ## D1 · La etapa vive en Supabase, no en GHL
 
-**Contra el principio original.** El diseño decía *"GHL es la única fuente de verdad; el tool
-es una pantalla"*. Para la etapa del pipeline y el monto de la venta, eso ya no es cierto.
+**Contra el principio original.** El diseño decía _"GHL es la única fuente de verdad; el tool
+es una pantalla"_. Para la etapa del pipeline y el monto de la venta, eso ya no es cierto.
 
 **Por qué.** El Pipeline tiene que responder en milisegundos y sobrevivir a que GHL esté lento
 o caído. Se sincroniza hacia GHL en el Avanzar, pero la pantalla lee de Supabase.
@@ -73,7 +73,7 @@ inflar conteos por encima de la realidad. Conservarla vacía sería conservar la
 
 ## D5 · Los íconos se calculan, no se guardan
 
-**La regla:** *lo que se deriva en la lectura no se queda viejo; lo que se denormaliza, sí.*
+**La regla:** _lo que se deriva en la lectura no se queda viejo; lo que se denormaliza, sí._
 
 Cuando los íconos eran campos sueltos (`callsIA: {count, contestada}`), la ficha decía una cosa
 y la fila otra. Ahora se calculan de los mismos datos que alimentan los tabs.
@@ -107,7 +107,7 @@ dos vitrinas muestran el mismo hecho, comparten la función que lo calcula.
 ## D7 · El auditor: dos salidas, no una
 
 Un solo booleano `fallo` decidía a la vez "apagar el bot de una persona real" y "hay algo que
-mejorar en el prompt". Un *"podría ser más breve"* le cortaba la conversación a alguien.
+mejorar en el prompt". Un _"podría ser más breve"_ le cortaba la conversación a alguien.
 
 Ahora son **intervención** (daño en curso, apaga el bot) y **hallazgos** (trabajo del técnico,
 no interrumpe a nadie). Un hallazgo rojo no le apaga el bot a nadie.
@@ -148,7 +148,7 @@ El plan original decía `Promise.allSettled`. Habría **empeorado** la frescura.
 
 Los dos relojes viejos no estaban desfasados: estaban **en fase** (`registrarReloj` dispara al
 registrarse, y ambos se registraban en el mismo montaje). Mi Día leía la tabla microsegundos
-*antes* de que la reconciliación escribiera, **siempre**. Un entrante tardaba un tick completo
+_antes_ de que la reconciliación escribiera, **siempre**. Un entrante tardaba un tick completo
 en llegar al Buzón: ~15 s. Con ingesta primero, ~6 s.
 
 **El presupuesto es un deadline cooperativo, no un `Promise.race`.** Un race no cancela nada: la
@@ -156,7 +156,7 @@ mitad seguiría corriendo después de responder y podría congelarse entre el `u
 `last_message_ghl_at` y `efectosDeEntrante`, perdiendo para siempre el evento de historial, la
 cancelación del seguimiento y el revive de la tarea.
 
-**Y si hubo truncamiento, la marca de agua no se escribe.** `marcaNueva` avanza *antes* de los
+**Y si hubo truncamiento, la marca de agua no se escribe.** `marcaNueva` avanza _antes_ de los
 filtros, así que persistirla dejaría conversaciones sin procesar detrás de ella, para siempre.
 
 **Lo que este cambio NO ahorra:** nada del lado de Supabase. Siguen siendo dos escaneos. Lo que
@@ -246,14 +246,14 @@ El segundo es barato y recuperable. El primero es el bug original con otro disfr
 
 ## D17 · Lo que se decidió NO hacer
 
-| Qué | Por qué no |
-|---|---|
-| **Empujar el Buzón a SQL** | Ya existió una vista que hacía eso y se borró deliberadamente: dos definiciones del mismo criterio divergen en silencio |
-| **Compartir la lectura de contactos entre las dos mitades del tick** | Mi Día necesita leer *después* de las escrituras. Parchear el snapshot en memoria es frágil: si mañana se agrega una mutación y nadie actualiza el parche, muestra datos viejos de un modo que no se nota |
-| **El drill-down de sentimiento** | La spec pide la *frase disparadora*, y el auditor no emite ninguna. Hoy solo se podría listar el último mensaje, que es literalmente lo que esa spec prohíbe. Se le quitó el hover a los `%` para que no finjan una interacción que no existe |
-| **Sumar una librería de charts** | El sparkline se resuelve con `<polyline>` y `onMouseMove`. Se prefirió no sumar la dependencia |
-| **`framer-motion`** | 39 KB gzip (24% del bundle) para dos componentes. Reemplazado por una transición CSS y un tween con `requestAnimationFrame`, misma duración y misma curva |
-| **Emojis sueltos en la UI** | La iconografía viene de `lucide-react`. Los emojis que quedan en píldoras y microtextos vienen de specs anteriores |
+| Qué                                                                  | Por qué no                                                                                                                                                                                                                                    |
+| -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Empujar el Buzón a SQL**                                           | Ya existió una vista que hacía eso y se borró deliberadamente: dos definiciones del mismo criterio divergen en silencio                                                                                                                       |
+| **Compartir la lectura de contactos entre las dos mitades del tick** | Mi Día necesita leer _después_ de las escrituras. Parchear el snapshot en memoria es frágil: si mañana se agrega una mutación y nadie actualiza el parche, muestra datos viejos de un modo que no se nota                                     |
+| **El drill-down de sentimiento**                                     | La spec pide la _frase disparadora_, y el auditor no emite ninguna. Hoy solo se podría listar el último mensaje, que es literalmente lo que esa spec prohíbe. Se le quitó el hover a los `%` para que no finjan una interacción que no existe |
+| **Sumar una librería de charts**                                     | El sparkline se resuelve con `<polyline>` y `onMouseMove`. Se prefirió no sumar la dependencia                                                                                                                                                |
+| **`framer-motion`**                                                  | 39 KB gzip (24% del bundle) para dos componentes. Reemplazado por una transición CSS y un tween con `requestAnimationFrame`, misma duración y misma curva                                                                                     |
+| **Emojis sueltos en la UI**                                          | La iconografía viene de `lucide-react`. Los emojis que quedan en píldoras y microtextos vienen de specs anteriores                                                                                                                            |
 
 ---
 
@@ -369,8 +369,8 @@ podían calcular y el resto no.
 Los que no tienen dato de origen **no se renderizan**: sin velo, sin cero, sin guion de relleno.
 Y el endpoint devuelve `sinDato` con el motivo de cada uno, que la vista lista al pie.
 
-La razón de mostrar el motivo y no solo omitir: quien mira el panel tiene que poder distinguir *"el
-negocio no tiene este número"* de *"el sistema todavía no lo mide"*. Son dos conclusiones opuestas y
+La razón de mostrar el motivo y no solo omitir: quien mira el panel tiene que poder distinguir _"el
+negocio no tiene este número"_ de _"el sistema todavía no lo mide"_. Son dos conclusiones opuestas y
 la segunda es la única que se puede arreglar.
 
 > Lo peor que había no era el número inventado: era la **etiqueta**. El encabezado de
@@ -380,8 +380,8 @@ la segunda es la única que se puede arreglar.
 
 ## D27 · Una sección "en desarrollo" dice qué VA A HACER, no por qué no lo hace
 
-El velo de §8 muestra la sección completa detrás y una línea en presente: *"Va a decir de qué anuncio
-salió cada lead"*. No dice "todavía no está listo" ni promete una fecha, y un test lo hace cumplir.
+El velo de §8 muestra la sección completa detrás y una línea en presente: _"Va a decir de qué anuncio
+salió cada lead"_. No dice "todavía no está listo" ni promete una fecha, y un test lo hace cumplir.
 
 Dos motivos. El cliente necesita saber qué viene, no enterarse de nuestras deudas. Y el motivo
 técnico ya vive en [10-ESTADO](10-ESTADO.md): repetirlo en la UI serían dos vitrinas del mismo hecho.
@@ -400,7 +400,7 @@ sería el peor dato falso del producto.
 ## D29 · El nivel 0 adelanta el análisis, pero exige un mensaje nuevo del agente
 
 El debounce de 5 mensajes tenía un agujero documentado como consecuencia matemática de la regla:
-*una conversación donde la IA manda 4 mensajes y el contacto se va enojado nunca se audita*. Cinco
+_una conversación donde la IA manda 4 mensajes y el contacto se va enojado nunca se audita_. Cinco
 heurísticas de costo cero sobre `closer_mensajes` lo cierran — el análisis dispara con `delta ≥ 5`
 **o** con una alarma.
 
@@ -447,8 +447,8 @@ no puede tener esa consecuencia. Se genera solo cuando no hay ninguno.
 ## D32 · El autor de lo automático es `Sistema`, no una persona
 
 `AUTOR_POR_DEFECTO = "Jorge Q."` estaba en tres archivos, de cuando no había sesión y el closer era
-uno solo. En `agentes/ajustes.ts` el comentario ya lo admitía: *"es un dato falso, solo que menos
-visible que un cero inventado"* — quien aplica un ajuste al prompt es el técnico, no el closer.
+uno solo. En `agentes/ajustes.ts` el comentario ya lo admitía: _"es un dato falso, solo que menos
+visible que un cero inventado"_ — quien aplica un ajuste al prompt es el técnico, no el closer.
 
 Ahora el autor sale de `ctx.nombre`. Y lo que llega sin autor —un cron, un webhook— se firma
 `Sistema`, no con el nombre de la persona más probable. Firmar una escritura automática con el
@@ -487,7 +487,7 @@ incoherente no se puede escribir ni a mano.
 
 Eso tiene una consecuencia en el código que es la parte importante: `derivarNivel()` **no le cree
 al modelo**. Si devolviera `"amarillo"` junto a `requiere_intervencion: true`, el CHECK tumbaría el
-INSERT *después* de haber gastado la inferencia — el peor final posible, porque el análisis se
+INSERT _después_ de haber gastado la inferencia — el peor final posible, porque el análisis se
 pierde entero y en el log solo queda un `23514`. Derivar el nivel de los hechos convierte un error
 del modelo en una fila correcta.
 
@@ -535,7 +535,7 @@ Dos consecuencias concretas:
 
 2. **El guard vive en `integracion.test.ts`, no en la suite offline.** Ningún test puro podía
    cazarlo: `tsc` está contento —la columna no aparece en el tipo del insert— y la regla vive en el
-   esquema. Contra la base real es el único lugar donde *"¿este INSERT entra?"* es contestable.
+   esquema. Contra la base real es el único lugar donde _"¿este INSERT entra?"_ es contestable.
 
 Lo que queda como deuda de proceso: **apretar cada botón del panel de administración una vez** antes
 del 15 de agosto. Un endpoint con tests unitarios y sin una sola ejecución real es una hipótesis.
@@ -683,12 +683,12 @@ exportar una variable.
 La Fase 5.2 salió a buscar código muerto y encontró algo distinto: **cuatro valores por defecto que
 tapaban el olvido de un llamador**, todos de la época de una sola empresa, todos vivos.
 
-| Dónde | Qué hacía | Cierre |
-|---|---|---|
-| `closer_registrar_seguimiento(p_org_id DEFAULT '…0001')` | Escribía en ARIA en silencio | `035` |
-| ídem, `p_autor_nombre DEFAULT 'Usuario Activo'` | Firmaba con un nombre que no es de nadie | `035` |
-| `CLOSER_POR_DEFECTO` en `seguimientos.ts` | Firmaba como Jorge Q. de ARIA | tipo obligatorio |
-| `closer_hoy_org()` / `closer_dia_org()` / `closer_auditor_claim(2 args)` | Resolvían a la empresa principal por sobrecarga | `037` |
+| Dónde                                                                    | Qué hacía                                       | Cierre           |
+| ------------------------------------------------------------------------ | ----------------------------------------------- | ---------------- |
+| `closer_registrar_seguimiento(p_org_id DEFAULT '…0001')`                 | Escribía en ARIA en silencio                    | `035`            |
+| ídem, `p_autor_nombre DEFAULT 'Usuario Activo'`                          | Firmaba con un nombre que no es de nadie        | `035`            |
+| `CLOSER_POR_DEFECTO` en `seguimientos.ts`                                | Firmaba como Jorge Q. de ARIA                   | tipo obligatorio |
+| `closer_hoy_org()` / `closer_dia_org()` / `closer_auditor_claim(2 args)` | Resolvían a la empresa principal por sobrecarga | `037`            |
 
 El tercero es el que enseña la lección. `closerId` era opcional con ese default, y **ninguno de los
 tres endpoints lo pasaba**: todo Avanzar y todo seguimiento —del closer y del setter, de cualquier
@@ -732,8 +732,8 @@ cada respuesta— y para cuando no hay contexto. En `api/` no se usa.
 
 ## D45 · El checklist se deriva; una casilla que alguien marca no es evidencia
 
-El plan de lanzamiento pedía *"una vista que muestre por empresa qué está configurado y qué falta,
-derivado del estado real — no un documento aparte que se desactualiza"*. La parte que importa es la
+El plan de lanzamiento pedía _"una vista que muestre por empresa qué está configurado y qué falta,
+derivado del estado real — no un documento aparte que se desactualiza"_. La parte que importa es la
 última: este proyecto ya pagó **tres veces** por afirmaciones que nadie verificó —los
 `docs/prompts/*.md` que no existían mientras el panel reportaba éxito, `closer_conexiones` que nadie
 leía, el alta de empresas que nadie ejercitó hasta que Fabio la apretó en producción (ver
@@ -760,7 +760,7 @@ Las dos veces la tentación es la misma —"el campo tiene algo, poné verde"—
 se descubre el día del lanzamiento. Están fijadas con tests.
 
 **Lee las credenciales resueltas, no las columnas.** La primera versión leía `closer_org_config` y
-habría marcado *"falta el PIT"* sobre **ARIA**: su PIT vive en la variable `GHL_PIT` desde antes del
+habría marcado _"falta el PIT"_ sobre **ARIA**: su PIT vive en la variable `GHL_PIT` desde antes del
 multi-empresa, y `resolverCredenciales()` lo resuelve con el fallback de la principal. Un checklist
 que se equivoca en el caso que todos conocen es un checklist que nadie vuelve a abrir. Es el mismo
 error que `admin/webhooks.ts` casi cometió con el secreto —ahí también hay que mostrar el
@@ -770,3 +770,42 @@ una variable global", porque las dos funcionan y no son lo mismo.
 Eso último **no lo agarra un unit test**: con datos sintéticos las dos ramas se ven bien. Lo fija un
 test de integración que le pregunta a la base cuál es el estado de verdad, y que además verifica el
 otro lado —que una empresa cliente **no** herede el PIT global—, que es el bug que cerró la `027`.
+
+---
+
+## D46 · Una sola función escribe la nota de un Avanzar
+
+**2026-08-15.** Fabio reportó que las notas no se guardaban. No era un fallo: eran tres, y los tres
+tenían la misma forma.
+
+Había **tres rutas** por las que una nota podía entrar, y solo una la guardaba donde la ficha la
+busca (`closer_notas`):
+
+| Ruta                                                      | Dónde terminaba la nota           | ¿La ve el tab Notas? |
+| --------------------------------------------------------- | --------------------------------- | -------------------- |
+| `registrarResultadoAvanzar` — las 5 salidas del closer    | `closer_notas`                    | Sí                   |
+| `registrarSeguimiento` — Seguimiento, **closer y setter** | `closer_seguimientos.nota`        | **No**               |
+| `otraSalida` del setter — sus otras 4 salidas             | `closer_avances.detalle->>'nota'` | **No**               |
+
+Las dos rutas rotas no perdían el texto: lo guardaban en una tabla con **otro lector**.
+`closer_seguimientos.nota` la lee el motor de recordatorios el día del seguimiento; `detalle` es el
+JSON del timeline. Ninguna de las dos la lee la ficha. Y como la interfaz pintaba la nota igual en
+los tres casos, el usuario la veía guardada y desaparecía al recargar: el éxito falso que prohíbe la
+regla 2, servido por la ruta más usada del producto.
+
+**La corrección no es agregar dos inserts.** Con tres escritores sueltos, la salida número seis nace
+rota igual y nadie se entera. Ahora hay **una** función —`guardarNotaDeAvance()`— que las tres rutas
+llaman, y un test que falla si alguna deja de llamarla o si aparece un segundo escritor de
+`closer_notas`. El olvido pasa de silencioso a visible, que es la única diferencia que importa.
+
+**El setter, además, no tenía nada de esto.** Su `addNota` era `setContacts` a secas —sin fetch, sin
+`await`, sin manejo de error— y nunca leía `/api/closer/notas`, un endpoint que acepta los dos roles
+desde que existe. Peor: `recargar()` reconstruía los contactos desde las colas de Mi Día, que traen
+`notas: []`, así que cada nota se borraba sola un segundo después de escribirla, disparada por el
+mismo Avanzar que la había creado. Se pasó a `merge`: las colas mandan sobre etapas y píldoras, pero
+no sobre lo que Mi Día no puede saber (notas, historial, llamadas, perfil).
+
+**Por qué el test es sobre el texto del fuente.** Lo que hay que impedir no es un valor mal
+calculado sino una ruta que se olvida de persistir, y eso no se ve desde una aserción sobre un
+resultado — se ve mirando quién llama a quién. Mismo criterio que `aislamiento.test.ts`. Se verificó
+que falla con el código roto antes de darlo por bueno: 4 de 6 en rojo.

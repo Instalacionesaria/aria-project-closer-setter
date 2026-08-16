@@ -1,9 +1,29 @@
-import { createContext, useCallback, useContext, useEffect, useState, useMemo } from "react";
-import { type Grade, type BotEstado, type HistorialItem, type NotaItem, type CallRecord, type PerfilField } from "./closerStore";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+} from "react";
+import {
+  AUTOR_OPTIMISTA,
+  notaRealAItem,
+  type Grade,
+  type BotEstado,
+  type HistorialItem,
+  type NotaItem,
+  type CallRecord,
+  type PerfilField,
+} from "./closerStore";
 import {
   avanzarSetter,
+  crearNota,
+  eliminarNota,
   fetchInicioSetter,
   fetchMiDiaSetter,
+  fetchNotas,
   type CockpitSetter,
   type ColaSetterContacto,
   type MiDiaSetterResponse,
@@ -26,7 +46,8 @@ export type SetterStageKey =
   | "descalificado";
 
 /** Color de la píldora de situación — reemplaza los strings TAG_* sueltos por un tono con nombre. */
-export type SetterTagTone = "source" | "cyan" | "violet" | "amber" | "emerald" | "rose";
+export type SetterTagTone =
+  "source" | "cyan" | "violet" | "amber" | "emerald" | "rose";
 
 export type Canal = "whatsapp" | "instagram";
 
@@ -145,7 +166,11 @@ const RESULTADO_POR_ETAPA: Record<SetterStageKey, string | null> = {
 };
 
 const seedHist = (): HistorialItem[] => [
-  { fecha: "8 jul, 10:05", texto: "Respondió al mensaje de calificación", autor: "Sistema" },
+  {
+    fecha: "8 jul, 10:05",
+    texto: "Respondió al mensaje de calificación",
+    autor: "Sistema",
+  },
   { fecha: "27 Jun", texto: "Entró por Meta Ads", autor: "Sistema" },
 ];
 
@@ -165,7 +190,8 @@ const SEED: Omit<SetterContact, "historial" | "notas">[] = [];
 
 function buildSeedContacts(): Record<string, SetterContact> {
   const map: Record<string, SetterContact> = {};
-  for (const c of SEED) map[c.name] = { ...c, historial: seedHist(), notas: [] };
+  for (const c of SEED)
+    map[c.name] = { ...c, historial: seedHist(), notas: [] };
   return map;
 }
 
@@ -183,7 +209,9 @@ function buildSeedContacts(): Record<string, SetterContact> {
  * Un contacto puede estar en más de una cola —el mismo lead puede estar estancado y tener una
  * oportunidad LT— así que se acumulan sobre la misma entrada en vez de pisarse.
  */
-function contactosDesdeColas(r: MiDiaSetterResponse): Record<string, SetterContact> {
+function contactosDesdeColas(
+  r: MiDiaSetterResponse,
+): Record<string, SetterContact> {
   const map: Record<string, SetterContact> = {};
 
   const base = (c: ColaSetterContacto): SetterContact => ({
@@ -200,29 +228,46 @@ function contactosDesdeColas(r: MiDiaSetterResponse): Record<string, SetterConta
     notas: [],
   });
 
-  const tocar = (c: ColaSetterContacto): SetterContact => (map[c.name] ??= base(c));
+  const tocar = (c: ColaSetterContacto): SetterContact =>
+    (map[c.name] ??= base(c));
 
-  for (const c of r.urgentes ?? []) tocar(c).urgente = { detail: "el bot se apagó por un fallo" };
-  for (const c of r.estancadas ?? []) tocar(c).estancada = { microtext: "conversación estancada" };
-  for (const c of r.oportunidades ?? []) tocar(c).oportunidadLt = { microtext: "derivado a low-ticket" };
+  for (const c of r.urgentes ?? [])
+    tocar(c).urgente = { detail: "el bot se apagó por un fallo" };
+  for (const c of r.estancadas ?? [])
+    tocar(c).estancada = { microtext: "conversación estancada" };
+  for (const c of r.oportunidades ?? [])
+    tocar(c).oportunidadLt = { microtext: "derivado a low-ticket" };
 
   for (const c of r.buzon ?? []) {
     const e = tocar(c);
     // El microtexto sale del dato, no de un string fijo: es cuándo escribió de verdad.
-    e.respondido = { microtext: c.texto?.slice(0, 60) ?? "escribió y no le respondieron" };
+    e.respondido = {
+      microtext: c.texto?.slice(0, 60) ?? "escribió y no le respondieron",
+    };
   }
 
   for (const c of r.seguimientos ?? []) {
     const e = tocar(c);
-    e.seguimientoPendiente = { microtext: c.fila?.microtext ?? "", vencido: c.fila?.vencido };
+    e.seguimientoPendiente = {
+      microtext: c.fila?.microtext ?? "",
+      vencido: c.fila?.vencido,
+    };
     e.seguimientoAutomaticoActivo = c.caso === "automatico_en_curso";
     if (c.situacion) e.situacion = c.situacion;
   }
 
   for (const c of r.completadas ?? []) {
     const e = (map[c.name] ??= {
-      name: c.name, phone: "", fuente: "", canal: "whatsapp", stage: "en_calificacion",
-      situacion: "", situacionTone: "violet", subtitle: c.pildora ?? "", historial: [], notas: [],
+      name: c.name,
+      phone: "",
+      fuente: "",
+      canal: "whatsapp",
+      stage: "en_calificacion",
+      situacion: "",
+      situacionTone: "violet",
+      subtitle: c.pildora ?? "",
+      historial: [],
+      notas: [],
     });
     e.completedToday = true;
     if (c.pildora) e.subtitle = c.pildora;
@@ -252,8 +297,15 @@ interface SetterStoreValue {
    */
   advance: (name: string, input: SetterAdvanceInput) => Promise<void>;
   addNota: (name: string, texto: string) => void;
+  /** Borra una nota. Real (con `realId`) → también de `closer_notas`; optimista → solo memoria. */
+  removeNota: (name: string, id: number) => void;
   resolveIntervention: (name: string) => void;
-  setBotEstado: (name: string, estado: BotEstado, evento: string, autor?: string) => void;
+  setBotEstado: (
+    name: string,
+    estado: BotEstado,
+    evento: string,
+    autor?: string,
+  ) => void;
   /** FIJAR (§ toast/pin, 2026-07-11): sube la tarea de Buzón/Respondieron u Oportunidad LT al tope de su sección sin completarla. */
   pinTask: (name: string) => void;
   /** Completa la tarea — automático (barra de progreso) o manual (botón de ficha). */
@@ -272,14 +324,30 @@ export interface SetterPendingTasksBreakdown {
   total: number;
 }
 
-export function setterPendingTasksBreakdown(contacts: Record<string, SetterContact>): SetterPendingTasksBreakdown {
+export function setterPendingTasksBreakdown(
+  contacts: Record<string, SetterContact>,
+): SetterPendingTasksBreakdown {
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday).length;
   const estancadas = all.filter((c) => c.estancada && !c.completedToday).length;
-  const oportunidades = all.filter((c) => c.oportunidadLt && !c.completedToday).length;
-  const respondieron = all.filter((c) => c.respondido && !c.completedToday).length;
-  const seguimientosHoy = all.filter((c) => c.seguimientoPendiente && !c.completedToday).length;
-  return { urgentes, estancadas, oportunidades, respondieron, seguimientosHoy, total: urgentes + estancadas + oportunidades + respondieron + seguimientosHoy };
+  const oportunidades = all.filter(
+    (c) => c.oportunidadLt && !c.completedToday,
+  ).length;
+  const respondieron = all.filter(
+    (c) => c.respondido && !c.completedToday,
+  ).length;
+  const seguimientosHoy = all.filter(
+    (c) => c.seguimientoPendiente && !c.completedToday,
+  ).length;
+  return {
+    urgentes,
+    estancadas,
+    oportunidades,
+    respondieron,
+    seguimientosHoy,
+    total:
+      urgentes + estancadas + oportunidades + respondieron + seguimientosHoy,
+  };
 }
 
 /**
@@ -350,7 +418,11 @@ interface SetterSessionDeltas {
   agendasGeneradas: number;
 }
 
-const ZERO_SETTER_DELTAS: SetterSessionDeltas = { ltMonto: 0, ltCount: 0, agendasGeneradas: 0 };
+const ZERO_SETTER_DELTAS: SetterSessionDeltas = {
+  ltMonto: 0,
+  ltCount: 0,
+  agendasGeneradas: 0,
+};
 
 const SetterCtx = createContext<SetterStoreValue | null>(null);
 
@@ -359,13 +431,17 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
    * Arranca **vacío**, no con semilla. `buildSeedContacts()` sigue existiendo y devuelve `{}`
    * porque `SEED` está vacía: un módulo sin datos se ve sin datos hasta que el fetch conteste.
    */
-  const [contacts, setContacts] = useState<Record<string, SetterContact>>(() => buildSeedContacts());
+  const [contacts, setContacts] = useState<Record<string, SetterContact>>(() =>
+    buildSeedContacts(),
+  );
   /**
    * Los tres estados se distinguen (regla 2): `null` mientras carga, `{}` cuando cargó y no hay
    * nada, y `error` cuando no se pudo saber. Un módulo vacío por falta de datos y uno vacío
    * porque el backend está caído no son el mismo hecho.
    */
-  const [estado, setEstado] = useState<"cargando" | "listo" | "error">("cargando");
+  const [estado, setEstado] = useState<"cargando" | "listo" | "error">(
+    "cargando",
+  );
 
   const recargar = useCallback(async () => {
     const r = await fetchMiDiaSetter();
@@ -373,9 +449,40 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
       setEstado("error");
       return;
     }
-    setContacts(contactosDesdeColas(r));
+    /**
+     * MERGE, no reemplazo (arreglo del 2026-08-15).
+     *
+     * `contactosDesdeColas()` construye cada contacto desde las colas de Mi Día, y esas colas no
+     * traen notas ni historial: los arma con `notas: []`. Como `advance()` llama a `recargar()`
+     * al terminar, toda nota escrita en el Avanzar se borraba de la pantalla un segundo después
+     * de escribirla —y también la que se hubiera cargado del servidor al abrir la ficha—.
+     *
+     * Lo que se conserva es lo que Mi Día no puede saber: notas, historial, llamadas y perfil se
+     * piden aparte al abrir la ficha. Todo lo demás (colas, etapa, píldoras) sí lo manda el
+     * servidor y tiene que pisar: es la razón de recargar.
+     */
+    setContacts((prev) => {
+      const frescos = contactosDesdeColas(r);
+      for (const [name, c] of Object.entries(frescos)) {
+        const anterior = prev[name];
+        if (!anterior) continue;
+        c.notas = anterior.notas;
+        c.historial = anterior.historial;
+        if (anterior.llamadas) c.llamadas = anterior.llamadas;
+        if (anterior.perfil) c.perfil = anterior.perfil;
+      }
+      return frescos;
+    });
     setEstado("listo");
   }, []);
+
+  /**
+   * Espejo síncrono de `contacts`, igual que en closerStore y por el mismo motivo: los efectos de
+   * red NUNCA se disparan dentro de un updater de `setContacts`. Leer el `ghlContactId` ahí
+   * adentro y usarlo afuera falla cuando React difiere el updater, y el POST no sale.
+   */
+  const contactsRef = useRef(contacts);
+  contactsRef.current = contacts;
 
   useEffect(() => {
     void recargar();
@@ -384,6 +491,13 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
   const [openGhlContactId, setOpenGhlContactId] = useState<string | null>(null);
   const [deltas, setDeltas] = useState<SetterSessionDeltas>(ZERO_SETTER_DELTAS);
   const { usuario } = useAuth();
+  /**
+   * Espejo síncrono de la sesión, por lo mismo que `contactsRef`: `addNota` no puede depender de
+   * `usuario` sin recrearse en cada login, y una nota tiene que ir firmada con quien la escribió
+   * —no con un literal— porque el autor viaja a `closer_notas` y lo lee el otro rol.
+   */
+  const usuarioRef = useRef(usuario);
+  usuarioRef.current = usuario;
 
   /**
    * Registra una de las cinco salidas. **Escribe en el servidor** desde el 2026-08-08.
@@ -408,9 +522,21 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
       setContacts((prev) => {
         const c = prev[name];
         if (!c) return prev;
-        const historial = [{ fecha: "Hoy", texto: input.texto, autor: usuario?.nombre ?? "Vos" }, ...c.historial];
+        const historial = [
+          { fecha: "Hoy", texto: input.texto, autor: usuario?.nombre ?? "Vos" },
+          ...c.historial,
+        ];
         const notas = input.nota
-          ? [{ id: Date.now(), contexto: input.pildora, texto: input.nota, autor: usuario?.nombre ?? "Vos", fecha: "Hoy" }, ...c.notas]
+          ? [
+              {
+                id: Date.now(),
+                contexto: input.pildora,
+                texto: input.nota,
+                autor: usuario?.nombre ?? "Vos",
+                fecha: "Hoy",
+              },
+              ...c.notas,
+            ]
           : c.notas;
         return {
           ...prev,
@@ -422,7 +548,8 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
             subtitle: input.pildora,
             monto: input.monto ?? c.monto,
             agendaFecha: input.agendaFecha ?? c.agendaFecha,
-            seguimientoAutomaticoActivo: input.seguimientoAutomaticoActivo ?? false,
+            seguimientoAutomaticoActivo:
+              input.seguimientoAutomaticoActivo ?? false,
             // Toda salida saca al contacto de sus colas: ya se resolvió.
             urgente: undefined,
             estancada: undefined,
@@ -449,7 +576,9 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
         resultado,
         // La clave de idempotencia la manda el drawer; si no vino, se compone con el contacto y
         // el minuto — dos clics seguidos sobre la misma salida no duplican el registro.
-        idempotencyKey: input.idempotencyKey ?? `setter:${contacto.ghlContactId}:${resultado}:${Math.floor(Date.now() / 60000)}`,
+        idempotencyKey:
+          input.idempotencyKey ??
+          `setter:${contacto.ghlContactId}:${resultado}:${Math.floor(Date.now() / 60000)}`,
         monto: input.monto,
         nota: input.nota,
         subcategoria: input.subcategoria,
@@ -461,17 +590,122 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
       });
 
       // Se recarga siempre: con éxito trae lo que el servidor dejó, y con error deshace el pintado.
-      if (!r.ok) console.warn("[setter] el Avanzar no se pudo registrar:", r.error);
+      if (!r.ok)
+        console.warn("[setter] el Avanzar no se pudo registrar:", r.error);
       await recargar();
     },
     [contacts, usuario, recargar],
   );
 
+  /**
+   * Agrega una nota. Optimista en pantalla y PERSISTIDA si el contacto es real.
+   *
+   * Hasta el 2026-08-15 esto era `setContacts` a secas: sin fetch, sin `await` y sin manejo de
+   * error. La nota se pintaba, el usuario la daba por guardada, y desaparecía en cuanto
+   * `recargar()` reconstruía los contactos desde las colas. En la base no quedaba nada: el
+   * setter no le hablaba a `/api/closer/notas` por ninguna vía (ese endpoint acepta los dos
+   * roles desde que existe — lo que faltaba era llamarlo).
+   *
+   * Es el mismo cuerpo que `closerStore.addNota`, y a propósito: son la misma acción sobre la
+   * misma tabla. Lo único distinto es que acá el mapa se indexa por nombre y allá por id.
+   */
   const addNota = useCallback((name: string, texto: string) => {
+    // Del espejo síncrono, no de dentro del updater. Ver contactsRef.
+    const ghlContactId = contactsRef.current[name]?.ghlContactId;
+    const autor = usuarioRef.current?.nombre ?? AUTOR_OPTIMISTA;
+
     setContacts((prev) => {
       const c = prev[name];
       if (!c) return prev;
-      return { ...prev, [name]: { ...c, notas: [{ id: Date.now(), contexto: null, texto, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas] } };
+      return {
+        ...prev,
+        [name]: {
+          ...c,
+          notas: [
+            { id: Date.now(), contexto: null, texto, autor, fecha: "Hoy" },
+            ...c.notas,
+          ],
+        },
+      };
+    });
+
+    if (!ghlContactId) return; // contacto sin sincronizar: se queda en memoria, no se inventa una escritura
+
+    crearNota({ ghlContactId, texto })
+      .then((r) => {
+        // La optimista se reemplaza por la fila REAL: id y fecha de la base, no del browser.
+        setContacts((prev) => {
+          const c = prev[name];
+          if (!c || !r?.nota) return prev;
+          const sinOptimista = c.notas.filter(
+            (n) => !(n.texto === texto && n.fecha === "Hoy"),
+          );
+          return {
+            ...prev,
+            [name]: { ...c, notas: [notaRealAItem(r.nota), ...sinOptimista] },
+          };
+        });
+      })
+      .catch((e) => {
+        // Se marca en pantalla en vez de dejarla como si estuviera guardada: una nota que el
+        // setter cree escrita y no existe es peor que un error visible (regla 2).
+        console.error("La nota no se guardó:", e);
+        setContacts((prev) => {
+          const c = prev[name];
+          if (!c) return prev;
+          return {
+            ...prev,
+            [name]: {
+              ...c,
+              notas: c.notas.map((n) =>
+                n.texto === texto && n.fecha === "Hoy"
+                  ? { ...n, fecha: "⚠ no se guardó" }
+                  : n,
+              ),
+            },
+          };
+        });
+      });
+  }, []);
+
+  /**
+   * Borra UNA nota. Optimista; si es real también sale de `closer_notas`, y si ese DELETE falla
+   * se re-piden las notas para que la pantalla vuelva a la verdad en vez de mentir que borró.
+   */
+  const removeNota = useCallback((name: string, id: number) => {
+    const c = contactsRef.current[name];
+    if (!c) return;
+    const nota = c.notas.find((n) => n.id === id);
+    if (!nota) return;
+
+    setContacts((prev) => {
+      const actual = prev[name];
+      if (!actual) return prev;
+      return {
+        ...prev,
+        [name]: { ...actual, notas: actual.notas.filter((n) => n.id !== id) },
+      };
+    });
+
+    if (!nota.realId || !c.ghlContactId) return; // optimista: solo memoria
+
+    const ghlContactId = c.ghlContactId;
+    eliminarNota(nota.realId).catch((e) => {
+      console.error("La nota no se pudo borrar:", e);
+      fetchNotas(ghlContactId)
+        .then((r) =>
+          setContacts((prev) => {
+            const actual = prev[name];
+            if (!actual) return prev;
+            return {
+              ...prev,
+              [name]: { ...actual, notas: (r.notas ?? []).map(notaRealAItem) },
+            };
+          }),
+        )
+        .catch(() => {
+          /* backend caído: no hay verdad que restaurar */
+        });
     });
   }, []);
 
@@ -480,35 +714,80 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
       const c = prev[name];
       if (!c || !c.urgente) return prev;
       const historial = [
-        { fecha: "Hoy", texto: "Intervención resuelta por Usuario Activo", autor: "Usuario Activo" },
+        {
+          fecha: "Hoy",
+          texto: "Intervención resuelta por Usuario Activo",
+          autor: "Usuario Activo",
+        },
         ...c.historial,
       ];
       return {
         ...prev,
-        [name]: { ...c, urgente: undefined, botEstado: "activo", historial, completedToday: true, pinned: undefined, atribucionSetter: true },
+        [name]: {
+          ...c,
+          urgente: undefined,
+          botEstado: "activo",
+          historial,
+          completedToday: true,
+          pinned: undefined,
+          atribucionSetter: true,
+        },
       };
     });
   }, []);
 
-  const setBotEstado = useCallback((name: string, estado: BotEstado, evento: string, autor: string = "Usuario Activo") => {
-    setContacts((prev) => {
-      const c = prev[name];
-      if (!c) return prev;
-      const historial = [{ fecha: "Hoy", texto: evento, autor }, ...c.historial];
-      // Solo un toggle MANUAL (autor real, no "Sistema") enciende el latch de atribución — la pausa automática por mensaje del sistema no es una intervención del setter.
-      return { ...prev, [name]: { ...c, botEstado: estado, historial, atribucionSetter: autor !== "Sistema" ? true : c.atribucionSetter } };
-    });
-  }, []);
+  const setBotEstado = useCallback(
+    (
+      name: string,
+      estado: BotEstado,
+      evento: string,
+      autor: string = "Usuario Activo",
+    ) => {
+      setContacts((prev) => {
+        const c = prev[name];
+        if (!c) return prev;
+        const historial = [
+          { fecha: "Hoy", texto: evento, autor },
+          ...c.historial,
+        ];
+        // Solo un toggle MANUAL (autor real, no "Sistema") enciende el latch de atribución — la pausa automática por mensaje del sistema no es una intervención del setter.
+        return {
+          ...prev,
+          [name]: {
+            ...c,
+            botEstado: estado,
+            historial,
+            atribucionSetter: autor !== "Sistema" ? true : c.atribucionSetter,
+          },
+        };
+      });
+    },
+    [],
+  );
 
   /** § correcciones toast/pin v2 (2026-07-11): "tarea de conversación" cubre Buzón/Respondieron, Oportunidad LT, Seguimientos de hoy Y Estancadas — no solo Buzón. */
-  const hasConversationTask = (c: SetterContact) => !!(c.respondido || c.oportunidadLt || c.seguimientoPendiente || c.estancada);
+  const hasConversationTask = (c: SetterContact) =>
+    !!(
+      c.respondido ||
+      c.oportunidadLt ||
+      c.seguimientoPendiente ||
+      c.estancada
+    );
 
   /** FIJAR — puede deshacer un completado recién disparado (bug v2 #1: completar ya no espera al timer en pantalla, dispara al enviar). */
   const pinTask = useCallback((name: string) => {
     setContacts((prev) => {
       const c = prev[name];
       if (!c || !hasConversationTask(c)) return prev;
-      return { ...prev, [name]: { ...c, pinned: true, completedToday: false, atribucionSetter: true } };
+      return {
+        ...prev,
+        [name]: {
+          ...c,
+          pinned: true,
+          completedToday: false,
+          atribucionSetter: true,
+        },
+      };
     });
   }, []);
 
@@ -516,8 +795,25 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
     setContacts((prev) => {
       const c = prev[name];
       if (!c || !hasConversationTask(c)) return prev;
-      const historial = [{ fecha: "Hoy", texto: "Respondió al contacto — tarea completada", autor: "Usuario Activo" }, ...c.historial];
-      return { ...prev, [name]: { ...c, pinned: false, completedToday: true, subtitle: "Respondió al contacto", historial, atribucionSetter: true } };
+      const historial = [
+        {
+          fecha: "Hoy",
+          texto: "Respondió al contacto — tarea completada",
+          autor: "Usuario Activo",
+        },
+        ...c.historial,
+      ];
+      return {
+        ...prev,
+        [name]: {
+          ...c,
+          pinned: false,
+          completedToday: true,
+          subtitle: "Respondió al contacto",
+          historial,
+          atribucionSetter: true,
+        },
+      };
     });
   }, []);
 
@@ -525,10 +821,23 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
     setContacts((prev) => {
       const c = prev[name];
       if (!c || !c.completedToday) return prev;
-      const historial = [{ fecha: "Hoy", texto: "Contacto respondió — tarea reabierta", autor: "Sistema" }, ...c.historial];
+      const historial = [
+        {
+          fecha: "Hoy",
+          texto: "Contacto respondió — tarea reabierta",
+          autor: "Sistema",
+        },
+        ...c.historial,
+      ];
       return {
         ...prev,
-        [name]: { ...c, completedToday: false, pinned: false, respondido: { microtext: "escribió de nuevo · sin responder" }, historial },
+        [name]: {
+          ...c,
+          completedToday: false,
+          pinned: false,
+          respondido: { microtext: "escribió de nuevo · sin responder" },
+          historial,
+        },
       };
     });
   }, []);
@@ -548,6 +857,52 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
    */
   const [cockpit, setCockpit] = useState<CockpitSetter | null>(null);
 
+  /**
+   * Las notas REALES al abrir la ficha de un contacto.
+   *
+   * Sin esto el tab Notas del setter mostraba solo lo escrito en esta sesión: las filas de
+   * `closer_notas` existían —las escribe el Avanzar— y nadie las leía. Espejo del efecto de
+   * closerStore, con una diferencia obligada: acá el mapa se indexa por NOMBRE, así que se
+   * necesitan los dos (el nombre para escribir en el mapa, el id para pedirle al servidor).
+   *
+   * Una sola vez por apertura, sin reloj: una nota la escribe el propio setter y ya la tiene en
+   * pantalla.
+   */
+  useEffect(() => {
+    if (!openGhlContactId || !openContactName) return;
+    const name = openContactName;
+    let vivo = true;
+
+    fetchNotas(openGhlContactId)
+      .then((r) => {
+        if (!vivo) return;
+        setContacts((prev) => {
+          const c = prev[name];
+          if (!c) return prev;
+          const delServidor = (r.notas ?? []).map(notaRealAItem);
+          const enServidor = new Set(delServidor.map((n) => n.texto));
+          // MERGE: una nota escrita mientras este GET estaba en vuelo no se pisa — el POST sigue
+          // su curso y borrarla de la pantalla la haría parecer perdida.
+          const optimistas = c.notas.filter(
+            (n) =>
+              (n.fecha === "Hoy" || n.fecha.startsWith("⚠")) &&
+              !enServidor.has(n.texto),
+          );
+          return {
+            ...prev,
+            [name]: { ...c, notas: [...optimistas, ...delServidor] },
+          };
+        });
+      })
+      .catch(() => {
+        /* backend caído: se conserva lo que hubiera en memoria, no se inventa nada */
+      });
+
+    return () => {
+      vivo = false;
+    };
+  }, [openGhlContactId, openContactName]);
+
   const recargarCockpit = useCallback(async () => {
     const r = await fetchInicioSetter();
     if (r.ok && r.cockpit) setCockpit(r.cockpit);
@@ -565,6 +920,37 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
     openContact: (name: string, ghlContactId?: string) => {
       setOpenContactName(name);
       setOpenGhlContactId(ghlContactId ?? null);
+      /**
+       * Si el contacto no está en el mapa, se siembra (arreglo del 2026-08-15).
+       *
+       * `contacts` se arma con las colas de Mi Día, y el Pipeline lista OTRA consulta: un lead
+       * que ya no tiene tarea de hoy aparece en el Pipeline y no en el mapa. La vista resuelve
+       * `contacts[openContactName] ?? null`, así que su ficha abría con `setterContact = null` —
+       * y sobre null, `addNota` no pintaba nada NI llamaba al servidor: la nota se perdía sin
+       * dejar rastro ni error. Con la entrada mínima, la ficha tiene dónde escribir y el efecto
+       * de apertura le trae sus notas reales.
+       */
+      if (!ghlContactId) return;
+      setContacts((prev) =>
+        prev[name]
+          ? prev
+          : {
+              ...prev,
+              [name]: {
+                name,
+                phone: "",
+                fuente: "",
+                canal: "whatsapp",
+                stage: "en_calificacion",
+                situacion: "",
+                situacionTone: "violet",
+                subtitle: "",
+                ghlContactId,
+                historial: [],
+                notas: [],
+              },
+            },
+      );
     },
     closeContact: () => {
       setOpenContactName(null);
@@ -572,6 +958,7 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
     },
     advance,
     addNota,
+    removeNota,
     resolveIntervention,
     setBotEstado,
     pinTask,

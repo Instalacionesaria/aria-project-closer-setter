@@ -30,7 +30,8 @@ function cargarEnv() {
 }
 cargarEnv();
 
-const activa = process.env.INTEGRACION === "1" && Boolean(process.env.SUPABASE_URL);
+const activa =
+  process.env.INTEGRACION === "1" && Boolean(process.env.SUPABASE_URL);
 const describeSi = activa ? describe : describe.skip;
 
 /** La empresa del contacto de prueba. Duplica `ORG_PRINCIPAL` para no importar dentro de un `it`. */
@@ -52,7 +53,9 @@ const CLOSER_ARIA = "00000000-0000-0000-0000-0000000000c1";
 describeSi("integración — Supabase real, GHL en stub", () => {
   let db: typeof import("./repo").db;
   let registrarSeguimiento: typeof import("./seguimientos").registrarSeguimiento;
-  let credenciales: Awaited<ReturnType<typeof import("./credenciales").resolverCredenciales>>;
+  let credenciales: Awaited<
+    ReturnType<typeof import("./credenciales").resolverCredenciales>
+  >;
 
   let activar: typeof import("./credenciales").activar;
 
@@ -94,15 +97,27 @@ describeSi("integración — Supabase real, GHL en stub", () => {
     // Orden obligado: los eventos referencian el seguimiento con `no action`, así que hay
     // que sacarlos primero o el borrado del seguimiento falla — en silencio, porque
     // supabase-js no lanza. Por eso se verifica el resultado en vez de confiar.
-    for (const tabla of ["closer_ghl_outbox", "closer_contacto_eventos", "closer_seguimientos", "closer_contacto_tarea"]) {
-      const { error } = await db().from(tabla).delete().eq("ghl_contact_id", CONTACTO);
+    for (const tabla of [
+      "closer_ghl_outbox",
+      "closer_contacto_eventos",
+      "closer_seguimientos",
+      "closer_contacto_tarea",
+      "closer_notas",
+    ]) {
+      const { error } = await db()
+        .from(tabla)
+        .delete()
+        .eq("ghl_contact_id", CONTACTO);
       if (error) throw new Error(`limpieza de ${tabla}: ${error.message}`);
     }
     const { count } = await db()
       .from("closer_seguimientos")
       .select("*", { count: "exact", head: true })
       .eq("ghl_contact_id", CONTACTO);
-    if (count) throw new Error(`la limpieza dejó ${count} seguimiento(s) de prueba en SOFIA`);
+    if (count)
+      throw new Error(
+        `la limpieza dejó ${count} seguimiento(s) de prueba en SOFIA`,
+      );
   });
 
   it("registra un seguimiento manual y lo deja fuera de la cola de hoy", async () => {
@@ -121,29 +136,70 @@ describeSi("integración — Supabase real, GHL en stub", () => {
     expect(r.seguimientoId).toBeTruthy();
     expect(r.toast).toMatch(/Seguimiento programado/);
 
-    const { data } = await db().from("closer_seguimientos_de_hoy").select("*").eq("ghl_contact_id", CONTACTO);
+    const { data } = await db()
+      .from("closer_seguimientos_de_hoy")
+      .select("*")
+      .eq("ghl_contact_id", CONTACTO);
     expect(data ?? []).toHaveLength(0); // vence en 3 días, hoy no toca
   });
 
   it("la tarea del día queda completada — va a Completadas Hoy", async () => {
     // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
     activar(credenciales);
-    const { data } = await db().from("closer_contacto_tarea").select("completada_dia").eq("ghl_contact_id", CONTACTO).single();
-    const { data: hoy } = await db().rpc("closer_hoy_org", { p_org_id: ORG_PRINCIPAL_ID });
+    const { data } = await db()
+      .from("closer_contacto_tarea")
+      .select("completada_dia")
+      .eq("ghl_contact_id", CONTACTO)
+      .single();
+    const { data: hoy } = await db().rpc("closer_hoy_org", {
+      p_org_id: ORG_PRINCIPAL_ID,
+    });
     expect(data?.completada_dia).toBe(hoy);
   });
 
   it("la nota se persiste, para poder leerla el día del seguimiento", async () => {
     // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
     activar(credenciales);
-    const { data } = await db().from("closer_seguimientos").select("nota").eq("ghl_contact_id", CONTACTO).eq("estado", "pendiente").single();
+    const { data } = await db()
+      .from("closer_seguimientos")
+      .select("nota")
+      .eq("ghl_contact_id", CONTACTO)
+      .eq("estado", "pendiente")
+      .single();
     expect(data?.nota).toBe("Nota de la prueba de integración.");
+  });
+
+  /**
+   * EL test del bug del 2026-08-15: la nota de un Seguimiento no aparecía en el tab Notas.
+   *
+   * El de arriba pasaba —`closer_seguimientos.nota` se llenaba— y aun así la nota estaba
+   * perdida para quien abría la ficha: esa columna la lee el motor de recordatorios, no el tab.
+   * La ficha consulta `closer_notas`, y ahí no había fila. Dos tablas distintas, dos lectores
+   * distintos, y un test verde que solo cubría una.
+   *
+   * Vale para los DOS roles: el setter llama a `registrarSeguimiento()` entero.
+   */
+  it("y la MISMA nota aparece en el tab Notas, con la píldora como contexto", async () => {
+    activar(credenciales);
+    const { data } = await db()
+      .from("closer_notas")
+      .select("texto, contexto, autor_nombre")
+      .eq("ghl_contact_id", CONTACTO);
+
+    const notas = data ?? [];
+    expect(notas).toHaveLength(1);
+    expect(notas[0].texto).toBe("Nota de la prueba de integración.");
+    // El mismo formato que las otras cinco salidas ("SEGUIMIENTO · DUDANDO"), no uno propio.
+    expect(notas[0].contexto).toBe("SEGUIMIENTO · DUDANDO");
   });
 
   it("el stub registra la intención de los tres efectos, sin aplicarlos", async () => {
     // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
     activar(credenciales);
-    const { data } = await db().from("closer_ghl_outbox").select("operacion, args, estado").eq("ghl_contact_id", CONTACTO);
+    const { data } = await db()
+      .from("closer_ghl_outbox")
+      .select("operacion, args, estado")
+      .eq("ghl_contact_id", CONTACTO);
     const ops = (data ?? []).map((o) => o.operacion).sort();
 
     expect(ops).toEqual(["aplicar_tag", "escribir_campo", "remover_tag"]);
@@ -160,7 +216,11 @@ describeSi("integración — Supabase real, GHL en stub", () => {
      * No se descubrió antes porque el script para correr esta suite no existía. Es el mismo patrón
      * que D36: lo que se construye y no se ejercita, no está construido — acá aplicado a un test.
      */
-    expect(aplicar?.args?.tags).toEqual(["seguimiento", "seguimiento_manual", "bot_desactivado_postcall"]);
+    expect(aplicar?.args?.tags).toEqual([
+      "seguimiento",
+      "seguimiento_manual",
+      "bot_desactivado_postcall",
+    ]);
 
     // El campo lleva el LABEL exacto del dropdown de GHL, no el slug interno.
     const campo = (data ?? []).find((o) => o.operacion === "escribir_campo");
@@ -179,8 +239,13 @@ describeSi("integración — Supabase real, GHL en stub", () => {
       idempotencyKey: `test-auto-${Date.now()}`,
     });
 
-    const { data } = await db().from("closer_seguimientos").select("estado, modo, serie_key").eq("ghl_contact_id", CONTACTO);
-    const abiertos = (data ?? []).filter((s) => s.estado === "pendiente" || s.estado === "agotado");
+    const { data } = await db()
+      .from("closer_seguimientos")
+      .select("estado, modo, serie_key")
+      .eq("ghl_contact_id", CONTACTO);
+    const abiertos = (data ?? []).filter(
+      (s) => s.estado === "pendiente" || s.estado === "agotado",
+    );
 
     expect(abiertos).toHaveLength(1);
     expect(abiertos[0].modo).toBe("automatico");
@@ -191,7 +256,10 @@ describeSi("integración — Supabase real, GHL en stub", () => {
   it("la serie automática NO genera fila en la cola, aunque esté pendiente", async () => {
     // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
     activar(credenciales);
-    const { data } = await db().from("closer_seguimientos_de_hoy").select("*").eq("ghl_contact_id", CONTACTO);
+    const { data } = await db()
+      .from("closer_seguimientos_de_hoy")
+      .select("*")
+      .eq("ghl_contact_id", CONTACTO);
     expect(data ?? []).toHaveLength(0);
   });
 });
@@ -210,7 +278,10 @@ describeSi("integración — Supabase real, GHL en stub", () => {
  * El contacto se crea sin teléfono y con un email en `example.com`, que es el dominio
  * reservado para pruebas: aunque algo intentara enviarle, no llega a ninguna parte.
  */
-const describeEscritura = activa && process.env.INTEGRACION_ESCRITURA === "1" ? describe : describe.skip;
+const describeEscritura =
+  activa && process.env.INTEGRACION_ESCRITURA === "1"
+    ? describe
+    : describe.skip;
 
 describeEscritura("integración — ESCRITURA real en GHL", () => {
   let contactoId = "";
@@ -218,7 +289,9 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
   let db: typeof import("./repo").db;
   let registrarSeguimiento: typeof import("./seguimientos").registrarSeguimiento;
   let activar: typeof import("./credenciales").activar;
-  let credenciales: Awaited<ReturnType<typeof import("./credenciales").resolverCredenciales>>;
+  let credenciales: Awaited<
+    ReturnType<typeof import("./credenciales").resolverCredenciales>
+  >;
 
   const BASE = "https://services.leadconnectorhq.com";
   const cab = () => ({
@@ -250,7 +323,10 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
     });
     const j = await r.json();
     contactoId = j?.contact?.id ?? "";
-    if (!contactoId) throw new Error(`No se pudo crear el contacto de prueba: ${JSON.stringify(j).slice(0, 300)}`);
+    if (!contactoId)
+      throw new Error(
+        `No se pudo crear el contacto de prueba: ${JSON.stringify(j).slice(0, 300)}`,
+      );
   }, 30_000);
 
   afterAll(async () => {
@@ -262,10 +338,19 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
      * un `afterAll` que falla deja basura.
      */
     activar(credenciales);
-    for (const t of ["closer_ghl_outbox", "closer_contacto_eventos", "closer_seguimientos", "closer_contacto_tarea"]) {
+    for (const t of [
+      "closer_ghl_outbox",
+      "closer_contacto_eventos",
+      "closer_seguimientos",
+      "closer_contacto_tarea",
+    ]) {
       await db().from(t).delete().eq("ghl_contact_id", contactoId);
     }
-    if (contactoId) await fetch(`${BASE}/contacts/${contactoId}`, { method: "DELETE", headers: cab() });
+    if (contactoId)
+      await fetch(`${BASE}/contacts/${contactoId}`, {
+        method: "DELETE",
+        headers: cab(),
+      });
   }, 30_000);
 
   it("el contacto de prueba nace con zona_closer y sin seguimiento", async () => {
@@ -304,7 +389,9 @@ describeEscritura("integración — ESCRITURA real en GHL", () => {
     // El contexto no se hereda del hook: ver el comentario del `beforeAll`.
     activar(credenciales);
     const c = await ghlReal.obtenerContacto(contactoId);
-    const valor = c?.customFields?.["contact.nivel_de_inters_seguimiento"] ?? c?.customFields?.["nivel_de_inters_seguimiento"];
+    const valor =
+      c?.customFields?.["contact.nivel_de_inters_seguimiento"] ??
+      c?.customFields?.["nivel_de_inters_seguimiento"];
     expect(valor).toBe("Dudando");
   }, 30_000);
 });
@@ -325,10 +412,17 @@ describeSi("integración — lectura de GHL real", () => {
     if (!conexion.ok) return;
 
     // Los cuatro que este módulo escribe o lee tienen que existir en la cuenta.
-    for (const tag of ["seguimiento", "seguimiento_recupero", "seguimiento_manual", "zona_closer"]) {
+    for (const tag of [
+      "seguimiento",
+      "seguimiento_recupero",
+      "seguimiento_manual",
+      "zona_closer",
+    ]) {
       expect(conexion.tags.map((t) => t.toLowerCase())).toContain(tag);
     }
-    expect(conexion.customFields).toContain("contact.nivel_de_inters_seguimiento");
+    expect(conexion.customFields).toContain(
+      "contact.nivel_de_inters_seguimiento",
+    );
   });
 });
 
@@ -374,7 +468,12 @@ describeEscritura("integración — crear empresa (escribe en SOFIA)", () => {
       .single();
 
     expect(error?.message ?? null).toBeNull();
-    expect(data).toMatchObject({ org_id: orgId, slug, activa: true, es_principal: false });
+    expect(data).toMatchObject({
+      org_id: orgId,
+      slug,
+      activa: true,
+      es_principal: false,
+    });
 
     /**
      * El endpoint traduce `23505` a un 409 "ya existe una empresa con ese identificador". Se
@@ -384,12 +483,21 @@ describeEscritura("integración — crear empresa (escribe en SOFIA)", () => {
      */
     const dup = await dbSinScope()
       .from("closer_org_config")
-      .insert({ org_id: randomUUID(), nombre: "ZZ DUP", slug, activa: true, es_principal: false })
+      .insert({
+        org_id: randomUUID(),
+        nombre: "ZZ DUP",
+        slug,
+        activa: true,
+        es_principal: false,
+      })
       .select("org_id")
       .single();
     expect(dup.error?.code).toBe("23505");
 
-    const { error: errBorrar } = await dbSinScope().from("closer_org_config").delete().eq("org_id", orgId);
+    const { error: errBorrar } = await dbSinScope()
+      .from("closer_org_config")
+      .delete()
+      .eq("org_id", orgId);
     expect(errBorrar?.message ?? null).toBeNull();
   }, 30_000);
 });
@@ -409,58 +517,71 @@ describeEscritura("integración — crear empresa (escribe en SOFIA)", () => {
  * Un unit test con datos sintéticos no lo agarra: hay que preguntarle a la base cuál es el estado
  * de verdad. Por eso vive en la suite de integración.
  */
-describeSi("integración — el checklist de alta lee credenciales resueltas", () => {
-  it("ARIA resuelve su PIT aunque la columna esté vacía, y queda anotado como global", async () => {
-    const { resolverCredenciales } = await import("./credenciales.js");
-    const { dbSinScope } = await import("./db.js");
+describeSi(
+  "integración — el checklist de alta lee credenciales resueltas",
+  () => {
+    it("ARIA resuelve su PIT aunque la columna esté vacía, y queda anotado como global", async () => {
+      const { resolverCredenciales } = await import("./credenciales.js");
+      const { dbSinScope } = await import("./db.js");
 
-    const cred = await resolverCredenciales(ORG_PRINCIPAL_ID);
+      const cred = await resolverCredenciales(ORG_PRINCIPAL_ID);
 
-    // El PIT existe resuelto…
-    expect(cred.ghlPit, "ARIA sin PIT resuelto: el fallback de la principal se rompió").toBeTruthy();
-    expect(cred.ghlLocationId).toBeTruthy();
+      // El PIT existe resuelto…
+      expect(
+        cred.ghlPit,
+        "ARIA sin PIT resuelto: el fallback de la principal se rompió",
+      ).toBeTruthy();
+      expect(cred.ghlLocationId).toBeTruthy();
 
-    // …y la columna está vacía, que es justo lo que hacía fallar a la versión anterior.
-    const { data } = await dbSinScope()
-      .from("closer_org_config")
-      .select("ghl_pit_cifrado")
-      .eq("org_id", ORG_PRINCIPAL_ID)
-      .maybeSingle();
-    const enColumna = (data as { ghl_pit_cifrado: string | null } | null)?.ghl_pit_cifrado ?? null;
+      // …y la columna está vacía, que es justo lo que hacía fallar a la versión anterior.
+      const { data } = await dbSinScope()
+        .from("closer_org_config")
+        .select("ghl_pit_cifrado")
+        .eq("org_id", ORG_PRINCIPAL_ID)
+        .maybeSingle();
+      const enColumna =
+        (data as { ghl_pit_cifrado: string | null } | null)?.ghl_pit_cifrado ??
+        null;
 
-    if (enColumna === null) {
-      /**
-       * Mientras siga así, `desdeEntorno` tiene que decirlo. Es lo que le permite al checklist
-       * distinguir "cargado por esta empresa" de "apoyado en una variable global" — las dos
-       * funcionan, y no son lo mismo.
-       */
-      expect(cred.desdeEntorno).toContain("GHL_PIT");
-    } else {
-      // Alguien cargó el PIT en la base: entonces NO puede venir del entorno.
-      expect(cred.desdeEntorno).not.toContain("GHL_PIT");
-    }
-  });
+      if (enColumna === null) {
+        /**
+         * Mientras siga así, `desdeEntorno` tiene que decirlo. Es lo que le permite al checklist
+         * distinguir "cargado por esta empresa" de "apoyado en una variable global" — las dos
+         * funcionan, y no son lo mismo.
+         */
+        expect(cred.desdeEntorno).toContain("GHL_PIT");
+      } else {
+        // Alguien cargó el PIT en la base: entonces NO puede venir del entorno.
+        expect(cred.desdeEntorno).not.toContain("GHL_PIT");
+      }
+    });
 
-  /**
-   * El otro lado de la moneda, y el bug que la `027` vino a cerrar: una empresa cliente **no** hereda
-   * las credenciales de ARIA. Si este test empieza a fallar, el fallback dejó de estar restringido a
-   * la principal y una empresa a medio configurar está operando contra la subcuenta de otra.
-   */
-  it("una empresa que no es la principal NO hereda el PIT global", async () => {
-    const { resolverCredenciales } = await import("./credenciales.js");
-    const { dbSinScope } = await import("./db.js");
+    /**
+     * El otro lado de la moneda, y el bug que la `027` vino a cerrar: una empresa cliente **no** hereda
+     * las credenciales de ARIA. Si este test empieza a fallar, el fallback dejó de estar restringido a
+     * la principal y una empresa a medio configurar está operando contra la subcuenta de otra.
+     */
+    it("una empresa que no es la principal NO hereda el PIT global", async () => {
+      const { resolverCredenciales } = await import("./credenciales.js");
+      const { dbSinScope } = await import("./db.js");
 
-    const { data } = await dbSinScope()
-      .from("closer_org_config")
-      .select("org_id, nombre, ghl_pit_cifrado")
-      .eq("es_principal", false)
-      .limit(1);
+      const { data } = await dbSinScope()
+        .from("closer_org_config")
+        .select("org_id, nombre, ghl_pit_cifrado")
+        .eq("es_principal", false)
+        .limit(1);
 
-    const otra = (data ?? [])[0] as { org_id: string; nombre: string; ghl_pit_cifrado: string | null } | undefined;
-    if (!otra) return; // Todavía no hay una segunda empresa: nada que verificar.
+      const otra = (data ?? [])[0] as
+        | { org_id: string; nombre: string; ghl_pit_cifrado: string | null }
+        | undefined;
+      if (!otra) return; // Todavía no hay una segunda empresa: nada que verificar.
 
-    const cred = await resolverCredenciales(otra.org_id);
-    expect(cred.desdeEntorno, `"${otra.nombre}" heredó una credencial global`).not.toContain("GHL_PIT");
-    if (!otra.ghl_pit_cifrado) expect(cred.ghlPit).toBeNull();
-  });
-});
+      const cred = await resolverCredenciales(otra.org_id);
+      expect(
+        cred.desdeEntorno,
+        `"${otra.nombre}" heredó una credencial global`,
+      ).not.toContain("GHL_PIT");
+      if (!otra.ghl_pit_cifrado) expect(cred.ghlPit).toBeNull();
+    });
+  },
+);

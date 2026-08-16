@@ -28,7 +28,13 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/utils";
 import ContactDrawer from "./ContactDrawer";
-import { botIconVisual, countCallsContestadas, countSalesCalls, type BotEstado, type Grade } from "../lib/closerStore";
+import {
+  botIconVisual,
+  countCallsContestadas,
+  countSalesCalls,
+  type BotEstado,
+  type Grade,
+} from "../lib/closerStore";
 import { useAuth } from "../lib/authStore";
 import {
   fetchPipelineSetter,
@@ -48,7 +54,11 @@ import {
 import { useAgentAudit } from "../lib/agentAuditStore";
 
 type Tab = "inicio" | "midia" | "pipeline";
-const TAB_LABEL: Record<Tab, string> = { inicio: "Inicio", midia: "Mi Día", pipeline: "Pipeline" };
+const TAB_LABEL: Record<Tab, string> = {
+  inicio: "Inicio",
+  midia: "Mi Día",
+  pipeline: "Pipeline",
+};
 
 /* ------------------------------------------------------------------ */
 /* Header                                                              */
@@ -61,11 +71,17 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const { contacts } = useSetter();
   const midiaBadge = setterPendingTasksBreakdown(contacts).total;
   const { usuario } = useAuth();
-  const tabs: { key: Tab; label: string; Icon: LucideIcon; badge?: number }[] = [
-    { key: "inicio", label: "Inicio", Icon: House },
-    { key: "midia", label: "Mi Día", Icon: ListTodo, badge: midiaBadge > 0 ? midiaBadge : undefined },
-    { key: "pipeline", label: "Pipeline", Icon: Kanban },
-  ];
+  const tabs: { key: Tab; label: string; Icon: LucideIcon; badge?: number }[] =
+    [
+      { key: "inicio", label: "Inicio", Icon: House },
+      {
+        key: "midia",
+        label: "Mi Día",
+        Icon: ListTodo,
+        badge: midiaBadge > 0 ? midiaBadge : undefined,
+      },
+      { key: "pipeline", label: "Pipeline", Icon: Kanban },
+    ];
 
   return (
     <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 pb-8 border-b border-border/30">
@@ -77,7 +93,10 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
         {tab === "midia" ? (
           <h1 className="text-3xl font-bold tracking-tight text-foreground">
             <span className="font-light">
-              Mi Día — <span className="text-muted-foreground">{fechaLarga(hoyISO())}</span>
+              Mi Día —{" "}
+              <span className="text-muted-foreground">
+                {fechaLarga(hoyISO())}
+              </span>
             </span>
           </h1>
         ) : (
@@ -98,7 +117,7 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
                   "inline-flex items-center justify-center gap-2 whitespace-nowrap ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 rounded-full px-5 h-9 text-xs font-medium transition-all",
                   active
                     ? "hover:bg-accent hover:text-accent-foreground bg-primary text-primary-foreground shadow-md"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
                 )}
               >
                 <Icon className="w-4 h-4 mr-2" />
@@ -107,7 +126,9 @@ function Header({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
                   <span
                     className={cn(
                       "ml-2 px-1.5 py-0.5 rounded-full text-[10px]",
-                      active ? "bg-primary-foreground/20" : "bg-primary/10 text-primary"
+                      active
+                        ? "bg-primary-foreground/20"
+                        : "bg-primary/10 text-primary",
                     )}
                   >
                     {badge}
@@ -133,7 +154,14 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
   // de Mi Día (antes esta fórmula omitía Oportunidades LT y Respondieron, y el nav tenía un "14" fijo
   // sin relación con ninguna de las dos — tres números distintos para "lo mismo").
   const tareas = setterPendingTasksBreakdown(contacts);
-  const { urgentes: urgentesN, estancadas: estancadasN, oportunidades: oportunidadesN, respondieron: respondieronN, seguimientosHoy: seguimientosN, total: tareasHoy } = tareas;
+  const {
+    urgentes: urgentesN,
+    estancadas: estancadasN,
+    oportunidades: oportunidadesN,
+    respondieron: respondieronN,
+    seguimientosHoy: seguimientosN,
+    total: tareasHoy,
+  } = tareas;
 
   /**
    * ── Las tarjetas, con lo que de verdad se mide ─────────────────────
@@ -146,7 +174,14 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
    * `—` y no `0`: un cero afirma que el bot no agendó nada, y lo que pasa es que todavía no se
    * puede distinguir quién creó cada cita.
    */
-  const KPI_CARDS: { label: string; value: string; sub: string; Icon: LucideIcon; iconWrap: string; iconColor: string }[] = [
+  const KPI_CARDS: {
+    label: string;
+    value: string;
+    sub: string;
+    Icon: LucideIcon;
+    iconWrap: string;
+    iconColor: string;
+  }[] = [
     {
       label: "Agendas generadas por ti",
       value: cockpit ? String(cockpit.agendasGeneradas) : "—",
@@ -158,7 +193,9 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
     {
       label: "Ventas Low-Ticket",
       value: cockpit ? String(cockpit.ltVentas) : "—",
-      sub: cockpit ? `${money(cockpit.ltBruto)} cobrados este mes` : "Cargando…",
+      sub: cockpit
+        ? `${money(cockpit.ltBruto)} cobrados este mes`
+        : "Cargando…",
       Icon: Target,
       iconWrap: "bg-violet-500/10",
       iconColor: "text-violet-600",
@@ -192,7 +229,9 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
             Mes en curso
           </div>
           <div>
-            <h2 className="text-4xl font-light tracking-tight mb-2">Comisiones del mes</h2>
+            <h2 className="text-4xl font-light tracking-tight mb-2">
+              Comisiones del mes
+            </h2>
             <p className="text-zinc-400">Low-ticket y derivadas a closer</p>
           </div>
         </div>
@@ -202,11 +241,16 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
             que nadie configuró su comisión. Es lo que le pasa a cualquier empresa el primer día.
           */}
           <div className="text-6xl font-light tracking-tighter text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-            {cockpit?.comisionTotal != null ? money(cockpit.comisionTotal) : "—"}
+            {cockpit?.comisionTotal != null
+              ? money(cockpit.comisionTotal)
+              : "—"}
           </div>
           {(cockpit?.faltaPctLt || cockpit?.faltaPctDiferida) && (
             <p className="text-xs text-zinc-400">
-              Cargá tu % de comisión en <span className="text-zinc-200 font-medium">Ajustes › Operación</span>
+              Cargá tu % de comisión en{" "}
+              <span className="text-zinc-200 font-medium">
+                Ajustes › Operación
+              </span>
             </p>
           )}
           {/*
@@ -235,7 +279,9 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
               {cockpit?.comisionLt != null ? money(cockpit.comisionLt) : "—"}
             </p>
             <p className="text-xs text-zinc-500 mt-2">
-              {cockpit ? `${cockpit.ltVentas} ventas directas · ${money(cockpit.ltBruto)} bruto` : "Cargando…"}
+              {cockpit
+                ? `${cockpit.ltVentas} ventas directas · ${money(cockpit.ltBruto)} bruto`
+                : "Cargando…"}
             </p>
           </div>
         </div>
@@ -249,7 +295,9 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
               <div className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800" />
             </div>
             <p className="text-3xl font-light">
-              {cockpit?.comisionDiferida != null ? money(cockpit.comisionDiferida) : "—"}
+              {cockpit?.comisionDiferida != null
+                ? money(cockpit.comisionDiferida)
+                : "—"}
             </p>
             <p className="text-xs text-zinc-500 mt-2">
               {cockpit
@@ -274,7 +322,7 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
               <div
                 className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center",
-                  c.iconWrap
+                  c.iconWrap,
                 )}
               >
                 <c.Icon className={cn("w-4 h-4", c.iconColor)} />
@@ -303,7 +351,9 @@ function InicioTab({ onGoToMiDia }: { onGoToMiDia: () => void }) {
                 oportunidadesN > 0 && `${oportunidadesN} oportunidades LT`,
                 respondieronN > 0 && `${respondieronN} buzón`,
                 seguimientosN > 0 && `${seguimientosN} seguimientos`,
-              ].filter(Boolean).join(" · ")}
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           </div>
           <div className="flex items-center text-amber-600 dark:text-amber-500 font-medium group-hover:translate-x-1 transition-transform">
@@ -338,45 +388,90 @@ function avatarForGrade(grade?: Grade): keyof typeof AVATAR {
 /** Iconos de estado por contacto — mismo patrón que MiDiaRow en CloserAI.tsx (dinámico, no presets, § auditoría 2026-07-10). */
 function ContactIcons({ contact }: { contact: SetterContact }) {
   const hasBot = contact.canal !== "instagram";
-  const v = botIconVisual(hasBot ? contact.botEstado ?? "activo" : undefined);
+  const v = botIconVisual(hasBot ? (contact.botEstado ?? "activo") : undefined);
   const callsCount = countCallsContestadas(contact.llamadas);
   const salesCallsCount = countSalesCalls(contact.llamadas);
   return (
     <div className="flex items-center gap-3 shrink-0 ml-4 hidden sm:flex">
       {salesCallsCount > 0 ? (
-        <div className="flex items-center gap-0.5 text-[11px] font-semibold text-[#6b6980]" title="Reuniones con el closer">
+        <div
+          className="flex items-center gap-0.5 text-[11px] font-semibold text-[#6b6980]"
+          title="Reuniones con el closer"
+        >
           <Video className="w-3.5 h-3.5" />
           {salesCallsCount}
         </div>
       ) : (
-        <div className="flex items-center gap-1 text-[#6b6980]/25" title="Sin reuniones con el closer">
+        <div
+          className="flex items-center gap-1 text-[#6b6980]/25"
+          title="Sin reuniones con el closer"
+        >
           <Video className="w-3.5 h-3.5" />
         </div>
       )}
       <div
-        className={cn("flex items-center gap-1", contact.agendaFecha ? "text-[#6b6980]" : "text-[#6b6980]/25")}
-        title={contact.agendaFecha ? `Agendado ${contact.agendaFecha}` : "Sin agendar"}
+        className={cn(
+          "flex items-center gap-1",
+          contact.agendaFecha ? "text-[#6b6980]" : "text-[#6b6980]/25",
+        )}
+        title={
+          contact.agendaFecha
+            ? `Agendado ${contact.agendaFecha}`
+            : "Sin agendar"
+        }
       >
         <Calendar className="w-3.5 h-3.5" />
       </div>
       {callsCount > 0 ? (
-        <div className="flex items-center gap-0.5 text-[11px] font-semibold text-[#6b6980]" title="Contestó">
+        <div
+          className="flex items-center gap-0.5 text-[11px] font-semibold text-[#6b6980]"
+          title="Contestó"
+        >
           <Phone className="w-3.5 h-3.5" />
           {callsCount}✓
         </div>
       ) : (
-        <div className="flex items-center gap-1 text-[#6b6980]/25" title="Sin llamadas">
+        <div
+          className="flex items-center gap-1 text-[#6b6980]/25"
+          title="Sin llamadas"
+        >
           <Phone className="w-3.5 h-3.5" />
         </div>
       )}
-      <div className={cn("flex items-center gap-0.5 text-[11px] font-semibold", v.className)} title={v.title}>
+      <div
+        className={cn(
+          "flex items-center gap-0.5 text-[11px] font-semibold",
+          v.className,
+        )}
+        title={v.title}
+      >
         <Bot className="w-3.5 h-3.5" />
         {v.label}
       </div>
-      <div className={cn("flex items-center gap-1", contact.seguimientoAutomaticoActivo ? "text-[#6b6980]" : "text-[#6b6980]/25")} title={contact.seguimientoAutomaticoActivo ? "Seguimiento automático activo" : "Sin seguimiento activo"}>
+      <div
+        className={cn(
+          "flex items-center gap-1",
+          contact.seguimientoAutomaticoActivo
+            ? "text-[#6b6980]"
+            : "text-[#6b6980]/25",
+        )}
+        title={
+          contact.seguimientoAutomaticoActivo
+            ? "Seguimiento automático activo"
+            : "Sin seguimiento activo"
+        }
+      >
         <AlarmClock className="w-3.5 h-3.5" />
       </div>
-      <div className={cn("flex items-center gap-1", contact.monto ? "text-emerald-600 dark:text-emerald-400" : "text-[#6b6980]/25")} title={contact.monto ? `Venta $${contact.monto}` : "Sin venta LT"}>
+      <div
+        className={cn(
+          "flex items-center gap-1",
+          contact.monto
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-[#6b6980]/25",
+        )}
+        title={contact.monto ? `Venta $${contact.monto}` : "Sin venta LT"}
+      >
         <DollarSign className="w-3.5 h-3.5" />
       </div>
       <ChevronRight className="w-4 h-4 text-muted-foreground/50 ml-2" />
@@ -407,7 +502,9 @@ function LeadRow({
       className={cn(
         "p-6 transition-all duration-200 flex items-center justify-between group cursor-pointer",
         completed ? "opacity-75 hover:opacity-100" : "",
-        pinned ? "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-amber-400" : rowCls
+        pinned
+          ? "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-amber-400"
+          : rowCls,
       )}
     >
       <div className="w-full flex items-center justify-between">
@@ -416,7 +513,7 @@ function LeadRow({
             <div
               className={cn(
                 "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-                AVATAR[avatarForGrade(contact.grade)]
+                AVATAR[avatarForGrade(contact.grade)],
               )}
             >
               {contact.grade ?? "-"}
@@ -425,7 +522,8 @@ function LeadRow({
               <span
                 className={cn(
                   "font-semibold text-foreground text-sm uppercase flex items-center gap-1.5",
-                  completed && "line-through decoration-muted-foreground/60 text-muted-foreground"
+                  completed &&
+                    "line-through decoration-muted-foreground/60 text-muted-foreground",
                 )}
               >
                 {contact.name}
@@ -436,18 +534,26 @@ function LeadRow({
                   <Clock className="w-2.5 h-2.5" /> Le debes respuesta
                 </span>
               )}
-              <span className="text-xs text-muted-foreground">{contact.phone}</span>
+              <span className="text-xs text-muted-foreground">
+                {contact.phone}
+              </span>
             </div>
           </div>
           <div className="flex-1 flex flex-col gap-1">
             <div className="flex items-center gap-2 flex-wrap">
               <div className={TAG_SOURCE}>{contact.fuente}</div>
-              <div className={completed ? TAG_MUTED : TAG_CLS_BY_TONE[contact.situacionTone]}>{contact.situacion}</div>
+              <div
+                className={
+                  completed ? TAG_MUTED : TAG_CLS_BY_TONE[contact.situacionTone]
+                }
+              >
+                {contact.situacion}
+              </div>
             </div>
             <p
               className={cn(
                 "text-xs text-muted-foreground truncate max-w-[400px] mt-1",
-                contact.botPrefix && "flex items-center gap-1.5"
+                contact.botPrefix && "flex items-center gap-1.5",
               )}
             >
               {contact.botPrefix && <Bot className="w-3.5 h-3.5 opacity-70" />}
@@ -488,14 +594,24 @@ function Section({
 }) {
   return (
     <div className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm mb-8">
-      <div className={cn("px-6 py-4 border-b border-border flex items-center gap-3", headerCls)}>
-        <h3 className={cn("text-[13px] font-semibold uppercase tracking-wide", titleCls)}>
+      <div
+        className={cn(
+          "px-6 py-4 border-b border-border flex items-center gap-3",
+          headerCls,
+        )}
+      >
+        <h3
+          className={cn(
+            "text-[13px] font-semibold uppercase tracking-wide",
+            titleCls,
+          )}
+        >
           {title}
         </h3>
         <span
           className={cn(
             "text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm",
-            badgeCls
+            badgeCls,
           )}
         >
           {contacts.length}
@@ -528,7 +644,9 @@ function Section({
  * de cinco. El chip decía "Todos (150)" sobre cinco filas: no era una muestra de 150, era un
  * número inventado con etiqueta de total.
  */
-function contarPorCanal(contacts: SetterContact[]): Record<"todos" | Canal, number> {
+function contarPorCanal(
+  contacts: SetterContact[],
+): Record<"todos" | Canal, number> {
   return {
     todos: contacts.length,
     whatsapp: contacts.filter((c) => c.canal === "whatsapp").length,
@@ -536,10 +654,18 @@ function contarPorCanal(contacts: SetterContact[]): Record<"todos" | Canal, numb
   };
 }
 
-function BuzonSection({ contacts, onOpen }: { contacts: SetterContact[]; onOpen: (name: string) => void }) {
+function BuzonSection({
+  contacts,
+  onOpen,
+}: {
+  contacts: SetterContact[];
+  onOpen: (name: string) => void;
+}) {
   const [filter, setFilter] = useState<"todos" | Canal>("todos");
   // `contacts` ya viene pineados-primero (§ ciclo de vida de tareas, 2026-07-11) — filter() conserva el orden relativo.
-  const filtered = contacts.filter((c) => filter === "todos" || c.canal === filter);
+  const filtered = contacts.filter(
+    (c) => filter === "todos" || c.canal === filter,
+  );
   const filteredPinnedCount = filtered.filter((c) => c.pinned).length;
   // Los conteos salen de la MISMA lista que se renderiza: no pueden divergir de lo que se ve.
   const conteos = contarPorCanal(contacts);
@@ -591,7 +717,13 @@ function BuzonSection({ contacts, onOpen }: { contacts: SetterContact[]; onOpen:
 }
 
 /** Completadas Hoy — regla §4.1: siempre visible, aunque esté vacía. Tono gris/neutral (mismo patrón que Closer, §20.C). */
-function CompletadasSection({ contacts, onOpen }: { contacts: SetterContact[]; onOpen: (name: string) => void }) {
+function CompletadasSection({
+  contacts,
+  onOpen,
+}: {
+  contacts: SetterContact[];
+  onOpen: (name: string) => void;
+}) {
   return (
     <div className="bg-card border border-border rounded-[2rem] overflow-hidden shadow-sm">
       <div className="bg-muted/40 px-6 py-4 border-b border-border flex items-center gap-3">
@@ -609,7 +741,13 @@ function CompletadasSection({ contacts, onOpen }: { contacts: SetterContact[]; o
       ) : (
         <div className="divide-y divide-border">
           {contacts.map((c) => (
-            <LeadRow key={c.name} contact={c} rowCls="hover:bg-muted/30" onOpen={onOpen} completed />
+            <LeadRow
+              key={c.name}
+              contact={c}
+              rowCls="hover:bg-muted/30"
+              onOpen={onOpen}
+              completed
+            />
           ))}
         </div>
       )}
@@ -617,7 +755,11 @@ function CompletadasSection({ contacts, onOpen }: { contacts: SetterContact[]; o
   );
 }
 
-function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactId?: string) => void }) {
+function MiDiaTab({
+  onOpenContact,
+}: {
+  onOpenContact: (name: string, ghlContactId?: string) => void;
+}) {
   const { contacts } = useSetter();
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday);
@@ -635,14 +777,23 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
    */
   const urgentesTodos = urgentes;
   // Pineados primero — § correcciones toast/pin v2 (2026-07-11): tarea de conversación cubre Buzón, Oportunidad LT, Seguimientos Y Estancadas.
-  const pinnedFirst = (c: SetterContact[]) => [...c].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
-  const estancadas = pinnedFirst(all.filter((c) => c.estancada && !c.completedToday));
+  const pinnedFirst = (c: SetterContact[]) =>
+    [...c].sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned));
+  const estancadas = pinnedFirst(
+    all.filter((c) => c.estancada && !c.completedToday),
+  );
   const estancadasPinnedCount = estancadas.filter((c) => c.pinned).length;
-  const oportunidades = pinnedFirst(all.filter((c) => c.oportunidadLt && !c.completedToday));
+  const oportunidades = pinnedFirst(
+    all.filter((c) => c.oportunidadLt && !c.completedToday),
+  );
   const oportunidadesPinnedCount = oportunidades.filter((c) => c.pinned).length;
-  const respondieron = pinnedFirst(all.filter((c) => c.respondido && !c.completedToday));
+  const respondieron = pinnedFirst(
+    all.filter((c) => c.respondido && !c.completedToday),
+  );
   const respondieronPinnedCount = respondieron.filter((c) => c.pinned).length;
-  const seguimientos = pinnedFirst(all.filter((c) => c.seguimientoPendiente && !c.completedToday));
+  const seguimientos = pinnedFirst(
+    all.filter((c) => c.seguimientoPendiente && !c.completedToday),
+  );
   const seguimientosPinnedCount = seguimientos.filter((c) => c.pinned).length;
   const completadas = all.filter((c) => c.completedToday);
   // Única fuente de verdad (§ ciclo de vida de tareas, 2026-07-11) — misma fórmula que el nav badge y el puente de Inicio.
@@ -659,7 +810,9 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
           </span>
         </div>
         <div className="flex items-center gap-4">
-          <span className="text-5xl font-light tracking-tight">{tareasHoy}</span>
+          <span className="text-5xl font-light tracking-tight">
+            {tareasHoy}
+          </span>
           <div className="flex items-center gap-2 flex-wrap">
             {urgentes.length > 0 && (
               <div className="inline-flex items-center gap-1.5 bg-red-500/10 text-red-600 dark:text-red-400 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border border-red-500/20">
@@ -675,10 +828,38 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {(
           [
-            { Icon: CirclePause, wrap: "bg-red-500/10", color: "text-red-500", value: urgentes.length, label: "Intervención urgente", hover: "group-hover:text-red-500" },
-            { Icon: MessageSquare, wrap: "bg-amber-500/10", color: "text-amber-500", value: estancadas.length, label: "Estancadas", hover: "group-hover:text-amber-500" },
-            { Icon: Target, wrap: "bg-violet-500/10", color: "text-violet-500", value: oportunidades.length, label: "Oportunidades LT", hover: "group-hover:text-violet-500" },
-            { Icon: MessageCircle, wrap: "bg-blue-500/10", color: "text-blue-500", value: respondieron.length, label: "Respondieron", hover: "group-hover:text-blue-500" },
+            {
+              Icon: CirclePause,
+              wrap: "bg-red-500/10",
+              color: "text-red-500",
+              value: urgentes.length,
+              label: "Intervención urgente",
+              hover: "group-hover:text-red-500",
+            },
+            {
+              Icon: MessageSquare,
+              wrap: "bg-amber-500/10",
+              color: "text-amber-500",
+              value: estancadas.length,
+              label: "Estancadas",
+              hover: "group-hover:text-amber-500",
+            },
+            {
+              Icon: Target,
+              wrap: "bg-violet-500/10",
+              color: "text-violet-500",
+              value: oportunidades.length,
+              label: "Oportunidades LT",
+              hover: "group-hover:text-violet-500",
+            },
+            {
+              Icon: MessageCircle,
+              wrap: "bg-blue-500/10",
+              color: "text-blue-500",
+              value: respondieron.length,
+              label: "Respondieron",
+              hover: "group-hover:text-blue-500",
+            },
           ] as const
         ).map((s) => (
           <div
@@ -690,17 +871,19 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
                 className={cn(
                   "w-8 h-8 rounded-full flex items-center justify-center shadow-inner",
                   s.wrap,
-                  s.color
+                  s.color,
                 )}
               >
                 <s.Icon className="w-4 h-4" />
               </div>
-              <span className={cn("text-xl font-light", s.color)}>{s.value}</span>
+              <span className={cn("text-xl font-light", s.color)}>
+                {s.value}
+              </span>
             </div>
             <span
               className={cn(
                 "text-[11px] font-medium text-foreground transition-colors uppercase tracking-wide leading-tight",
-                s.hover
+                s.hover,
               )}
             >
               {s.label}
@@ -734,7 +917,12 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
         rowCls="bg-background/50 hover:bg-muted/50 even:bg-muted/30"
         // Los EJEMPLO no tienen id y abren como siempre; los reales llevan el suyo para
         // que el tab Chat pueda traer la conversación de verdad.
-        onOpen={(name) => onOpenContact(name, urgentesTodos.find((c) => c.name === name)?.ghlContactId)}
+        onOpen={(name) =>
+          onOpenContact(
+            name,
+            urgentesTodos.find((c) => c.name === name)?.ghlContactId,
+          )
+        }
       />
       <Section
         title="Conversaciones estancadas"
@@ -775,13 +963,21 @@ function MiDiaTab({ onOpenContact }: { onOpenContact: (name: string, ghlContactI
 /* ------------------------------------------------------------------ */
 /* Tab: Pipeline                                                       */
 /* ------------------------------------------------------------------ */
-function PipelineRow({ contact, rowBg, onOpen }: { contact: SetterContact; rowBg: string; onOpen: (name: string) => void }) {
+function PipelineRow({
+  contact,
+  rowBg,
+  onOpen,
+}: {
+  contact: SetterContact;
+  rowBg: string;
+  onOpen: (name: string) => void;
+}) {
   return (
     <tr
       onClick={() => onOpen(contact.name)}
       className={cn(
         "data-[state=selected]:bg-muted transition-all duration-200 border-b border-border/30 group cursor-pointer hover:bg-muted/10",
-        rowBg
+        rowBg,
       )}
     >
       <td className="p-4 align-middle font-medium whitespace-nowrap px-8 py-4">
@@ -789,12 +985,14 @@ function PipelineRow({ contact, rowBg, onOpen }: { contact: SetterContact; rowBg
           <div
             className={cn(
               "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0",
-              AVATAR[avatarForGrade(contact.grade)]
+              AVATAR[avatarForGrade(contact.grade)],
             )}
           >
             {contact.grade ?? "-"}
           </div>
-          <span className="w-40 truncate uppercase tracking-wide text-xs">{contact.name}</span>
+          <span className="w-40 truncate uppercase tracking-wide text-xs">
+            {contact.name}
+          </span>
           <ContactIcons contact={contact} />
         </div>
       </td>
@@ -805,8 +1003,13 @@ function PipelineRow({ contact, rowBg, onOpen }: { contact: SetterContact; rowBg
       </td>
       <td className="p-4 align-middle px-8 py-4">
         <div className="flex flex-col">
-          <span className="text-xs font-medium text-muted-foreground">{contact.agendaFecha ?? ""}</span>
-          <span className="text-[10px] text-muted-foreground truncate max-w-[200px]" title={contact.subtitle}>
+          <span className="text-xs font-medium text-muted-foreground">
+            {contact.agendaFecha ?? ""}
+          </span>
+          <span
+            className="text-[10px] text-muted-foreground truncate max-w-[200px]"
+            title={contact.subtitle}
+          >
             {contact.subtitle}
           </span>
         </div>
@@ -838,7 +1041,11 @@ function PipelineRow({ contact, rowBg, onOpen }: { contact: SetterContact; rowBg
  * tiene contactos rompe la lectura del embudo, y no se puede arrastrar una tarjeta hacia algo que
  * no se ve.
  */
-function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void }) {
+function PipelineTab({
+  onOpenContact,
+}: {
+  onOpenContact: (name: string, ghlContactId?: string) => void;
+}) {
   const [datos, setDatos] = useState<PipelineSetterResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
@@ -887,7 +1094,10 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
     return (
       <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-6 text-sm space-y-2">
         <p>{error}</p>
-        <button onClick={() => void cargar()} className="text-xs font-medium text-primary hover:underline">
+        <button
+          onClick={() => void cargar()}
+          className="text-xs font-medium text-primary hover:underline"
+        >
           Reintentar
         </button>
       </div>
@@ -905,7 +1115,12 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
 
   const q = busqueda.trim().toLowerCase();
   const filtrar = (cs: PipelineSetterContacto[]) =>
-    q === "" ? cs : cs.filter((c) => c.name.toLowerCase().includes(q) || (c.phone ?? "").includes(q));
+    q === ""
+      ? cs
+      : cs.filter(
+          (c) =>
+            c.name.toLowerCase().includes(q) || (c.phone ?? "").includes(q),
+        );
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -917,7 +1132,8 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
       */}
       <div className="flex justify-between items-center gap-4 bg-muted/10 p-4 rounded-2xl border border-border/40">
         <span className="text-xs font-medium text-muted-foreground">
-          {datos.total} {datos.total === 1 ? "contacto" : "contactos"} en el territorio del setter
+          {datos.total} {datos.total === 1 ? "contacto" : "contactos"} en el
+          territorio del setter
         </span>
         <div className="relative w-[280px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -935,7 +1151,10 @@ function PipelineTab({ onOpenContact }: { onOpenContact: (name: string) => void 
           <ColumnaEtapa
             key={col.key}
             columna={{ ...col, contactos: filtrar(col.contactos) }}
-            etapas={(datos.columnas ?? []).map((c) => ({ key: c.key, label: c.label }))}
+            etapas={(datos.columnas ?? []).map((c) => ({
+              key: c.key,
+              label: c.label,
+            }))}
             moviendo={moviendo}
             onOpen={onOpenContact}
             onMover={mover}
@@ -963,7 +1182,8 @@ function ColumnaEtapa({
   etapas: { key: string; label: string }[];
   /** El contacto que está viajando ahora mismo, para no dejar disparar dos veces. */
   moviendo: string | null;
-  onOpen: (name: string) => void;
+  /** El `ghlContactId` viaja siempre: es lo que ata la ficha —y lo que se escriba en ella— al lead. */
+  onOpen: (name: string, ghlContactId?: string) => void;
   onMover: (contactId: string, etapa: string) => void;
 }) {
   return (
@@ -975,9 +1195,16 @@ function ColumnaEtapa({
         )}
       >
         <div className="flex items-center gap-2.5">
-          <div className={cn("w-2 h-2 rounded-full", columna.terminal ? "bg-muted-foreground/40" : "bg-primary/60")} />
+          <div
+            className={cn(
+              "w-2 h-2 rounded-full",
+              columna.terminal ? "bg-muted-foreground/40" : "bg-primary/60",
+            )}
+          />
           <span className="text-sm font-semibold">{columna.label}</span>
-          <span className="text-xs text-muted-foreground">{columna.contactos.length}</span>
+          <span className="text-xs text-muted-foreground">
+            {columna.contactos.length}
+          </span>
         </div>
         {/*
           Que el tag todavía no exista en GHL es un hecho de la columna y se dice, en vez de que
@@ -991,7 +1218,9 @@ function ColumnaEtapa({
       </div>
 
       {columna.contactos.length === 0 ? (
-        <div className="px-6 py-5 text-xs text-muted-foreground">Sin contactos en esta etapa.</div>
+        <div className="px-6 py-5 text-xs text-muted-foreground">
+          Sin contactos en esta etapa.
+        </div>
       ) : (
         <div className="divide-y divide-border/40">
           {columna.contactos.map((c) => (
@@ -1002,7 +1231,12 @@ function ColumnaEtapa({
               className="w-full px-6 py-3 hover:bg-muted/30 transition-colors flex items-center justify-between gap-3"
             >
               <div className="min-w-0">
-                <button onClick={() => onOpen(c.name)} className="text-sm font-medium truncate text-left hover:underline">
+                {/* Con el contactId: sin él la ficha no sabe a quién pertenece lo que se escriba
+                    en ella, y la nota se perdía en silencio (2026-08-15). */}
+                <button
+                  onClick={() => onOpen(c.name, c.contactId)}
+                  className="text-sm font-medium truncate text-left hover:underline"
+                >
                   {c.name}
                 </button>
                 <div className="text-[11px] text-muted-foreground truncate">
@@ -1064,17 +1298,32 @@ function ColumnaEtapa({
 /* ------------------------------------------------------------------ */
 function SetterViewInner() {
   const [tab, setTab] = useState<Tab>("inicio");
-  const { contacts, openContactName, openGhlContactId, openContact, closeContact, advance, addNota, resolveIntervention, setBotEstado, pinTask, completeTask, reviveTask } = useSetter();
+  const {
+    contacts,
+    openContactName,
+    openGhlContactId,
+    openContact,
+    closeContact,
+    advance,
+    addNota,
+    removeNota,
+    resolveIntervention,
+    setBotEstado,
+    pinTask,
+    completeTask,
+    reviveTask,
+  } = useSetter();
   const { resolverAlertasDeContacto } = useAgentAudit();
   const setterContact = contacts[openContactName ?? ""] ?? null;
-
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden relative bg-background">
       <div className="flex-1 overflow-y-auto scrollbar-thin bg-[#fcfcfd] dark:bg-background">
         <div className="p-8 max-w-[1600px] mx-auto space-y-8">
           <Header tab={tab} setTab={setTab} />
-          {tab === "inicio" && <InicioTab onGoToMiDia={() => setTab("midia")} />}
+          {tab === "inicio" && (
+            <InicioTab onGoToMiDia={() => setTab("midia")} />
+          )}
           {tab === "midia" && <MiDiaTab onOpenContact={openContact} />}
           {tab === "pipeline" && <PipelineTab onOpenContact={openContact} />}
         </div>
@@ -1085,8 +1334,16 @@ function SetterViewInner() {
         role="setter"
         setterContact={setterContact}
         ghlContactId={openGhlContactId}
-        onSetterAdvance={(result) => openContactName && advance(openContactName, result)}
-        onAddNota={(texto) => openContactName && addNota(openContactName, texto)}
+        onSetterAdvance={(result) =>
+          openContactName && advance(openContactName, result)
+        }
+        onAddNota={(texto) =>
+          openContactName && addNota(openContactName, texto)
+        }
+        // Sin esto la X roja del tab Notas era un no-op: el closer ya la tenía cableada.
+        onDeleteNota={(id) =>
+          openContactName && removeNota(openContactName, id)
+        }
         onResolveIntervention={() => {
           if (!openContactName) return;
           resolveIntervention(openContactName);
@@ -1094,7 +1351,10 @@ function SetterViewInner() {
           // de `lead-flow-ai` que resolver. Queda cableado para cuando se construya.
           void resolverAlertasDeContacto(openGhlContactId);
         }}
-        onBotStateChange={(estado, evento, autor) => openContactName && setBotEstado(openContactName, estado, evento, autor)}
+        onBotStateChange={(estado, evento, autor) =>
+          openContactName &&
+          setBotEstado(openContactName, estado, evento, autor)
+        }
         onPin={() => openContactName && pinTask(openContactName)}
         onComplete={() => openContactName && completeTask(openContactName)}
         onRevive={() => openContactName && reviveTask(openContactName)}

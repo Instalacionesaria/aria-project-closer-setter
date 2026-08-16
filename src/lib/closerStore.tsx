@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useSettings } from "./settingsStore";
 import { useAuth } from "./authStore";
 import {
@@ -58,7 +66,7 @@ const GRACIA_MS = 20_000;
  * `api/closer/notas.ts`). Sirve para pintar la nota en la lista sin esperar la respuesta, y si
  * difiriera del servidor el próximo GET lo corrige.
  */
-const AUTOR_OPTIMISTA = "Vos";
+export const AUTOR_OPTIMISTA = "Vos";
 
 /** Fecha corta para la ficha ("3 ago, 17:41") — el servidor manda ISO crudo (CONTRATO §0). */
 const fechaCorta = (iso: string) =>
@@ -72,7 +80,7 @@ const fechaCorta = (iso: string) =>
   });
 
 /** Una nota de la base → la forma que ya consume el tab Notas. */
-const notaRealAItem = (n: NotaReal): NotaItem => ({
+export const notaRealAItem = (n: NotaReal): NotaItem => ({
   // El id de la base es uuid y `NotaItem.id` es number (viene de la era demo): se usa el
   // timestamp como clave de React, que es único por nota dentro de la misma ficha.
   id: new Date(n.creadoEl).getTime(),
@@ -97,7 +105,14 @@ const eventoAItem = (e: EventoHistorial): HistorialItem => ({
  */
 
 export type Grade = "A" | "B" | "C" | "D";
-export type StageKey = "agendado" | "seguimiento" | "cierre" | "ganado" | "no_show" | "nurture" | "descalificado";
+export type StageKey =
+  | "agendado"
+  | "seguimiento"
+  | "cierre"
+  | "ganado"
+  | "no_show"
+  | "nurture"
+  | "descalificado";
 
 /** Origen del Nurture (closer) — decide el sub-texto de la píldora "NURTURE · X". */
 export type NurtureOrigen = "no_show" | "pidio_tiempo" | "se_enfrio";
@@ -110,29 +125,55 @@ export type NurtureOrigen = "no_show" | "pidio_tiempo" | "se_enfrio";
  * "derivado_lt" = el sistema derivó a low-ticket (clicable, prender pide confirmación reforzada).
  * "muerto_postcall" = tras la sales call (solo closer) — el toggle ya no se renderiza en absoluto.
  */
-export type BotEstado = "activo" | "pausado_fallo" | "apagado_manual" | "pausa_temporal" | "derivado_lt" | "muerto_postcall";
+export type BotEstado =
+  | "activo"
+  | "pausado_fallo"
+  | "apagado_manual"
+  | "pausa_temporal"
+  | "derivado_lt"
+  | "muerto_postcall";
 
 /**
  * Única fuente de verdad para el color/texto/tooltip del ícono 🤖 — usada tanto por el header/filas
  * (solo lectura) como por el toggle del compositor, para que ambas vitrinas reflejen el mismo estado (regla D.7).
  * `estado` undefined = sin bot asignado (canal IG o dato ausente).
  */
-export function botIconVisual(estado: BotEstado | undefined): { className: string; label?: string; title: string } {
+export function botIconVisual(estado: BotEstado | undefined): {
+  className: string;
+  label?: string;
+  title: string;
+} {
   switch (estado) {
     case "activo":
       return { className: "text-emerald-500", title: "IA activa" };
     case "pausado_fallo":
-      return { className: "text-red-500", title: "Pausado por fallo — responde al contacto y marca como resuelto" };
+      return {
+        className: "text-red-500",
+        title: "Pausado por fallo — responde al contacto y marca como resuelto",
+      };
     case "apagado_manual":
       return { className: "text-[#6b6980]", title: "IA apagada manualmente" };
     case "pausa_temporal":
-      return { className: "text-amber-500", title: "Pausado ~2h por tu mensaje — se reactiva solo" };
+      return {
+        className: "text-amber-500",
+        title: "Pausado ~2h por tu mensaje — se reactiva solo",
+      };
     case "derivado_lt":
-      return { className: "text-violet-500", label: "LT", title: "Derivado a low-ticket — IA pausada" };
+      return {
+        className: "text-violet-500",
+        label: "LT",
+        title: "Derivado a low-ticket — IA pausada",
+      };
     case "muerto_postcall":
-      return { className: "text-[#6b6980]/25", title: "IA inactiva — sales call realizada" };
+      return {
+        className: "text-[#6b6980]/25",
+        title: "IA inactiva — sales call realizada",
+      };
     default:
-      return { className: "text-[#6b6980]/25", title: "Sin agente IA asignado" };
+      return {
+        className: "text-[#6b6980]/25",
+        title: "Sin agente IA asignado",
+      };
   }
 }
 
@@ -164,7 +205,8 @@ export interface NotaItem {
  * inventar. Como NO es una sales call, los dos contadores siguen midiendo bien —lo único que
  * se pierde es la etiqueta del chip— así que degradar acá no cuesta ningún dato.
  */
-export type CallOrigin = "sales_call" | "app_flow_voz" | "lead_flow_voz" | "voz_ia";
+export type CallOrigin =
+  "sales_call" | "app_flow_voz" | "lead_flow_voz" | "voz_ia";
 export type Sentimiento = "positivo" | "neutral" | "negativo";
 
 export interface CallRecord {
@@ -206,7 +248,8 @@ export interface CallRecord {
 /** 📞 — cuenta ÚNICAMENTE llamadas de agentes IA (Lead Flow + App Flow, mismo contador) con resultado contestada. Las sales calls jamás suman aquí. */
 export function countCallsContestadas(llamadas?: CallRecord[]): number {
   if (!llamadas) return 0;
-  return llamadas.filter((l) => l.origin !== "sales_call" && l.contestada).length;
+  return llamadas.filter((l) => l.origin !== "sales_call" && l.contestada)
+    .length;
 }
 
 /**
@@ -286,7 +329,8 @@ export interface VideoPreCallInfo {
  * puede tener llenos los de Meta, los del VSL, o ambos). `formulario` decide la subcategoría visible
  * dentro de "Calificación"; en el resto de los grupos (detalles/origen/interacciones) no aplica.
  */
-export type PerfilGroup = "detalles" | "origen" | "calificacion" | "interacciones";
+export type PerfilGroup =
+  "detalles" | "origen" | "calificacion" | "interacciones";
 export type PerfilFormulario = "vsl" | "meta";
 
 export interface PerfilField {
@@ -387,8 +431,10 @@ export function indicadoresDe(c: ClosurerContact): IndicadoresContacto {
     proximaCitaEl: s?.proximaCitaEl ?? null,
     proximaMeetUrl: s?.proximaMeetUrl ?? c.agenda?.meetUrl ?? null,
     ultimaCitaVencidaEl: s?.ultimaCitaVencidaEl ?? null,
-    llamadasIaContestadas: s?.llamadasIaContestadas ?? countCallsContestadas(c.llamadas),
-    llamadasIaIntentos: s?.llamadasIaIntentos ?? callsIASummary(c.llamadas).intentos,
+    llamadasIaContestadas:
+      s?.llamadasIaContestadas ?? countCallsContestadas(c.llamadas),
+    llamadasIaIntentos:
+      s?.llamadasIaIntentos ?? callsIASummary(c.llamadas).intentos,
     /**
      * El estado LOCAL gana sobre el del servidor, y es el único indicador donde pasa: hay
      * escrituras optimistas que el servidor no puede conocer todavía —`muerto_postcall` tras
@@ -455,7 +501,13 @@ export const RESULTADO_POR_STAGE: Partial<
 
 export const STAGE_META: Record<
   StageKey,
-  { label: string; dot: string; headerBg: string; labelColor: string; pill: string }
+  {
+    label: string;
+    dot: string;
+    headerBg: string;
+    labelColor: string;
+    pill: string;
+  }
 > = {
   agendado: {
     label: "Agendado",
@@ -508,7 +560,15 @@ export const STAGE_META: Record<
   },
 };
 
-export const STAGE_ORDER: StageKey[] = ["agendado", "seguimiento", "cierre", "ganado", "no_show", "nurture", "descalificado"];
+export const STAGE_ORDER: StageKey[] = [
+  "agendado",
+  "seguimiento",
+  "cierre",
+  "ganado",
+  "no_show",
+  "nurture",
+  "descalificado",
+];
 
 /* Las semillas EJEMPLO se ELIMINARON el 2026-08-01 (pedido de Fabio): la app entra en
    pruebas con contactos reales de GHL y las semillas solo confundirian. `buildSeedContacts`
@@ -524,7 +584,6 @@ function buildSeedContacts(): Record<string, ClosurerContact> {
    contacto y el dinero real sale de las oportunidades de GHL (`/api/closer/cockpit`), así que
    no queda ningún número del cockpit sin un dato detrás. */
 
-
 /**
  * El efecto de un Avanzar sobre UN contacto, como función pura.
  *
@@ -532,10 +591,25 @@ function buildSeedContacts(): Record<string, ClosurerContact> {
  * contextos que envuelven la app. Es también la pieza que el backend va a reutilizar:
  * la transición de estado es la misma, cambia dónde se persiste.
  */
-export function applyAdvance(c: ClosurerContact, input: AdvanceInput): ClosurerContact {
-  const historial = [{ fecha: "Hoy", texto: input.texto, autor: "Usuario Activo" }, ...c.historial];
+export function applyAdvance(
+  c: ClosurerContact,
+  input: AdvanceInput,
+): ClosurerContact {
+  const historial = [
+    { fecha: "Hoy", texto: input.texto, autor: "Usuario Activo" },
+    ...c.historial,
+  ];
   const notas = input.nota
-    ? [{ id: Date.now(), contexto: input.pildora, texto: input.nota, autor: "Usuario Activo", fecha: "Hoy" }, ...c.notas]
+    ? [
+        {
+          id: Date.now(),
+          contexto: input.pildora,
+          texto: input.nota,
+          autor: "Usuario Activo",
+          fecha: "Hoy",
+        },
+        ...c.notas,
+      ]
     : c.notas;
   /**
    * Regla de negocio (2026-07-11): una vez que el closer registra un resultado de Avanzar,
@@ -545,7 +619,11 @@ export function applyAdvance(c: ClosurerContact, input: AdvanceInput): ClosurerC
    * IG nunca tuvo bot (§11) — no se le asigna estado nuevo, sigue exento.
    */
   const isIG = c.fuente === "📷 IG PROFILE";
-  const nextBotEstado: BotEstado | undefined = isIG ? c.botEstado : input.stage === "no_show" ? "activo" : "muerto_postcall";
+  const nextBotEstado: BotEstado | undefined = isIG
+    ? c.botEstado
+    : input.stage === "no_show"
+      ? "activo"
+      : "muerto_postcall";
   return {
     ...c,
     stage: input.stage,
@@ -656,7 +734,12 @@ interface ClosurerStoreValue {
   /** "Marcar como Resuelto" en Intervenciones Urgentes: libera al contacto de la cola roja y reactiva la IA. */
   resolveIntervention: (name: string) => void;
   /** Cambios de estado del toggle 🤖 (manuales o automáticos) — siempre escribe su evento en Historial. */
-  setBotEstado: (name: string, estado: BotEstado, evento: string, autor?: string) => void;
+  setBotEstado: (
+    name: string,
+    estado: BotEstado,
+    evento: string,
+    autor?: string,
+  ) => void;
   /** FIJAR (§ toast/pin, 2026-07-11): sube la tarea de "Respondieron" al tope de su sección sin completarla. */
   pinTask: (name: string) => void;
   /** Completa la tarea de "Respondieron" — automático (barra de progreso) o manual (botón de ficha). */
@@ -673,18 +756,31 @@ export interface PendingTasksBreakdown {
   total: number;
 }
 
-export function pendingTasksBreakdown(contacts: Record<string, ClosurerContact>): PendingTasksBreakdown {
+export function pendingTasksBreakdown(
+  contacts: Record<string, ClosurerContact>,
+): PendingTasksBreakdown {
   const all = Object.values(contacts);
   const urgentes = all.filter((c) => c.urgente && !c.completedToday).length;
-  const respondieron = all.filter((c) => c.respondido && !c.completedToday).length;
-  const seguimientosHoy = all.filter((c) => c.seguimientoPendiente && !c.completedToday).length;
-  return { urgentes, respondieron, seguimientosHoy, total: urgentes + respondieron + seguimientosHoy };
+  const respondieron = all.filter(
+    (c) => c.respondido && !c.completedToday,
+  ).length;
+  const seguimientosHoy = all.filter(
+    (c) => c.seguimientoPendiente && !c.completedToday,
+  ).length;
+  return {
+    urgentes,
+    respondieron,
+    seguimientosHoy,
+    total: urgentes + respondieron + seguimientosHoy,
+  };
 }
 
 const ClosurerCtx = createContext<ClosurerStoreValue | null>(null);
 
 export function ClosurerProvider({ children }: { children: React.ReactNode }) {
-  const [contacts, setContacts] = useState<Record<string, ClosurerContact>>(() => buildSeedContacts());
+  const [contacts, setContacts] = useState<Record<string, ClosurerContact>>(
+    () => buildSeedContacts(),
+  );
   /**
    * Espejo SÍNCRONO del Record, para leer un contacto ANTES de despachar un setState.
    *
@@ -708,7 +804,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * Activos vs. congelados, del servidor. La vista los MUESTRA en vez de recontar por su
    * cuenta: §51.1 pide que los conteos se deriven por query, nunca de contadores sueltos.
    */
-  const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
+  const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(
+    null,
+  );
   const { usuario } = useAuth();
   /**
    * El % del closer QUE ESTÁ MIRANDO, de Ajustes › Operación.
@@ -718,7 +816,6 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * todos verían un 10% que nadie fijó. Sin porcentaje cargado ahora es 0, y lo que hay que
    * cargarlo es Ajustes.
    */
-
 
   /**
    * `ghlContactId` → cuándo se registró un Avanzar sobre él, en esta pestaña.
@@ -759,7 +856,10 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
            * también estaba en Seguimientos de Hoy perdía todo lo que le había puesto el
            * Pipeline —indicadores, cita, congelado— en la primera hidratación.
            */
-          siguiente[fila.ghlContactId] = { ...siguiente[fila.ghlContactId], ...filaAContacto(fila) };
+          siguiente[fila.ghlContactId] = {
+            ...siguiente[fila.ghlContactId],
+            ...filaAContacto(fila),
+          };
         }
         return siguiente;
       });
@@ -772,7 +872,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
 
   /** Citas de hoy (widget Agenda de Hoy) y completadas reales — vienen de Mi Día. */
   const [citasHoy, setCitasHoy] = useState<MiDiaResponse["citasHoy"]>([]);
-  const [completadasReales, setCompletadasReales] = useState<MiDiaResponse["completadasHoy"]>([]);
+  const [completadasReales, setCompletadasReales] = useState<
+    MiDiaResponse["completadasHoy"]
+  >([]);
 
   /**
    * ── EL reloj del closer (§56) ──
@@ -866,7 +968,12 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                   cambio = true;
 
                   siguiente[u.ghlContactId] = previo
-                    ? { ...previo, urgente, stage: etapa, indicadores: u.indicadores ?? previo.indicadores }
+                    ? {
+                        ...previo,
+                        urgente,
+                        stage: etapa,
+                        indicadores: u.indicadores ?? previo.indicadores,
+                      }
                     : {
                         name: (u.nombre ?? "SIN NOMBRE").toUpperCase(),
                         // Sin calificación no se inventa una letra: la fila muestra "—" (§4.7).
@@ -887,7 +994,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                 for (const b of res.buzon ?? []) {
                   enBuzonAhora.add(b.ghlContactId);
                   const previo = siguiente[b.ghlContactId];
-                  const microtext = b.snippet ? `escribió: "${b.snippet}"` : "escribió · sin responder";
+                  const microtext = b.snippet
+                    ? `escribió: "${b.snippet}"`
+                    : "escribió · sin responder";
                   const etapa = (b.etapa as StageKey) ?? etapaDesdeTags(b.tags);
 
                   if (
@@ -901,7 +1010,12 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                   cambio = true;
 
                   siguiente[b.ghlContactId] = previo
-                    ? { ...previo, respondido: { microtext }, stage: etapa, indicadores: b.indicadores ?? previo.indicadores }
+                    ? {
+                        ...previo,
+                        respondido: { microtext },
+                        stage: etapa,
+                        indicadores: b.indicadores ?? previo.indicadores,
+                      }
                     : {
                         name: (b.nombre ?? "SIN NOMBRE").toUpperCase(),
                         grade: undefined,
@@ -929,11 +1043,17 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                 for (const [clave, c] of Object.entries(siguiente)) {
                   if (!c.ghlContactId) continue;
                   if (c.urgente && !conUrgenciaAhora.has(c.ghlContactId)) {
-                    siguiente[clave] = { ...siguiente[clave], urgente: undefined };
+                    siguiente[clave] = {
+                      ...siguiente[clave],
+                      urgente: undefined,
+                    };
                     cambio = true;
                   }
                   if (c.respondido && !enBuzonAhora.has(c.ghlContactId)) {
-                    siguiente[clave] = { ...siguiente[clave], respondido: undefined };
+                    siguiente[clave] = {
+                      ...siguiente[clave],
+                      respondido: undefined,
+                    };
                     cambio = true;
                   }
                 }
@@ -972,13 +1092,17 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
 
           for (const c of res.contactos) {
             const previo = siguiente[c.ghlContactId];
-            const tocadoReciente = (recienTocados.current[c.ghlContactId] ?? 0) > ahora - GRACIA_MS;
-            const etapa = (tocadoReciente && previo ? previo.stage : c.etapa) as StageKey;
+            const tocadoReciente =
+              (recienTocados.current[c.ghlContactId] ?? 0) > ahora - GRACIA_MS;
+            const etapa = (
+              tocadoReciente && previo ? previo.stage : c.etapa
+            ) as StageKey;
             // Píldora RICA: el backend cachea la subcategoría y el monto que escribió Avanzar
             // (proyectarAvance), así que la venta real se lee "VENTA · CONTADO · $5.000" —
             // ya no la categoría pelada de antes.
             const subcategoria = c.subcategorias?.[etapa] ?? undefined;
-            const monto = etapa === "ganado" ? (c.monto ?? undefined) : undefined;
+            const monto =
+              etapa === "ganado" ? (c.monto ?? undefined) : undefined;
 
             /**
              * `indicadores`, `congelado` y `cita` se asignan EXPLÍCITAMENTE en las dos ramas.
@@ -990,7 +1114,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
               ? {
                   ...previo,
                   stage: etapa,
-                  situacion: tocadoReciente ? previo.situacion : armarPildora({ stage: etapa, subcategoria, monto }),
+                  situacion: tocadoReciente
+                    ? previo.situacion
+                    : armarPildora({ stage: etapa, subcategoria, monto }),
                   monto: monto ?? previo.monto,
                   fuente: previo.fuente ?? c.fuente,
                   telefono: c.telefono ?? previo.telefono,
@@ -1010,7 +1136,11 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                   name: (c.nombre ?? "SIN NOMBRE").toUpperCase(),
                   grade: undefined,
                   stage: etapa,
-                  situacion: armarPildora({ stage: etapa, subcategoria, monto }),
+                  situacion: armarPildora({
+                    stage: etapa,
+                    subcategoria,
+                    monto,
+                  }),
                   when: "",
                   activity: "",
                   fuente: c.fuente,
@@ -1064,76 +1194,84 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     refrescarAgenda();
   }, [refrescarAgenda]);
 
-  const advance = useCallback((name: string, input: AdvanceInput) => {
-    // Se lee del espejo síncrono (ver contactsRef): los efectos de red NUNCA dentro del updater.
-    const c = contactsRef.current[name];
-    if (c) {
-      /**
-       * Contacto real + resultado Seguimiento → se persiste. El POST va sin `await`: la UI
-       * ya se actualizó y no hay nada que esperar. Es optimista a propósito — si falla, la
-       * consola lo dice y la próxima carga muestra la verdad. Bloquear la interfaz por una
-       * escritura que casi siempre funciona sería peor experiencia que la de hoy.
-       */
-      if (c.ghlContactId) {
-        // Marca de gracia: durante los próximos GRACIA_MS, `polling-closer-pipeline` respeta
-        // la etapa que acabamos de poner en vez de traer la que GHL todavía no actualizó.
-        recienTocados.current[c.ghlContactId] = Date.now();
-        const idem = input.idempotencyKey ?? `${c.ghlContactId}-${Date.now()}`;
-        const avisar = (r: RespuestaAvanzar | null) => {
-          if (!r?.ok) {
-            console.warn("[avanzar] no se pudo persistir el resultado de", c.ghlContactId);
-            return;
-          }
-          // El backend distingue "quedó registrado" de "llegó a GHL". Un tag que no se aplicó
-          // significa que el workflow de GHL no se va a disparar, así que no se puede tratar
-          // como éxito silencioso.
-          if (r.ghl?.advertencia) console.warn("[avanzar]", r.ghl.advertencia);
-          if (r.ghl?.nota) console.warn("[avanzar]", r.ghl.nota);
-        };
+  const advance = useCallback(
+    (name: string, input: AdvanceInput) => {
+      // Se lee del espejo síncrono (ver contactsRef): los efectos de red NUNCA dentro del updater.
+      const c = contactsRef.current[name];
+      if (c) {
+        /**
+         * Contacto real + resultado Seguimiento → se persiste. El POST va sin `await`: la UI
+         * ya se actualizó y no hay nada que esperar. Es optimista a propósito — si falla, la
+         * consola lo dice y la próxima carga muestra la verdad. Bloquear la interfaz por una
+         * escritura que casi siempre funciona sería peor experiencia que la de hoy.
+         */
+        if (c.ghlContactId) {
+          // Marca de gracia: durante los próximos GRACIA_MS, `polling-closer-pipeline` respeta
+          // la etapa que acabamos de poner en vez de traer la que GHL todavía no actualizó.
+          recienTocados.current[c.ghlContactId] = Date.now();
+          const idem =
+            input.idempotencyKey ?? `${c.ghlContactId}-${Date.now()}`;
+          const avisar = (r: RespuestaAvanzar | null) => {
+            if (!r?.ok) {
+              console.warn(
+                "[avanzar] no se pudo persistir el resultado de",
+                c.ghlContactId,
+              );
+              return;
+            }
+            // El backend distingue "quedó registrado" de "llegó a GHL". Un tag que no se aplicó
+            // significa que el workflow de GHL no se va a disparar, así que no se puede tratar
+            // como éxito silencioso.
+            if (r.ghl?.advertencia)
+              console.warn("[avanzar]", r.ghl.advertencia);
+            if (r.ghl?.nota) console.warn("[avanzar]", r.ghl.nota);
+          };
 
-        if (input.stage === "seguimiento" && input.situacion && input.modo) {
-          registrarSeguimientoRemoto({
-            ghlContactId: c.ghlContactId,
-            situacion: input.situacion,
-            modo: input.modo,
-            preset: input.preset,
-            fechaPersonalizada: input.fechaPersonalizada,
-            nota: input.nota,
-            idempotencyKey: idem,
-          }).then(avisar);
-        } else {
-          /**
-           * Las otras cinco salidas. Antes de esto el guard exigía `stage === "seguimiento"`,
-           * así que registrar una Venta sobre un contacto real de GHL no escribía nada: ni el
-           * tag, ni el custom field, ni el Opportunity Value. Solo cambiaba la píldora en
-           * pantalla y se revertía al recargar.
-           */
-          const resultado = RESULTADO_POR_STAGE[input.stage];
-          if (resultado) {
-            registrarResultadoRemoto({
+          if (input.stage === "seguimiento" && input.situacion && input.modo) {
+            registrarSeguimientoRemoto({
               ghlContactId: c.ghlContactId,
-              resultado,
-              subcategoria: input.subcategoriaGhl,
-              monto: input.monto,
+              situacion: input.situacion,
+              modo: input.modo,
+              preset: input.preset,
+              fechaPersonalizada: input.fechaPersonalizada,
               nota: input.nota,
               idempotencyKey: idem,
             }).then(avisar);
+          } else {
+            /**
+             * Las otras cinco salidas. Antes de esto el guard exigía `stage === "seguimiento"`,
+             * así que registrar una Venta sobre un contacto real de GHL no escribía nada: ni el
+             * tag, ni el custom field, ni el Opportunity Value. Solo cambiaba la píldora en
+             * pantalla y se revertía al recargar.
+             */
+            const resultado = RESULTADO_POR_STAGE[input.stage];
+            if (resultado) {
+              registrarResultadoRemoto({
+                ghlContactId: c.ghlContactId,
+                resultado,
+                subcategoria: input.subcategoriaGhl,
+                monto: input.monto,
+                nota: input.nota,
+                idempotencyKey: idem,
+              }).then(avisar);
+            }
           }
+
+          // El Pipeline se refresca por EVENTO (ya no hay reloj de 30s): tras el Avanzar, un
+          // refetch confirma contra el backend lo que la UI ya mostró optimista. El delay le
+          // da tiempo a `proyectarAvance` a escribir el stage antes de releer.
+          setTimeout(traerPipeline, 1_500);
         }
-
-        // El Pipeline se refresca por EVENTO (ya no hay reloj de 30s): tras el Avanzar, un
-        // refetch confirma contra el backend lo que la UI ya mostró optimista. El delay le
-        // da tiempo a `proyectarAvance` a escribir el stage antes de releer.
-        setTimeout(traerPipeline, 1_500);
       }
-    }
 
-    setContacts((prev) => {
-      const actual = prev[name];
-      if (!actual) return prev;
-      return { ...prev, [name]: applyAdvance(actual, input) };
-    });
-  }, [traerPipeline]);
+      setContacts((prev) => {
+        const actual = prev[name];
+        if (!actual) return prev;
+        return { ...prev, [name]: applyAdvance(actual, input) };
+      });
+    },
+    [traerPipeline],
+  );
 
   /**
    * Agrega una nota. Optimista en pantalla y PERSISTIDA si el contacto es real.
@@ -1156,7 +1294,16 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
         ...prev,
         [name]: {
           ...c,
-          notas: [{ id: Date.now(), contexto: null, texto, autor: AUTOR_OPTIMISTA, fecha: "Hoy" }, ...c.notas],
+          notas: [
+            {
+              id: Date.now(),
+              contexto: null,
+              texto,
+              autor: AUTOR_OPTIMISTA,
+              fecha: "Hoy",
+            },
+            ...c.notas,
+          ],
         },
       };
     });
@@ -1169,8 +1316,13 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
         setContacts((prev) => {
           const c = prev[name];
           if (!c || !r?.nota) return prev;
-          const sinOptimista = c.notas.filter((n) => !(n.texto === texto && n.fecha === "Hoy"));
-          return { ...prev, [name]: { ...c, notas: [notaRealAItem(r.nota), ...sinOptimista] } };
+          const sinOptimista = c.notas.filter(
+            (n) => !(n.texto === texto && n.fecha === "Hoy"),
+          );
+          return {
+            ...prev,
+            [name]: { ...c, notas: [notaRealAItem(r.nota), ...sinOptimista] },
+          };
         });
       })
       .catch((e) => {
@@ -1185,7 +1337,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
             [name]: {
               ...c,
               notas: c.notas.map((n) =>
-                n.texto === texto && n.fecha === "Hoy" ? { ...n, fecha: "⚠ no se guardó" } : n,
+                n.texto === texto && n.fecha === "Hoy"
+                  ? { ...n, fecha: "⚠ no se guardó" }
+                  : n,
               ),
             },
           };
@@ -1209,7 +1363,10 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     setContacts((prev) => {
       const actual = prev[name];
       if (!actual) return prev;
-      return { ...prev, [name]: { ...actual, notas: actual.notas.filter((n) => n.id !== id) } };
+      return {
+        ...prev,
+        [name]: { ...actual, notas: actual.notas.filter((n) => n.id !== id) },
+      };
     });
 
     if (!nota.realId || !c.ghlContactId) return; // optimista/semilla: solo memoria
@@ -1222,7 +1379,10 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
           setContacts((prev) => {
             const actual = prev[name];
             if (!actual) return prev;
-            return { ...prev, [name]: { ...actual, notas: (r.notas ?? []).map(notaRealAItem) } };
+            return {
+              ...prev,
+              [name]: { ...actual, notas: (r.notas ?? []).map(notaRealAItem) },
+            };
           }),
         )
         .catch(() => {
@@ -1237,35 +1397,42 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * territorio (`zona_closer`) y agenda una cita nueva, el webhook/cron lo re-crea como alta
    * nueva (§51.3). La ficha se cierra primero para no quedar abierta sobre un fantasma.
    */
-  const deleteContact = useCallback((name: string) => {
-    const c = contactsRef.current[name];
-    if (!c) return;
+  const deleteContact = useCallback(
+    (name: string) => {
+      const c = contactsRef.current[name];
+      if (!c) return;
 
-    setOpenContactName(null);
-    setOpenGhlContactId(null);
-    setContacts((prev) => {
-      const { [name]: _fuera, ...resto } = prev;
-      return resto;
-    });
-
-    if (!c.ghlContactId) return; // semilla/demo: con sacarlo del Record alcanza
-
-    eliminarContacto(c.ghlContactId)
-      .then(() => traerPipeline())
-      .catch((e) => {
-        // Si el borrado remoto falla, el próximo refresco del Pipeline lo va a traer de
-        // vuelta — preferible a que parezca borrado sin estarlo.
-        console.error("El contacto no se pudo eliminar del servidor:", e);
-        traerPipeline();
+      setOpenContactName(null);
+      setOpenGhlContactId(null);
+      setContacts((prev) => {
+        const { [name]: _fuera, ...resto } = prev;
+        return resto;
       });
-  }, [traerPipeline]);
+
+      if (!c.ghlContactId) return; // semilla/demo: con sacarlo del Record alcanza
+
+      eliminarContacto(c.ghlContactId)
+        .then(() => traerPipeline())
+        .catch((e) => {
+          // Si el borrado remoto falla, el próximo refresco del Pipeline lo va a traer de
+          // vuelta — preferible a que parezca borrado sin estarlo.
+          console.error("El contacto no se pudo eliminar del servidor:", e);
+          traerPipeline();
+        });
+    },
+    [traerPipeline],
+  );
 
   const resolveIntervention = useCallback((name: string) => {
     setContacts((prev) => {
       const c = prev[name];
       if (!c || !c.urgente) return prev;
       const historial = [
-        { fecha: "Hoy", texto: "Intervención resuelta por Usuario Activo", autor: "Usuario Activo" },
+        {
+          fecha: "Hoy",
+          texto: "Intervención resuelta por Usuario Activo",
+          autor: "Usuario Activo",
+        },
         ...c.historial,
       ];
       return {
@@ -1284,21 +1451,33 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const setBotEstado = useCallback((name: string, estado: BotEstado, evento: string, autor: string = "Usuario Activo") => {
-    setContacts((prev) => {
-      const c = prev[name];
-      if (!c) return prev;
-      const historial = [{ fecha: "Hoy", texto: evento, autor }, ...c.historial];
-      return { ...prev, [name]: { ...c, botEstado: estado, historial } };
-    });
-  }, []);
+  const setBotEstado = useCallback(
+    (
+      name: string,
+      estado: BotEstado,
+      evento: string,
+      autor: string = "Usuario Activo",
+    ) => {
+      setContacts((prev) => {
+        const c = prev[name];
+        if (!c) return prev;
+        const historial = [
+          { fecha: "Hoy", texto: evento, autor },
+          ...c.historial,
+        ];
+        return { ...prev, [name]: { ...c, botEstado: estado, historial } };
+      });
+    },
+    [],
+  );
 
   /**
    * § correcciones toast/pin v2 (2026-07-11): "tarea de conversación" ahora cubre Respondieron
    * Y Seguimientos de hoy (antes solo Respondieron — un seguimiento que se atiende por chat
    * también se completa al responder, no solo vía Avanzar).
    */
-  const hasConversationTask = (c: ClosurerContact) => !!(c.respondido || c.seguimientoPendiente);
+  const hasConversationTask = (c: ClosurerContact) =>
+    !!(c.respondido || c.seguimientoPendiente);
 
   /**
    * FIJAR — sube la tarea al tope de su sección; NO la completa. Botón de ficha, o clic en la
@@ -1319,8 +1498,25 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     setContacts((prev) => {
       const c = prev[name];
       if (!c || !hasConversationTask(c)) return prev;
-      const historial = [{ fecha: "Hoy", texto: "Respondió al contacto — tarea completada", autor: "Usuario Activo" }, ...c.historial];
-      return { ...prev, [name]: { ...c, pinned: false, completedToday: true, when: "Hoy", activity: "Respondió al contacto", historial } };
+      const historial = [
+        {
+          fecha: "Hoy",
+          texto: "Respondió al contacto — tarea completada",
+          autor: "Usuario Activo",
+        },
+        ...c.historial,
+      ];
+      return {
+        ...prev,
+        [name]: {
+          ...c,
+          pinned: false,
+          completedToday: true,
+          when: "Hoy",
+          activity: "Respondió al contacto",
+          historial,
+        },
+      };
     });
   }, []);
 
@@ -1328,10 +1524,23 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
     setContacts((prev) => {
       const c = prev[name];
       if (!c || !c.completedToday) return prev;
-      const historial = [{ fecha: "Hoy", texto: "Contacto respondió — tarea reabierta", autor: "Sistema" }, ...c.historial];
+      const historial = [
+        {
+          fecha: "Hoy",
+          texto: "Contacto respondió — tarea reabierta",
+          autor: "Sistema",
+        },
+        ...c.historial,
+      ];
       return {
         ...prev,
-        [name]: { ...c, completedToday: false, pinned: false, respondido: { microtext: "escribió de nuevo · sin responder" }, historial },
+        [name]: {
+          ...c,
+          completedToday: false,
+          pinned: false,
+          respondido: { microtext: "escribió de nuevo · sin responder" },
+          historial,
+        },
       };
     });
   }, []);
@@ -1351,7 +1560,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
 
   const ganadoCount = useMemo(
     () => Object.values(contacts).filter((c) => c.stage === "ganado").length,
-    [contacts]
+    [contacts],
   );
 
   /**
@@ -1372,7 +1581,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       Object.values(contacts)
         .filter((c) => c.stage === "ganado")
         .reduce((sum, c) => sum + (c.monto ?? 0), 0),
-    [contacts]
+    [contacts],
   );
 
   const cierreEnCursoMonto = useMemo(
@@ -1380,7 +1589,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       Object.values(contacts)
         .filter((c) => c.stage === "cierre")
         .reduce((sum, c) => sum + (c.monto ?? 0), 0),
-    [contacts]
+    [contacts],
   );
 
   const cashCollected = ganadoMonto;
@@ -1431,7 +1640,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       atendieron,
       noShow,
     }),
-    [cashCollected, ganadoCount, salesCalls, atendieron, noShow]
+    [cashCollected, ganadoCount, salesCalls, atendieron, noShow],
   );
 
   /**
@@ -1452,7 +1661,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
 
     const aplicar = (cambio: (c: ClosurerContact) => ClosurerContact) => {
       if (!vivo) return;
-      setContacts((prev) => (prev[id] ? { ...prev, [id]: cambio(prev[id]) } : prev));
+      setContacts((prev) =>
+        prev[id] ? { ...prev, [id]: cambio(prev[id]) } : prev,
+      );
     };
 
     fetchNotas(id)
@@ -1465,7 +1676,9 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
           // curso, pero parecía perdida). Las optimistas de esta sesión que el servidor
           // todavía no devuelve se conservan arriba.
           const optimistas = c.notas.filter(
-            (n) => (n.fecha === "Hoy" || n.fecha.startsWith("⚠")) && !enServidor.has(n.texto),
+            (n) =>
+              (n.fecha === "Hoy" || n.fecha.startsWith("⚠")) &&
+              !enServidor.has(n.texto),
           );
           return { ...c, notas: [...optimistas, ...delServidor] };
         }),
@@ -1475,7 +1688,12 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
       });
 
     fetchHistorial(id)
-      .then((r) => aplicar((c) => ({ ...c, historial: (r.eventos ?? []).map(eventoAItem) })))
+      .then((r) =>
+        aplicar((c) => ({
+          ...c,
+          historial: (r.eventos ?? []).map(eventoAItem),
+        })),
+      )
       .catch(() => {
         /* idem */
       });
@@ -1508,12 +1726,13 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
    * la respuesta cruda para que la barra de filtros muestre qué pasó, incluido el caso en que
    * el candado de 60 s no dejó correr nada.
    */
-  const sincronizarCrm = useCallback(async (): Promise<SincronizarCrmResponse> => {
-    const r = await sincronizarCrmRemoto();
-    traerPipeline();
-    refrescarAgenda();
-    return r;
-  }, [traerPipeline, refrescarAgenda]);
+  const sincronizarCrm =
+    useCallback(async (): Promise<SincronizarCrmResponse> => {
+      const r = await sincronizarCrmRemoto();
+      traerPipeline();
+      refrescarAgenda();
+      return r;
+    }, [traerPipeline, refrescarAgenda]);
 
   const openContact = useCallback((name: string, ghlContactId?: string) => {
     /**
@@ -1602,6 +1821,7 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
 
 export function useClosurer() {
   const ctx = useContext(ClosurerCtx);
-  if (!ctx) throw new Error("useClosurer debe usarse dentro de ClosurerProvider");
+  if (!ctx)
+    throw new Error("useClosurer debe usarse dentro de ClosurerProvider");
   return ctx;
 }

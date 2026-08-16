@@ -25,7 +25,11 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { SITUACIONES, situacionPorSlug, type SituacionSeguimiento } from "../../src/lib/ghl/contrato.js";
+import {
+  SITUACIONES,
+  situacionPorSlug,
+  type SituacionSeguimiento,
+} from "../../src/lib/ghl/contrato.js";
 import {
   RESULTADOS,
   esResultadoValido,
@@ -49,7 +53,12 @@ import {
   type ResultadoSinSeguimiento,
 } from "../_lib/seguimientos.js";
 
-const PRESETS_VALIDOS: readonly string[] = ["manana", "en_3_dias", "una_semana", "personalizada"];
+const PRESETS_VALIDOS: readonly string[] = [
+  "manana",
+  "en_3_dias",
+  "una_semana",
+  "personalizada",
+];
 const SLUGS = SITUACIONES.map((s) => s.slug);
 
 /**
@@ -62,7 +71,8 @@ const SLUGS = SITUACIONES.map((s) => s.slug);
  * `resultados.ts`: lo está usando otro frente en paralelo.
  */
 const CLAVES = Object.keys(RESULTADOS) as ResultadoAvanzar[];
-const esResultado = (v: string): v is ResultadoAvanzar => CLAVES.includes(v as ResultadoAvanzar) && esResultadoValido(v);
+const esResultado = (v: string): v is ResultadoAvanzar =>
+  CLAVES.includes(v as ResultadoAvanzar) && esResultadoValido(v);
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // §3.2 · el portero. Sin esto el endpoint es un agujero por empresa.
@@ -78,7 +88,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const cuerpo = typeof req.body === "string" ? safeJson(req.body) : req.body;
   if (!cuerpo || typeof cuerpo !== "object") {
-    return res.status(400).json({ ok: false, codigo: "cuerpo_invalido", error: "Cuerpo JSON inválido." });
+    return res
+      .status(400)
+      .json({
+        ok: false,
+        codigo: "cuerpo_invalido",
+        error: "Cuerpo JSON inválido.",
+      });
   }
 
   const campos = cuerpo as Record<string, unknown>;
@@ -92,15 +108,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const nota = texto("nota");
 
   /* ── Validación común ── */
-  if (!ghlContactId) return malo(res, "Falta ghlContactId.", "contacto_faltante");
-  if (!idempotencyKey) return malo(res, "Falta idempotencyKey.", "idempotency_faltante");
+  if (!ghlContactId)
+    return malo(res, "Falta ghlContactId.", "contacto_faltante");
+  if (!idempotencyKey)
+    return malo(res, "Falta idempotencyKey.", "idempotency_faltante");
 
   const resultadoCrudo = texto("resultado");
   if (!resultadoCrudo) {
-    return malo(res, `Falta resultado. Esperado uno de: ${CLAVES.join(", ")}.`, "resultado_faltante");
+    return malo(
+      res,
+      `Falta resultado. Esperado uno de: ${CLAVES.join(", ")}.`,
+      "resultado_faltante",
+    );
   }
   if (!esResultado(resultadoCrudo)) {
-    return malo(res, `Resultado inválido: "${resultadoCrudo}". Esperado uno de: ${CLAVES.join(", ")}.`, "resultado_invalido");
+    return malo(
+      res,
+      `Resultado inválido: "${resultadoCrudo}". Esperado uno de: ${CLAVES.join(", ")}.`,
+      "resultado_invalido",
+    );
   }
 
   const resultado = resultadoCrudo;
@@ -108,7 +134,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     if (resultado === "seguimiento") {
-      return await registrarSalidaSeguimiento({ res, campos, texto, ghlContactId, idempotencyKey, nota, def, autor: ctx.nombre, usuarioId: ctx.usuarioId });
+      return await registrarSalidaSeguimiento({
+        res,
+        campos,
+        texto,
+        ghlContactId,
+        idempotencyKey,
+        nota,
+        def,
+        autor: ctx.nombre,
+        usuarioId: ctx.usuarioId,
+      });
     }
     return await registrarOtraSalida({
       res,
@@ -123,7 +159,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       usuarioId: ctx.usuarioId,
     });
   } catch (e) {
-    if (e instanceof SeguimientoInvalidoError) return malo(res, e.message, e.codigo);
+    if (e instanceof SeguimientoInvalidoError)
+      return malo(res, e.message, e.codigo);
     return res.status(500).json({ ok: false, error: (e as Error).message });
   }
 }
@@ -147,7 +184,16 @@ async function registrarSalidaSeguimiento(args: {
   autor: string;
   usuarioId: string;
 }) {
-  const { res, texto, ghlContactId, idempotencyKey, nota, def, autor, usuarioId } = args;
+  const {
+    res,
+    texto,
+    ghlContactId,
+    idempotencyKey,
+    nota,
+    def,
+    autor,
+    usuarioId,
+  } = args;
 
   const situacion = texto("situacion");
   const modo = texto("modo");
@@ -155,13 +201,25 @@ async function registrarSalidaSeguimiento(args: {
   const fechaPersonalizada = texto("fechaPersonalizada");
 
   if (!situacion || !SLUGS.includes(situacion as SituacionSeguimiento)) {
-    return malo(res, `Situación inválida. Esperada una de: ${SLUGS.join(", ")}.`, "situacion_invalida");
+    return malo(
+      res,
+      `Situación inválida. Esperada una de: ${SLUGS.join(", ")}.`,
+      "situacion_invalida",
+    );
   }
   if (modo !== "automatico" && modo !== "manual") {
-    return malo(res, 'Modo inválido: "automatico" o "manual".', "modo_invalido");
+    return malo(
+      res,
+      'Modo inválido: "automatico" o "manual".',
+      "modo_invalido",
+    );
   }
   if (modo === "manual" && (!preset || !PRESETS_VALIDOS.includes(preset))) {
-    return malo(res, `Preset inválido. Esperado uno de: ${PRESETS_VALIDOS.join(", ")}.`, "preset_invalido");
+    return malo(
+      res,
+      `Preset inválido. Esperado uno de: ${PRESETS_VALIDOS.join(", ")}.`,
+      "preset_invalido",
+    );
   }
 
   /**
@@ -194,7 +252,9 @@ async function registrarSalidaSeguimiento(args: {
     idempotencyKey,
   });
 
-  const situacionLabel = situacionPorSlug(situacion as SituacionSeguimiento).label;
+  const situacionLabel = situacionPorSlug(
+    situacion as SituacionSeguimiento,
+  ).label;
 
   return res.status(200).json({
     ok: true,
@@ -208,6 +268,8 @@ async function registrarSalidaSeguimiento(args: {
     // El ⏱ es derivado, nunca un campo escribible: se enciende solo con la serie corriendo.
     seguimientoAutomaticoActivo: modo === "automatico",
     toast: r.toast,
+    // Si la nota o la proyección fallaron, se dice. Un 200 pelado afirmaría que se guardó todo.
+    ...(r.advertencias.length ? { advertencias: r.advertencias } : {}),
     ...resumen(r.efectosGhl),
   });
 }
@@ -229,19 +291,43 @@ async function registrarOtraSalida(args: {
   autor: string;
   usuarioId: string;
 }) {
-  const { res, campos, texto, ghlContactId, idempotencyKey, nota, resultado, def, autor, usuarioId } = args;
+  const {
+    res,
+    campos,
+    texto,
+    ghlContactId,
+    idempotencyKey,
+    nota,
+    resultado,
+    def,
+    autor,
+    usuarioId,
+  } = args;
 
   /* ── Monto ── */
   let monto: number | undefined;
   if (def.requiereMonto) {
     const crudo = campos.monto;
-    monto = typeof crudo === "number" ? crudo : typeof crudo === "string" && crudo.trim() !== "" ? Number(crudo) : undefined;
+    monto =
+      typeof crudo === "number"
+        ? crudo
+        : typeof crudo === "string" && crudo.trim() !== ""
+          ? Number(crudo)
+          : undefined;
 
     if (monto === undefined) {
-      return malo(res, `La salida "${resultado}" exige monto.`, "monto_faltante");
+      return malo(
+        res,
+        `La salida "${resultado}" exige monto.`,
+        "monto_faltante",
+      );
     }
     if (!Number.isFinite(monto) || monto <= 0) {
-      return malo(res, `Monto inválido: ${String(campos.monto)}. Tiene que ser un número mayor que cero.`, "monto_invalido");
+      return malo(
+        res,
+        `Monto inválido: ${String(campos.monto)}. Tiene que ser un número mayor que cero.`,
+        "monto_invalido",
+      );
     }
   }
 
@@ -252,7 +338,11 @@ async function registrarOtraSalida(args: {
   // ninguna contrapartida.
   let subcategoria: string | null = null;
   if (def.campo) {
-    const crudo = texto("subcategoria") ?? texto("razon") ?? texto("formaPago") ?? texto("origen");
+    const crudo =
+      texto("subcategoria") ??
+      texto("razon") ??
+      texto("formaPago") ??
+      texto("origen");
     if (!crudo) {
       return res.status(400).json({
         ok: false,
@@ -323,7 +413,11 @@ async function registrarOtraSalida(args: {
  * un No-show sale `NO-SHOW · PLANTÓN SIN AVISO` y no `NO-SHOW · PLANTÓN`, porque es lo que
  * quedó escrito en GHL y lo que Gerencia va a leer.
  */
-function armarPildora(def: ResultadoDef, subcategoria?: string | null, monto?: number): string {
+function armarPildora(
+  def: ResultadoDef,
+  subcategoria?: string | null,
+  monto?: number,
+): string {
   const partes = [def.categoriaPildora];
   if (subcategoria) partes.push(subcategoria.toUpperCase());
   if (typeof monto === "number") partes.push(dinero(monto));
@@ -350,11 +444,20 @@ function narrar(
         toast: `Acuerdo registrado — seña ${dinero(monto ?? 0)}`,
       };
     case "no_interesa":
-      return { textoEvento: `Registró No le interesa — ${subcategoria}`, toast: "Prospecto descalificado" };
+      return {
+        textoEvento: `Registró No le interesa — ${subcategoria}`,
+        toast: "Prospecto descalificado",
+      };
     case "no_show":
-      return { textoEvento: `Registró No-show — ${subcategoria}`, toast: "No-show registrado" };
+      return {
+        textoEvento: `Registró No-show — ${subcategoria}`,
+        toast: "No-show registrado",
+      };
     case "nurture":
-      return { textoEvento: `Registró Nurture — ${subcategoria}`, toast: "Nurture registrado" };
+      return {
+        textoEvento: `Registró Nurture — ${subcategoria}`,
+        toast: "Nurture registrado",
+      };
   }
 }
 
@@ -390,13 +493,16 @@ function resumen(efectos: EfectoGhl[]) {
     },
     ghl: {
       modo,
-      todoAplicado: efectos.length > 0 && efectos.every((e) => e.ok && e.aplicado),
+      todoAplicado:
+        efectos.length > 0 && efectos.every((e) => e.ok && e.aplicado),
       efectos,
       ...(fallidos.length
         ? {
             advertencia:
               `${fallidos.length} de ${efectos.length} efecto(s) fallaron en GHL: ` +
-              fallidos.map((f) => `${f.operacion} (${f.error ?? "sin detalle"})`).join(" · ") +
+              fallidos
+                .map((f) => `${f.operacion} (${f.error ?? "sin detalle"})`)
+                .join(" · ") +
               ". El resultado quedó registrado y la intención en el outbox.",
           }
         : {}),
@@ -406,7 +512,9 @@ function resumen(efectos: EfectoGhl[]) {
          con los montos, y no la hay. Se listan aparte los que se perdieron. */
       ...(sinAplicar.length && modo === "stub"
         ? (() => {
-            const perdidos = efectos.filter((e) => e.aviso).map((e) => e.operacion);
+            const perdidos = efectos
+              .filter((e) => e.aviso)
+              .map((e) => e.operacion);
             return {
               nota:
                 "Adapter en modo stub: nada se aplicó en GHL. " +
@@ -432,7 +540,8 @@ function detectarCanal(tags: readonly string[]): string | undefined {
   return undefined;
 }
 
-const malo = (res: VercelResponse, error: string, codigo: string) => res.status(400).json({ ok: false, codigo, error });
+const malo = (res: VercelResponse, error: string, codigo: string) =>
+  res.status(400).json({ ok: false, codigo, error });
 
 function safeJson(s: string): unknown {
   try {

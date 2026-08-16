@@ -33,8 +33,15 @@ import {
   type SituacionSeguimiento,
 } from "../../src/lib/ghl/contrato.js";
 import { desenlaceDesdeTags } from "../../src/lib/ghl/etapas.js";
-import { RESULTADOS, TAGS_RESULTADO_EXCLUYENTES, type ResultadoAvanzar } from "../../src/lib/ghl/resultados.js";
-import { RESULTADOS_SETTER, type ResultadoSetter } from "../../src/lib/ghl/resultadosSetter.js";
+import {
+  RESULTADOS,
+  TAGS_RESULTADO_EXCLUYENTES,
+  type ResultadoAvanzar,
+} from "../../src/lib/ghl/resultados.js";
+import {
+  RESULTADOS_SETTER,
+  type ResultadoSetter,
+} from "../../src/lib/ghl/resultadosSetter.js";
 import {
   DIAS_GRACIA_SERIE,
   SERIE_RECUPERO,
@@ -104,7 +111,10 @@ export interface EfectoGhl {
  * `null` = no matchea ninguna opción. El endpoint responde 400 con la lista, que es
  * infinitamente mejor que un 200 que no escribió nada.
  */
-export function resolverSubcategoria(resultado: ResultadoAvanzar, valorUi: string): string | null {
+export function resolverSubcategoria(
+  resultado: ResultadoAvanzar,
+  valorUi: string,
+): string | null {
   const opciones = RESULTADOS[resultado].opciones;
   if (opciones.length === 0) return null;
 
@@ -161,12 +171,17 @@ export interface EfectosGhlInput {
  * exactamente qué se aplicó y qué no — el caller decide si eso es aceptable, y la respuesta
  * del endpoint lo muestra tal cual.
  */
-export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGhl[]> {
+export async function aplicarEfectosGhl(
+  args: EfectosGhlInput,
+): Promise<EfectoGhl[]> {
   const def = RESULTADOS[args.resultado];
   const cliente = ghl();
   const modoReal = env.ghlModo() === "real";
   const efectos: EfectoGhl[] = [];
-  const base = { ghlContactId: args.ghlContactId, seguimientoId: args.seguimientoId };
+  const base = {
+    ghlContactId: args.ghlContactId,
+    seguimientoId: args.seguimientoId,
+  };
 
   /**
    * Contacto congelado (§7 del doc de conexiones): perdió `zona_closer`, así que hacia GHL
@@ -192,7 +207,9 @@ export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGh
 
   let fila = await leerCongelado();
   if (fila?.congelado && modoReal) {
-    const refrescado = await sincronizarContacto(args.ghlContactId).catch(() => false);
+    const refrescado = await sincronizarContacto(args.ghlContactId).catch(
+      () => false,
+    );
     if (refrescado) fila = await leerCongelado();
   }
   if (fila?.congelado) {
@@ -209,7 +226,9 @@ export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGh
   }
 
   const tagResultado = TAGS[def.tag];
-  const aAplicar: Literal[] = args.tagModo ? [tagResultado, args.tagModo] : [tagResultado];
+  const aAplicar: Literal[] = args.tagModo
+    ? [tagResultado, args.tagModo]
+    : [tagResultado];
 
   /**
    * La regla del bot post-call (doc §8.6): TODA salida de Avanzar menos No-show demuestra
@@ -235,15 +254,32 @@ export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGh
 
   const anotar = (operacion: string, detalle: string, r: ResultadoGhl) => {
     if (!r.ok) {
-      efectos.push({ operacion, detalle, ok: false, aplicado: false, error: r.error });
+      efectos.push({
+        operacion,
+        detalle,
+        ok: false,
+        aplicado: false,
+        error: r.error,
+      });
       return;
     }
     // El adapter puede dejar un aviso en `detalle` que el resumen no puede deducir solo con
     // `ok`/`aplicado` — el caso real es el stub avisando que esta operación NO quedó en el
     // outbox. Se propaga en vez de descartarse.
     const d = r.detalle as Record<string, unknown> | undefined;
-    const aviso = typeof d?.aviso === "string" ? d.aviso : typeof d?.sinOutbox === "string" ? d.sinOutbox : undefined;
-    efectos.push({ operacion, detalle, ok: true, aplicado: r.aplicado, ...(aviso ? { aviso } : {}) });
+    const aviso =
+      typeof d?.aviso === "string"
+        ? d.aviso
+        : typeof d?.sinOutbox === "string"
+          ? d.sinOutbox
+          : undefined;
+    efectos.push({
+      operacion,
+      detalle,
+      ok: true,
+      aplicado: r.aplicado,
+      ...(aviso ? { aviso } : {}),
+    });
   };
 
   if (aQuitar.length > 0) {
@@ -334,13 +370,20 @@ export async function aplicarEfectosGhl(args: EfectosGhlInput): Promise<EfectoGh
  * intactas a propósito: desde el territorio del closer son de solo lectura (ver su `uso` en
  * `contrato.ts`), y pisarlas sería resolverle la cola a otro rol.
  */
-function tagsAQuitar(resultado: ResultadoAvanzar, tagModo?: Literal): Literal[] {
+function tagsAQuitar(
+  resultado: ResultadoAvanzar,
+  tagModo?: Literal,
+): Literal[] {
   if (resultado === "seguimiento") {
-    return TAGS_SEGUIMIENTO_EXCLUYENTES.map((k) => TAGS[k]).filter((t) => t.valor !== tagModo?.valor);
+    return TAGS_SEGUIMIENTO_EXCLUYENTES.map((k) => TAGS[k]).filter(
+      (t) => t.valor !== tagModo?.valor,
+    );
   }
 
   const propio = TAGS[RESULTADOS[resultado].tag].valor;
-  const otrosResultados = TAGS_RESULTADO_EXCLUYENTES.map((k) => TAGS[k]).filter((t) => t.valor !== propio);
+  const otrosResultados = TAGS_RESULTADO_EXCLUYENTES.map((k) => TAGS[k]).filter(
+    (t) => t.valor !== propio,
+  );
 
   return [...otrosResultados, TAGS.seguimientoRecupero, TAGS.seguimientoManual];
 }
@@ -406,7 +449,9 @@ export interface ProyeccionInput {
  * GHL falla, la proyección ya está; si esto falla, se anota como advertencia — no puede
  * impedir registrar una venta.
  */
-export async function proyectarAvance(input: ProyeccionInput): Promise<string[]> {
+export async function proyectarAvance(
+  input: ProyeccionInput,
+): Promise<string[]> {
   const advertencias: string[] = [];
 
   const { error: errAvance } = await db()
@@ -449,7 +494,9 @@ export async function proyectarAvance(input: ProyeccionInput): Promise<string[]>
   const etapa =
     input.rol === "setter"
       ? RESULTADOS_SETTER[input.resultado as ResultadoSetter].stage
-      : desenlaceDesdeTags([TAGS[RESULTADOS[input.resultado as ResultadoAvanzar].tag].valor])?.etapa;
+      : desenlaceDesdeTags([
+          TAGS[RESULTADOS[input.resultado as ResultadoAvanzar].tag].valor,
+        ])?.etapa;
   if (etapa) {
     const cambios: Record<string, unknown> = { stage_key: etapa };
     const columna = COLUMNA_SUBCATEGORIA[etapa];
@@ -461,8 +508,12 @@ export async function proyectarAvance(input: ProyeccionInput): Promise<string[]>
       cambios.monto = input.monto;
     }
 
-    const { error } = await db().from("closer_contactos").update(cambios).eq("ghl_contact_id", input.ghlContactId);
-    if (error) advertencias.push(`closer_contactos.stage_key: ${error.message}`);
+    const { error } = await db()
+      .from("closer_contactos")
+      .update(cambios)
+      .eq("ghl_contact_id", input.ghlContactId);
+    if (error)
+      advertencias.push(`closer_contactos.stage_key: ${error.message}`);
   }
 
   /**
@@ -478,7 +529,10 @@ export async function proyectarAvance(input: ProyeccionInput): Promise<string[]>
       .update({ atribucion_setter_id: input.atribucionSetterId })
       .eq("ghl_contact_id", input.ghlContactId)
       .is("atribucion_setter_id", null);
-    if (error) advertencias.push(`closer_contactos.atribucion_setter_id: ${error.message}`);
+    if (error)
+      advertencias.push(
+        `closer_contactos.atribucion_setter_id: ${error.message}`,
+      );
   }
 
   return advertencias;
@@ -532,9 +586,63 @@ export interface ResultadoRegistro {
   efectosGhl: EfectoGhl[];
   /** Texto para el toast. Se arma acá porque depende de la fecha que resolvió el servidor. */
   toast: string;
+  /**
+   * Lo que falló sin ser fatal. Existe desde el arreglo del 2026-08-15: antes esta función
+   * descartaba el retorno de `proyectarAvance()` —que ya devolvía advertencias— y quien llamaba
+   * no tenía forma de saber que la proyección había fallado. Un `await` sin destino es un
+   * `catch {}` escrito de otra manera.
+   */
+  advertencias: string[];
 }
 
-export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Promise<ResultadoRegistro> {
+/**
+ * Escribe la nota de un Avanzar en el tab Notas.
+ *
+ * ── Por qué es una función y no tres inserts ──
+ *
+ * Hasta el 2026-08-15 solo UNA de las tres rutas de Avanzar guardaba la nota en `closer_notas`:
+ * la de `registrarResultadoAvanzar` (las cinco salidas del closer que no son Seguimiento). Las
+ * otras dos la perdían:
+ *
+ *   · **Seguimiento** —closer y setter— la mandaba a la RPC, que la guarda en
+ *     `closer_seguimientos.nota` y **no** crea fila en `closer_notas`.
+ *   · **Las cuatro salidas del setter** la dejaban enterrada en `closer_avances.detalle->>'nota'`,
+ *     que es JSON del timeline y nadie lee para pintar la ficha.
+ *
+ * En los dos casos la interfaz pintaba la nota igual, así que el usuario la veía guardada y
+ * desaparecía al recargar. Es exactamente el éxito falso que prohíbe la regla 2. Con las tres
+ * rutas llamando acá, agregar una salida nueva sin nota es un olvido visible, no un silencio.
+ *
+ * No lanza: una nota que no se guarda no puede impedir registrar una venta. Devuelve la
+ * advertencia para que el endpoint la diga, que es lo que la separa de tragarse el error.
+ */
+export async function guardarNotaDeAvance(input: {
+  ghlContactId: string;
+  nota?: string;
+  /** La píldora ya compuesta ("SEGUIMIENTO · NO CONTESTÓ"). Va como contexto de la nota. */
+  pildora: string;
+  autor?: string;
+  usuarioId: string;
+}): Promise<string[]> {
+  const nota = input.nota?.trim();
+  if (!nota) return [];
+
+  const { error } = await db()
+    .from("closer_notas")
+    .insert({
+      ghl_contact_id: input.ghlContactId,
+      texto: nota,
+      contexto: input.pildora,
+      autor_nombre: input.autor?.trim() || AUTOR_SISTEMA,
+      autor_usuario_id: input.usuarioId,
+    });
+
+  return error ? [`La nota no se guardó: ${error.message}`] : [];
+}
+
+export async function registrarSeguimiento(
+  input: RegistrarSeguimientoInput,
+): Promise<ResultadoRegistro> {
   const closerId = input.closerId;
   const fechaObjetivo = resolverFechaObjetivo({ ...input, closerId });
   const esAutomatico = input.modo === "automatico";
@@ -570,22 +678,56 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
   const seguimientoId = fila?.seguimiento_id as string;
   const reemplazo = (fila?.reemplazo_id as string | null) ?? undefined;
 
-  if (!seguimientoId) throw new Error("registrar seguimiento: la función no devolvió id");
+  if (!seguimientoId)
+    throw new Error("registrar seguimiento: la función no devolvió id");
 
   /* ── 2. Proyección (timeline + stage en Supabase) ────────────────────── */
-  const tagModo = esAutomatico ? TAGS.seguimientoRecupero : TAGS.seguimientoManual;
-  await proyectarAvance({
-    ghlContactId: input.ghlContactId,
-    rol: input.rol ?? "closer",
-    atribucionSetterId: input.atribucionSetterId,
-    resultado: "seguimiento",
-    subcategoria: situacionLabel,
-    nota: input.nota,
-    detalleExtra: { modo: input.modo, fecha_objetivo: fechaObjetivo },
-    tagsEnviados: [TAGS.seguimiento.valor, tagModo.valor, TAGS_BOT.botDesactivadoPostcall.valor],
-  });
+  const advertencias: string[] = [];
+  const tagModo = esAutomatico
+    ? TAGS.seguimientoRecupero
+    : TAGS.seguimientoManual;
+  advertencias.push(
+    ...(await proyectarAvance({
+      ghlContactId: input.ghlContactId,
+      rol: input.rol ?? "closer",
+      atribucionSetterId: input.atribucionSetterId,
+      resultado: "seguimiento",
+      subcategoria: situacionLabel,
+      nota: input.nota,
+      detalleExtra: { modo: input.modo, fecha_objetivo: fechaObjetivo },
+      tagsEnviados: [
+        TAGS.seguimiento.valor,
+        tagModo.valor,
+        TAGS_BOT.botDesactivadoPostcall.valor,
+      ],
+    })),
+  );
 
-  /* ── 3. Efectos en GHL ───────────────────────────────────────────────── */
+  /* ── 3. La nota, al tab Notas ────────────────────────────────────────── */
+  /**
+   * La RPC ya guardó el texto en `closer_seguimientos.nota` — pero esa columna es del
+   * seguimiento, no de la ficha: la lee el motor de recordatorios, no el tab Notas. Sin este
+   * insert la nota de un Seguimiento se veía en pantalla y no existía en ninguna tabla que la
+   * ficha consulte, en los DOS roles (el setter reusa esta misma función).
+   *
+   * La píldora se compone igual que en las otras cinco salidas —`armarPildora()` de
+   * `closer/avanzar.ts` hace lo mismo— para que el contexto de las notas sea uno solo y no dos
+   * formatos según por dónde entró.
+   */
+  advertencias.push(
+    ...(await guardarNotaDeAvance({
+      ghlContactId: input.ghlContactId,
+      nota: input.nota,
+      pildora: [
+        RESULTADOS.seguimiento.categoriaPildora,
+        situacionLabel.toUpperCase(),
+      ].join(" · "),
+      autor: input.autor,
+      usuarioId: closerId,
+    })),
+  );
+
+  /* ── 4. Efectos en GHL ───────────────────────────────────────────────── */
   const efectos = await aplicarEfectosGhl({
     ghlContactId: input.ghlContactId,
     resultado: "seguimiento",
@@ -595,9 +737,18 @@ export async function registrarSeguimiento(input: RegistrarSeguimientoInput): Pr
     idempotencyKey: input.idempotencyKey,
   });
 
-  const toast = esAutomatico ? "Seguimiento automático activado" : `Seguimiento programado — ${fechaObjetivo}`;
+  const toast = esAutomatico
+    ? "Seguimiento automático activado"
+    : `Seguimiento programado — ${fechaObjetivo}`;
 
-  return { seguimientoId, fechaObjetivo, reemplazo, efectosGhl: efectos, toast };
+  return {
+    seguimientoId,
+    fechaObjetivo,
+    reemplazo,
+    efectosGhl: efectos,
+    toast,
+    advertencias,
+  };
 }
 
 /* ================================================================== */
@@ -628,7 +779,11 @@ export interface RegistrarResultadoInput {
 
 export interface ResultadoRegistroAvanzar {
   /** El seguimiento que cerró la cancelación universal, si había uno abierto. */
-  seguimientoCancelado?: { id: string; modo: ModoSeguimiento; situacion: SituacionSeguimiento };
+  seguimientoCancelado?: {
+    id: string;
+    modo: ModoSeguimiento;
+    situacion: SituacionSeguimiento;
+  };
   efectosGhl: EfectoGhl[];
   /** Lo que falló sin ser fatal (la nota, la tarea del día). Se reporta, no se esconde. */
   advertencias: string[];
@@ -668,16 +823,26 @@ export async function registrarResultadoAvanzar(
   // que `maybeSingle()` es exacto y no una apuesta.
   const { data: cerrado, error: errCerrar } = await db()
     .from("closer_seguimientos")
-    .update({ estado: "cancelado", motivo_cierre: "avanzar", cerrado_el: ahora, cerrado_por: closerId })
+    .update({
+      estado: "cancelado",
+      motivo_cierre: "avanzar",
+      cerrado_el: ahora,
+      cerrado_por: closerId,
+    })
     .eq("ghl_contact_id", input.ghlContactId)
     .in("estado", ["pendiente", "agotado"])
     .select("id, modo, situacion")
     .maybeSingle();
 
-  if (errCerrar) throw new Error(`cancelar el seguimiento abierto: ${errCerrar.message}`);
+  if (errCerrar)
+    throw new Error(`cancelar el seguimiento abierto: ${errCerrar.message}`);
 
   const seguimientoCancelado = cerrado
-    ? { id: cerrado.id as string, modo: cerrado.modo as ModoSeguimiento, situacion: cerrado.situacion as SituacionSeguimiento }
+    ? {
+        id: cerrado.id as string,
+        modo: cerrado.modo as ModoSeguimiento,
+        situacion: cerrado.situacion as SituacionSeguimiento,
+      }
     : undefined;
 
   if (seguimientoCancelado) {
@@ -698,7 +863,11 @@ export async function registrarResultadoAvanzar(
     ghlContactId: input.ghlContactId,
     tipo: "avanzar_registrado",
     texto: input.textoEvento,
-    autor: { tipo: "usuario", nombre: input.autor?.trim() || AUTOR_SISTEMA, usuarioId: closerId },
+    autor: {
+      tipo: "usuario",
+      nombre: input.autor?.trim() || AUTOR_SISTEMA,
+      usuarioId: closerId,
+    },
     payload: {
       resultado: input.resultado,
       subcategoria: input.subcategoria ?? null,
@@ -708,45 +877,48 @@ export async function registrarResultadoAvanzar(
   });
 
   /* ── 3. Nota ─────────────────────────────────────────────────────────── */
-  const nota = input.nota?.trim();
-  if (nota) {
-    const { error } = await db().from("closer_notas").insert({
-      ghl_contact_id: input.ghlContactId,
-      texto: nota,
-      contexto: input.pildora,
-      autor_nombre: input.autor?.trim() || AUTOR_SISTEMA,
-      autor_usuario_id: closerId,
-    });
-    if (error) advertencias.push(`La nota no se guardó: ${error.message}`);
-  }
+  advertencias.push(
+    ...(await guardarNotaDeAvance({
+      ghlContactId: input.ghlContactId,
+      nota: input.nota,
+      pildora: input.pildora,
+      autor: input.autor,
+      usuarioId: closerId,
+    })),
+  );
 
   /* ── 4. Tarea del día ────────────────────────────────────────────────── */
   // El día lo calcula Postgres, nunca Node: la sesión de Supabase corre en UTC y a las 20:00
   // de Lima daría el día siguiente. Si no se puede resolver, no se escribe un día inventado.
   const hoy = await hoyOrg();
   if (!hoy) {
-    advertencias.push("No se pudo resolver el día de la organización: el contacto no se marcó como completado hoy.");
+    advertencias.push(
+      "No se pudo resolver el día de la organización: el contacto no se marcó como completado hoy.",
+    );
   } else {
-    const { error } = await db()
-      .from("closer_contacto_tarea")
-      .upsert(
-        {
-          ghl_contact_id: input.ghlContactId,
-          fijada: false,
-          completada_dia: hoy,
-          completada_el: ahora,
-          completada_por: closerId,
-          actualizado_el: ahora,
-        },
-        { onConflict: "ghl_contact_id" },
+    const { error } = await db().from("closer_contacto_tarea").upsert(
+      {
+        ghl_contact_id: input.ghlContactId,
+        fijada: false,
+        completada_dia: hoy,
+        completada_el: ahora,
+        completada_por: closerId,
+        actualizado_el: ahora,
+      },
+      { onConflict: "ghl_contact_id" },
+    );
+    if (error)
+      advertencias.push(
+        `El contacto no se marcó como completado hoy: ${error.message}`,
       );
-    if (error) advertencias.push(`El contacto no se marcó como completado hoy: ${error.message}`);
   }
 
   /* ── 4.5 Proyección (timeline + stage en Supabase) ───────────────────── */
   const tagsEnviados = [
     TAGS[RESULTADOS[input.resultado].tag].valor,
-    ...(input.resultado !== "no_show" ? [TAGS_BOT.botDesactivadoPostcall.valor] : []),
+    ...(input.resultado !== "no_show"
+      ? [TAGS_BOT.botDesactivadoPostcall.valor]
+      : []),
   ];
   advertencias.push(
     ...(await proyectarAvance({
@@ -787,7 +959,9 @@ async function registrarEvento(args: {
   tipo: string;
   texto: string;
   seguimientoId?: string;
-  autor: { tipo: "sistema" } | { tipo: "usuario"; nombre: string; usuarioId: string };
+  autor:
+    | { tipo: "sistema" }
+    | { tipo: "usuario"; nombre: string; usuarioId: string };
   payload?: Record<string, unknown>;
 }): Promise<void> {
   const { error } = await db()
@@ -798,8 +972,10 @@ async function registrarEvento(args: {
       tipo: args.tipo,
       texto: args.texto,
       autor_tipo: args.autor.tipo,
-      autor_nombre: args.autor.tipo === "sistema" ? "Sistema" : args.autor.nombre,
-      autor_usuario_id: args.autor.tipo === "usuario" ? args.autor.usuarioId : null,
+      autor_nombre:
+        args.autor.tipo === "sistema" ? "Sistema" : args.autor.nombre,
+      autor_usuario_id:
+        args.autor.tipo === "usuario" ? args.autor.usuarioId : null,
       payload: args.payload ?? {},
     });
 
