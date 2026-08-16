@@ -20,6 +20,52 @@
  */
 
 /** Lo mínimo que la fusión necesita saber de un mensaje. El componente pasa los suyos enteros. */
+/**
+ * La etiqueta del separador de día, estilo WhatsApp.
+ *
+ * ── El bug que arregla (2026-08-16, reportado por Fabio con captura) ──
+ *
+ * El chat tenía **un "HOY" escrito a mano** arriba de todo y ningún separador más, así que una
+ * conversación de varios días se veía como un bloque continuo donde solo cambia la hora:
+ *
+ *     19:13  ...no es mi plan por lo que busco
+ *     19:14  Excelente
+ *     19:14  Gracias los veo mañana
+ *     08:09  Ya lo vi              <-- parece que retrocede en el tiempo
+ *     09:05  Hola
+ *
+ * Los mensajes estaban en orden y con su hora correcta; lo que faltaba era decir que ahí cambió
+ * el día. Sin eso, el orden correcto **se lee como desorden**, que es exactamente lo que se
+ * reportó.
+ *
+ * El servidor ya mandaba la fecha de cada mensaje (`date`, en `YYYY-MM-DD` y en la zona horaria de
+ * la organización) y el front la descartaba en el mapeo.
+ */
+export function etiquetaDeDia(fecha: string, hoy: string): string {
+  if (fecha === hoy) return "HOY";
+  if (fecha === dia(hoy, -1)) return "AYER";
+
+  // `T12:00` y no medianoche: a las 00:00 un desfase de zona de pocas horas cae en el día
+  // anterior, y el separador diría un día menos que el mensaje que encabeza.
+  const d = new Date(`${fecha}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return fecha; // fecha ilegible: se muestra cruda, no se inventa
+  return d
+    .toLocaleDateString("es-PE", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    })
+    .toUpperCase();
+}
+
+/** Suma días a un `YYYY-MM-DD` sin arrastrar la zona horaria del browser. */
+function dia(iso: string, delta: number): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return "";
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
 export interface MensajeFusionable {
   text: string;
   outgoing: boolean;

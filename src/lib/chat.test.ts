@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { fusionarMensajes, type MensajeFusionable } from "./chat";
+import {
+  etiquetaDeDia,
+  fusionarMensajes,
+  type MensajeFusionable,
+} from "./chat";
 
 const srv = (text: string, outgoing = true): MensajeFusionable => ({
   text,
@@ -120,5 +124,42 @@ describe("bordes", () => {
     fusionarMensajes(servidor, previos);
     expect(servidor).toHaveLength(1);
     expect(previos).toHaveLength(1);
+  });
+});
+
+describe("el separador de día: el orden correcto no se puede leer como desorden", () => {
+  /**
+   * El bug de la captura de Fabio (2026-08-16): el chat tenía UN "HOY" escrito a mano arriba de
+   * todo y ningún separador más, así que días distintos quedaban pegados y solo cambiaba la hora:
+   *
+   *     19:14  Gracias los veo mañana
+   *     08:09  Ya lo vi               <-- parece que retrocede en el tiempo
+   *
+   * Los mensajes estaban bien ordenados. Lo que faltaba era decir dónde cambia el día.
+   */
+  const HOY = "2026-08-16";
+
+  it("hoy y ayer se dicen con palabras, no con fecha", () => {
+    expect(etiquetaDeDia("2026-08-16", HOY)).toBe("HOY");
+    expect(etiquetaDeDia("2026-08-15", HOY)).toBe("AYER");
+  });
+
+  it("más atrás, la fecha completa", () => {
+    expect(etiquetaDeDia("2026-08-12", HOY)).toContain("12");
+    expect(etiquetaDeDia("2026-08-12", HOY)).toContain("2026");
+  });
+
+  /** Cruzar mes y año son los dos bordes donde un cálculo de días a mano se equivoca. */
+  it("cruza el fin de mes", () => {
+    expect(etiquetaDeDia("2026-07-31", "2026-08-01")).toBe("AYER");
+  });
+
+  it("y el fin de año", () => {
+    expect(etiquetaDeDia("2025-12-31", "2026-01-01")).toBe("AYER");
+  });
+
+  /** Una fecha ilegible se muestra cruda: inventar un día sería peor que no saberlo. */
+  it("una fecha rota no se inventa", () => {
+    expect(etiquetaDeDia("no-es-fecha", HOY)).toBe("no-es-fecha");
   });
 });

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import {
   X,
   Calendar,
@@ -44,7 +44,7 @@ import {
   FileText,
 } from "lucide-react";
 import { cn } from "../lib/utils";
-import { isoEnDias, fechaCorta } from "../lib/fechas";
+import { isoEnDias, fechaCorta, hoyISO } from "../lib/fechas";
 import { armarPildora } from "../lib/pildora";
 import type { SituacionSeguimiento } from "../lib/ghl/contrato";
 import type { ModoSeguimiento } from "../lib/seguimientos/dominio";
@@ -71,7 +71,7 @@ import {
 } from "../lib/closerStore";
 import { StatusIcons } from "../components/StatusIcons";
 import { EVENTO_AVISO } from "../lib/avisos";
-import { fusionarMensajes } from "../lib/chat";
+import { etiquetaDeDia, fusionarMensajes } from "../lib/chat";
 import {
   INDICADORES_VACIOS,
   type IndicadoresContacto,
@@ -2401,6 +2401,12 @@ interface ChatMessage {
    * diferencia es justo la que distingue "ya está guardado" de "todavía viaja".
    */
   id: string | number;
+  /**
+   * El día del mensaje, `YYYY-MM-DD` **en la zona horaria de la organización** (la calcula el
+   * servidor). Es lo que agrupa las burbujas bajo su separador; sin esto el chat mostraba días
+   * distintos seguidos y el orden correcto se leía como desorden.
+   */
+  date: string;
   text: string;
   time: string;
   outgoing: boolean;
@@ -2658,6 +2664,7 @@ function ChatTab({
             lastConvSigRef.current = sig;
 
             const delServidor: ChatMessage[] = res.messages.map((m) => ({
+              date: m.date,
               // El id REAL de `closer_mensajes`, no la posición. Con `i + 1` la clave de React
               // de cada burbuja cambiaba en cuanto entraba un mensaje viejo por la
               // reconciliación, y React repintaba la conversación entera.
@@ -2827,7 +2834,14 @@ function ChatTab({
     const idOptimista = Date.now();
     setMessages((prev) => [
       ...prev,
-      { id: idOptimista, text, time, outgoing: true, estado: "enviando" },
+      {
+        id: idOptimista,
+        date: hoyISO(),
+        text,
+        time,
+        outgoing: true,
+        estado: "enviando",
+      },
     ]);
     setMessage("");
 
@@ -2909,11 +2923,6 @@ function ChatTab({
         className="flex-1 p-4 bg-[#efeae2] dark:bg-[#0b141a] overflow-y-auto scrollbar-thin"
       >
         <div className="space-y-2 flex flex-col pb-4">
-          <div className="text-center my-2">
-            <span className="text-[11px] font-medium text-[#54656f] dark:text-[#8696a0] bg-white/60 dark:bg-[#111b21]/60 px-3 py-1 rounded-lg shadow-sm">
-              HOY
-            </span>
-          </div>
           {convLoading && (
             <div className="text-center text-xs text-[#54656f] dark:text-[#8696a0] py-4">
               Cargando conversación…
@@ -2924,7 +2933,15 @@ function ChatTab({
               Sin mensajes en esta conversación.
             </div>
           )}
-          {messages.map((m) => {
+          {messages.map((m, i) => {
+            /**
+             * El separador de día, como en WhatsApp: se dibuja cuando el mensaje empieza un día
+             * distinto al anterior. Antes había UN "HOY" escrito a mano arriba de todo, así que
+             * una conversación de varios días se veía como un bloque continuo donde solo cambiaba
+             * la hora — y un 19:14 seguido de un 08:09 se lee como si retrocediera en el tiempo.
+             * Los mensajes estaban bien ordenados; lo que faltaba era decir dónde cambia el día.
+             */
+            const abreDia = i === 0 || messages[i - 1].date !== m.date;
             /**
              * Un saliente rechazado por Meta tiene que verse distinto de uno entregado. Antes
              * se veían IGUAL —el bug del 2026-08-05— porque el estado se tomaba de la
@@ -2932,44 +2949,52 @@ function ChatTab({
              */
             const fallido = m.estado === "failed";
             return (
-              <div
-                key={m.id}
-                className={cn(
-                  "flex flex-col max-w-[85%]",
-                  m.outgoing ? "self-end" : "self-start",
-                )}
-              >
-                <div
-                  className={cn(
-                    "relative px-3 pt-1.5 pb-2 text-[14.5px] shadow-sm leading-relaxed break-words rounded-lg",
-                    m.outgoing
-                      ? fallido
-                        ? "bg-rose-50 text-[#111b21] dark:bg-rose-950/40 dark:text-[#e9edef] rounded-tr-none border border-rose-300 dark:border-rose-500/40"
-                        : "bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef] rounded-tr-none"
-                      : "bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef] rounded-tl-none",
-                  )}
-                >
-                  <span className="whitespace-pre-wrap">{m.text}</span>
-                  <span className="float-right text-[10px] text-black/40 dark:text-white/40 ml-3 mt-2 flex items-center gap-1">
-                    {m.estado === "enviando" && (
-                      <span className="text-black/30 dark:text-white/30">
-                        enviando…
-                      </span>
-                    )}
-                    {fallido && (
-                      <AlertTriangle className="w-3 h-3 text-rose-500" />
-                    )}
-                    {m.time}
-                  </span>
-                </div>
-                {fallido && (
-                  <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-400 leading-snug self-end text-right max-w-full">
-                    <span className="font-semibold">No se entregó.</span>{" "}
-                    {/* El texto de GHL, sin traducir: es el que hay que poder reconocer si Meta cambia la regla. */}
-                    {m.errorEnvio ?? "GHL no informó el motivo."}
+              <Fragment key={m.id}>
+                {abreDia && m.date && (
+                  <div className="text-center my-2">
+                    <span className="text-[11px] font-medium text-[#54656f] dark:text-[#8696a0] bg-white/60 dark:bg-[#111b21]/60 px-3 py-1 rounded-lg shadow-sm">
+                      {etiquetaDeDia(m.date, hoyISO())}
+                    </span>
                   </div>
                 )}
-              </div>
+                <div
+                  className={cn(
+                    "flex flex-col max-w-[85%]",
+                    m.outgoing ? "self-end" : "self-start",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "relative px-3 pt-1.5 pb-2 text-[14.5px] shadow-sm leading-relaxed break-words rounded-lg",
+                      m.outgoing
+                        ? fallido
+                          ? "bg-rose-50 text-[#111b21] dark:bg-rose-950/40 dark:text-[#e9edef] rounded-tr-none border border-rose-300 dark:border-rose-500/40"
+                          : "bg-[#d9fdd3] text-[#111b21] dark:bg-[#005c4b] dark:text-[#e9edef] rounded-tr-none"
+                        : "bg-white text-[#111b21] dark:bg-[#202c33] dark:text-[#e9edef] rounded-tl-none",
+                    )}
+                  >
+                    <span className="whitespace-pre-wrap">{m.text}</span>
+                    <span className="float-right text-[10px] text-black/40 dark:text-white/40 ml-3 mt-2 flex items-center gap-1">
+                      {m.estado === "enviando" && (
+                        <span className="text-black/30 dark:text-white/30">
+                          enviando…
+                        </span>
+                      )}
+                      {fallido && (
+                        <AlertTriangle className="w-3 h-3 text-rose-500" />
+                      )}
+                      {m.time}
+                    </span>
+                  </div>
+                  {fallido && (
+                    <div className="mt-1 text-[11px] text-rose-600 dark:text-rose-400 leading-snug self-end text-right max-w-full">
+                      <span className="font-semibold">No se entregó.</span>{" "}
+                      {/* El texto de GHL, sin traducir: es el que hay que poder reconocer si Meta cambia la regla. */}
+                      {m.errorEnvio ?? "GHL no informó el motivo."}
+                    </div>
+                  )}
+                </div>
+              </Fragment>
             );
           })}
         </div>
