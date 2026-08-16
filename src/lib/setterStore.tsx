@@ -29,6 +29,7 @@ import {
   type MiDiaSetterResponse,
 } from "./api";
 import { useAuth } from "./authStore";
+import { emitirAviso, emitirAvisos } from "./avisos";
 
 /**
  * Single source of truth para el módulo Setter (§4.4 de CLAUDE.md), espejo de closerStore.tsx.
@@ -571,27 +572,47 @@ export function SetterProvider({ children }: { children: React.ReactNode }) {
        */
       if (!contacto?.ghlContactId || !resultado) return;
 
-      const r = await avanzarSetter({
-        ghlContactId: contacto.ghlContactId,
-        resultado,
-        // La clave de idempotencia la manda el drawer; si no vino, se compone con el contacto y
-        // el minuto — dos clics seguidos sobre la misma salida no duplican el registro.
-        idempotencyKey:
-          input.idempotencyKey ??
-          `setter:${contacto.ghlContactId}:${resultado}:${Math.floor(Date.now() / 60000)}`,
-        monto: input.monto,
-        nota: input.nota,
-        subcategoria: input.subcategoria,
-        situacion: input.situacionSlug,
-        modo: input.modo,
-        preset: input.preset,
-        fechaPersonalizada: input.fechaPersonalizada,
-        fecha: input.agendaFecha,
-      });
+      /**
+       * `try` porque `avanzarSetter` LANZA: `pedir()` de `api.ts` convierte cualquier 4xx/5xx en
+       * una excepción. El `if (!r.ok)` de abajo era inalcanzable —en el camino de error nunca se
+       * llegaba a él— y la excepción escapaba de un `advance()` que nadie espera: promesa
+       * rechazada sin dueño, `recargar()` sin correr y el pintado optimista quedándose en
+       * pantalla como si el Avanzar hubiera entrado.
+       */
+      try {
+        const r = await avanzarSetter({
+          ghlContactId: contacto.ghlContactId,
+          resultado,
+          // La clave de idempotencia la manda el drawer; si no vino, se compone con el contacto y
+          // el minuto — dos clics seguidos sobre la misma salida no duplican el registro.
+          idempotencyKey:
+            input.idempotencyKey ??
+            `setter:${contacto.ghlContactId}:${resultado}:${Math.floor(Date.now() / 60000)}`,
+          monto: input.monto,
+          nota: input.nota,
+          subcategoria: input.subcategoria,
+          situacion: input.situacionSlug,
+          modo: input.modo,
+          preset: input.preset,
+          fechaPersonalizada: input.fechaPersonalizada,
+          fecha: input.agendaFecha,
+        });
+        // Quedó registrado, pero algo accesorio pudo fallar — la nota, típicamente. El backend
+        // lo dice en `advertencias` y acá se publica: el toast de éxito ya salió.
+        if (Array.isArray(r?.advertencias)) {
+          emitirAvisos(r.advertencias as string[]);
+        }
+      } catch (e) {
+        console.error("[setter] el Avanzar no se pudo registrar:", e);
+        emitirAviso(
+          e instanceof Error && e.message
+            ? e.message
+            : "El resultado no se pudo registrar. Revisá la conexión y volvé a intentarlo.",
+        );
+      }
 
-      // Se recarga siempre: con éxito trae lo que el servidor dejó, y con error deshace el pintado.
-      if (!r.ok)
-        console.warn("[setter] el Avanzar no se pudo registrar:", r.error);
+      // Se recarga SIEMPRE, incluso tras el fallo: con éxito trae lo que el servidor dejó, y con
+      // error deshace el pintado optimista en vez de dejar una tarjeta en la columna equivocada.
       await recargar();
     },
     [contacts, usuario, recargar],

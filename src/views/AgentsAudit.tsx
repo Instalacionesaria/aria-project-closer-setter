@@ -2034,11 +2034,32 @@ export default function AgentsAudit() {
         onSetterAdvance={(result) =>
           fichaAbierta && setter.advance(fichaAbierta, result)
         }
-        onAddNota={(texto) => {
-          if (!fichaAbierta) return;
-          if (contactoFicha) closer.addNota(fichaAbierta, texto);
-          else if (setterFicha) setter.addNota(fichaAbierta, texto);
-        }}
+        /**
+         * `undefined` cuando el contacto no es de ningún store, y eso es lo que arregla el bug.
+         *
+         * Antes esta prop era SIEMPRE una función, y cuando ninguna de las dos ramas se cumplía
+         * —el caso normal acá: se auditan 30 días de conversaciones y las colas de hoy tienen un
+         * puñado— la nota se evaporaba sin pintarse, sin guardarse y sin un error. Pasándola
+         * `undefined` el drawer usa su propio camino, que sí persiste contra `ghlContactId`.
+         */
+        onAddNota={
+          contactoFicha || setterFicha
+            ? (texto) => {
+                if (!fichaAbierta) return;
+                if (contactoFicha) closer.addNota(fichaAbierta, texto);
+                else setter.addNota(fichaAbierta, texto);
+              }
+            : undefined
+        }
+        onDeleteNota={
+          contactoFicha || setterFicha
+            ? (id) => {
+                if (!fichaAbierta) return;
+                if (contactoFicha) closer.removeNota(fichaAbierta, id);
+                else setter.removeNota(fichaAbierta, id);
+              }
+            : undefined
+        }
         onResolveIntervention={() => {
           if (!fichaAbierta) return;
           if (contactoFicha) closer.resolveIntervention(fichaAbierta);

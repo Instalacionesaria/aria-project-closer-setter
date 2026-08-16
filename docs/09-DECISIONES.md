@@ -809,3 +809,58 @@ no sobre lo que Mi Día no puede saber (notas, historial, llamadas, perfil).
 calculado sino una ruta que se olvida de persistir, y eso no se ve desde una aserción sobre un
 resultado — se ve mirando quién llama a quién. Mismo criterio que `aislamiento.test.ts`. Se verificó
 que falla con el código roto antes de darlo por bueno: 4 de 6 en rojo.
+
+---
+
+## D47 · La ficha huérfana, y por qué NO se siembra en el store
+
+**2026-08-15**, continuación de [D46](#d46--una-sola-función-escribe-la-nota-de-un-avanzar).
+
+Quedaba una cuarta ruta rota. **Auditoría de Agentes** abre la ficha de cualquier conversación de
+los últimos 30 días, y casi ninguna de esas personas está en las colas de hoy. Como
+`closerStore.contacts` se arma con Mi Día, `contact` llegaba `null`, y el drawer caía a
+`localNotas` — un `useState` heredado de la era demo que descartaba lo escrito sin guardarlo ni
+avisar. Peor: `onAddNota` se pasaba **siempre**, así que cuando ninguna de sus dos ramas se cumplía
+la nota no llegaba ni al fallback.
+
+**La solución obvia era sembrar el contacto en `closerStore.contacts`** —es lo que se hizo en el
+setter para el caso del Pipeline— y está descartada a propósito. De ese `Record` salen los KPIs del
+cockpit: `ventas` cuenta `stage === "ganado"`, `noShow` cuenta `stage === "no_show"`, y
+`salesCalls`/`atendieron` suman las `llamadas` de cada contacto — que el drawer **rellena al
+abrirlo**. Sembrar un contacto viejo desde Auditoría le habría sumado sus llamadas a las métricas
+del día, en silencio y solo para quien lo hubiera abierto. Arreglar las notas no puede costar
+torcer el dashboard.
+
+Así que la ficha se arregla sola: cuando tiene `ghlContactId` y ningún store la reclama
+(`fichaHuerfana`), pide sus notas y persiste las que se escriban. `onAddNota` pasa a ser
+`undefined` en ese caso — es lo que le cede el paso.
+
+**Límite conocido, y es una decisión, no un olvido.** `/api/closer/notas` exige rol `closer` o
+`setter`, y Auditoría de Agentes la ve `tecnico`. Un `super_admin` pasa (`auth.ts` lo exceptúa), así
+que para Fabio funciona; un técnico puro recibe **403** y ahora ve _"⚠ no se guardó"_ en vez de
+perder la nota en silencio. No se agregó `tecnico` al endpoint porque el trabajo del técnico está
+definido —prompts y salud de los agentes— y anotar sobre el lead de un cliente es otra cosa.
+Ampliar un permiso de escritura sobre datos de personas es decisión de Fabio, no un efecto
+colateral de arreglar un bug. Si la quiere, es una palabra en `api/closer/notas.ts`.
+
+## D48 · Los avisos del servidor llegan a la pantalla
+
+**2026-08-15.** El backend venía diciendo la verdad y nadie la escuchaba.
+
+Avanzar es optimista: el toast verde sale antes de que el servidor conteste. Cuando la respuesta
+traía _"quedó registrado, pero la nota no se guardó"_, eso terminaba en un `console.warn`. Una
+consola que nadie abre no es "decirlo" — la regla 2 pide que si una escritura falla la respuesta lo
+diga, y decírselo al navegador no es decírselo a la persona.
+
+Ahora hay `src/lib/avisos.ts`: un `CustomEvent` del navegador, mismo patrón que `EVENTO_SIN_SESION`.
+El store publica, el drawer escucha y lo muestra en el toast que ya tenía. Un evento y no un store
+compartido porque quien avisa es una capa de datos y quien muestra es una vista: importarse
+mutuamente sería un ciclo.
+
+De paso apareció un tercer silencio, del mismo tipo: `setterStore.advance()` hacía
+`if (!r.ok) console.warn(...)` sobre `avanzarSetter`, que **lanza** (el `pedir()` de `api.ts`
+convierte cualquier 4xx/5xx en excepción). Esa rama era inalcanzable y la excepción escapaba de un
+`advance()` que nadie espera: promesa rechazada sin dueño, `recargar()` sin correr, y el pintado
+optimista quedándose en pantalla como si el Avanzar hubiera entrado. Ahora hay `try/catch`, el
+aviso sale, y la recarga corre **siempre** — con éxito trae lo que el servidor dejó, y con error
+deshace el pintado.

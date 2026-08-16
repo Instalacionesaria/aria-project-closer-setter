@@ -37,7 +37,11 @@ interface FilaApi {
     nota?: string;
     serie?: { key: string; toques: number; dias: number };
   };
-  fila: { microtext: string; tono: "neutral" | "vencido" | "agotado"; vencido: boolean };
+  fila: {
+    microtext: string;
+    tono: "neutral" | "vencido" | "agotado";
+    vencido: boolean;
+  };
 }
 
 export interface RespuestaMiDia {
@@ -95,6 +99,13 @@ export interface RespuestaAvanzar {
   seguimientoId?: string;
   fechaObjetivo?: string;
   toast: string;
+  /**
+   * Lo que falló SIN impedir el registro: la nota que no se guardó, la proyección que no se
+   * pudo escribir. El backend las manda desde el 2026-08-15 y hasta entonces este tipo no las
+   * modelaba, así que `r.advertencias` ni siquiera compilaba: el aviso llegaba al browser y
+   * moría en el `JSON.parse`.
+   */
+  advertencias?: string[];
   ghl: {
     modo: string;
     todoAplicado?: boolean;
@@ -134,7 +145,10 @@ export interface AvanzarResultadoBody {
 }
 
 export const registrarResultadoRemoto = (body: AvanzarResultadoBody) =>
-  pedir<RespuestaAvanzar>("/closer/avanzar", { method: "POST", body: JSON.stringify(body) });
+  pedir<RespuestaAvanzar>("/closer/avanzar", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 /**
  * Traduce una fila del API a la forma que ya consumen las vistas.
@@ -155,23 +169,42 @@ export function filaAContacto(f: FilaApi): ClosurerContact {
     // Sin calificación del motor: la UI pinta "—" (§4.10). No se inventa una letra.
     grade: undefined,
     stage: "seguimiento",
-    situacion: armarPildora({ stage: "seguimiento", subcategoria: situacionLabel }),
+    situacion: armarPildora({
+      stage: "seguimiento",
+      subcategoria: situacionLabel,
+    }),
     when: "hoy",
     activity: f.fila.microtext,
     fuente: "DIRECTO",
-    seguimientoAutomaticoActivo: f.seguimiento.modo === "automatico" && f.seguimiento.estado === "pendiente",
+    seguimientoAutomaticoActivo:
+      f.seguimiento.modo === "automatico" &&
+      f.seguimiento.estado === "pendiente",
     pinned: f.fijada || undefined,
-    seguimientoPendiente: { microtext: f.fila.microtext, vencido: f.fila.vencido },
+    seguimientoPendiente: {
+      microtext: f.fila.microtext,
+      vencido: f.fila.vencido,
+    },
     historial: [],
     // La nota del Avanzar viaja al tab Notas con su contexto (§3).
     notas: f.seguimiento.nota
-      /**
-       * `autor: ""` y no `"Jorge Q."`. Esta es la nota que el endpoint devuelve dentro de la fila
-       * de Mi Día, y **no trae autor**: el nombre estaba escrito acá. Con un solo closer coincidía
-       * por casualidad; con dos, le atribuía a uno la nota del otro. Vacío es honesto — la ficha
-       * lo omite, y el tab Notas trae el autor real cuando se abre.
-       */
-      ? [{ id: 1, contexto: armarPildora({ stage: "seguimiento", subcategoria: situacionLabel }), texto: f.seguimiento.nota, autor: "", fecha: "—" }]
+      ? /**
+         * `autor: ""` y no `"Jorge Q."`. Esta es la nota que el endpoint devuelve dentro de la fila
+         * de Mi Día, y **no trae autor**: el nombre estaba escrito acá. Con un solo closer coincidía
+         * por casualidad; con dos, le atribuía a uno la nota del otro. Vacío es honesto — la ficha
+         * lo omite, y el tab Notas trae el autor real cuando se abre.
+         */
+        [
+          {
+            id: 1,
+            contexto: armarPildora({
+              stage: "seguimiento",
+              subcategoria: situacionLabel,
+            }),
+            texto: f.seguimiento.nota,
+            autor: "",
+            fecha: "—",
+          },
+        ]
       : [],
   };
 }

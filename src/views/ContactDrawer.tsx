@@ -55,6 +55,9 @@ import {
   countSalesCalls,
   callsIASummary,
   indicadoresDe,
+  notaRealAItem,
+  AUTOR_OPTIMISTA,
+  type NotaItem,
   type ClosurerContact,
   type StageKey,
   type BotEstado,
@@ -67,6 +70,7 @@ import {
   type VideoPreCallInfo,
 } from "../lib/closerStore";
 import { StatusIcons } from "../components/StatusIcons";
+import { EVENTO_AVISO } from "../lib/avisos";
 import {
   INDICADORES_VACIOS,
   type IndicadoresContacto,
@@ -81,9 +85,12 @@ import {
 import { useSettings } from "../lib/settingsStore";
 import { playSaleSound } from "../lib/sound";
 import {
+  crearNota,
+  eliminarNota,
   enviarMensaje,
   enviarPlantilla,
   fetchConversation,
+  fetchNotas,
   fetchPlantillas,
   type PlantillaWhatsapp,
 } from "../lib/api";
@@ -1703,13 +1710,14 @@ function Toast({ message }: { message: string | null }) {
 /* ================================================================== */
 
 type HistorialItem = { fecha: string; texto: string; autor: string };
-type NotaItem = {
-  id: number;
-  contexto: string | null;
-  texto: string;
-  autor: string;
-  fecha: string;
-};
+/**
+ * `NotaItem` sale de `closerStore` y ya no se redeclara acá.
+ *
+ * Había una copia local idéntica salvo por un campo: le faltaba `realId`, el uuid de
+ * `closer_notas`. Sin él, una nota de la base era indistinguible de una optimista y no se podía
+ * borrar del servidor — la copia no era un duplicado inofensivo, era la que le quitaba a la
+ * ficha la única forma de identificar lo que muestra (regla 3: una sola derivación por regla).
+ */
 
 /**
  * VACÍOS desde el 2026-08-01 (pedido de Fabio): con contactos reales en la app, un historial
@@ -1791,6 +1799,24 @@ export default function ContactDrawer({
     if (name) setTab("chat");
   }, [name]);
 
+  /**
+   * Los avisos del servidor, en el mismo toast que ya usa el Avanzar.
+   *
+   * El toast de éxito es optimista: sale antes de que el servidor conteste. Cuando la respuesta
+   * trae "quedó registrado, pero la nota no se guardó", esto lo pisa — el usuario tiene que
+   * enterarse en la misma pantalla donde creyó que había guardado, no en la consola.
+   */
+  useEffect(() => {
+    const alAvisar = (e: Event) => {
+      const texto = (e as CustomEvent<string>).detail;
+      if (!texto) return;
+      setToast(texto);
+      setTimeout(() => setToast(null), 6000); // más que el de éxito: es una mala noticia
+    };
+    window.addEventListener(EVENTO_AVISO, alAvisar);
+    return () => window.removeEventListener(EVENTO_AVISO, alAvisar);
+  }, []);
+
   useEffect(() => {
     if (!name || contact || setterContact) return;
     setLocalPildora("EN CALIFICACIÓN · PARCIAL 3/8");
@@ -1799,6 +1825,51 @@ export default function ContactDrawer({
     setLocalNotas(NOTAS_SEED);
     setLocalBotEstado("activo");
   }, [name, contact, setterContact]);
+
+  /**
+   * ── La ficha huérfana: real en GHL, pero de ningún store ──────────────────
+   *
+   * Auditoría de Agentes abre esta ficha para CUALQUIER conversación de los últimos 30 días, y
+   * casi ninguna de esas personas está en las colas de hoy. Como el mapa del closer se arma con
+   * Mi Día, `contact` llega `null` y las notas caían a `localNotas`: un `useState` del drawer,
+   * heredado de la era demo, que descartaba lo que se escribiera sin guardarlo ni avisar.
+   *
+   * Con `ghlContactId` hay un contacto real y un endpoint que lo acepta, así que la ficha se
+   * arregla sola: pide sus notas y persiste las que se escriban. **No** se siembra la entrada en
+   * `closerStore.contacts` —que sería la otra forma de resolverlo— porque de ese Record salen los
+   * KPIs del cockpit (`ventas`, `salesCalls`, `atendieron`, `noShow`): abrir un contacto viejo
+   * desde Auditoría le habría sumado sus llamadas a las métricas del día. Arreglar las notas no
+   * puede costar torcer el dashboard.
+   */
+  const fichaHuerfana = Boolean(ghlContactId) && !contact && !setterContact;
+
+  useEffect(() => {
+    if (!fichaHuerfana || !ghlContactId) return;
+    let vivo = true;
+
+    fetchNotas(ghlContactId)
+      .then((r) => {
+        if (!vivo) return;
+        const delServidor = (r.notas ?? []).map(notaRealAItem);
+        const enServidor = new Set(delServidor.map((n) => n.texto));
+        // MERGE, no reemplazo: una nota escrita mientras este GET viajaba no se pisa.
+        setLocalNotas((prev) => [
+          ...prev.filter(
+            (n) =>
+              (n.fecha === "Hoy" || n.fecha.startsWith("⚠")) &&
+              !enServidor.has(n.texto),
+          ),
+          ...delServidor,
+        ]);
+      })
+      .catch(() => {
+        /* backend caído: se conserva lo que hubiera en memoria, no se inventa nada */
+      });
+
+    return () => {
+      vivo = false;
+    };
+  }, [fichaHuerfana, ghlContactId]);
 
   if (!name) return null;
 
@@ -1993,23 +2064,62 @@ export default function ContactDrawer({
   };
 
   const handleAddNota = (texto: string) => {
-    if (onAddNota) onAddNota(texto);
-    else
-      setLocalNotas((prev) => [
-        {
-          id: Date.now(),
-          contexto: null,
-          texto,
-          autor: "Usuario Activo",
-          fecha: "Hoy",
-        },
-        ...prev,
-      ]);
+    if (onAddNota) return onAddNota(texto);
+
+    setLocalNotas((prev) => [
+      {
+        id: Date.now(),
+        contexto: null,
+        texto,
+        autor: AUTOR_OPTIMISTA,
+        fecha: "Hoy",
+      },
+      ...prev,
+    ]);
+
+    // Sin contacto real no hay a quién guardársela: es la semilla de `npm run dev`.
+    if (!fichaHuerfana || !ghlContactId) return;
+
+    crearNota({ ghlContactId, texto })
+      .then((r) => {
+        if (!r?.nota) return;
+        setLocalNotas((prev) => [
+          notaRealAItem(r.nota),
+          ...prev.filter((n) => !(n.texto === texto && n.fecha === "Hoy")),
+        ]);
+      })
+      .catch((e) => {
+        // Se marca en pantalla: una nota que se cree escrita y no existe es peor que un error
+        // visible (regla 2).
+        console.error("La nota no se guardó:", e);
+        setLocalNotas((prev) =>
+          prev.map((n) =>
+            n.texto === texto && n.fecha === "Hoy"
+              ? { ...n, fecha: "⚠ no se guardó" }
+              : n,
+          ),
+        );
+      });
   };
 
   const handleDeleteNota = (id: number) => {
-    if (onDeleteNota) onDeleteNota(id);
-    else setLocalNotas((prev) => prev.filter((n) => n.id !== id));
+    if (onDeleteNota) return onDeleteNota(id);
+
+    const nota = localNotas.find((n) => n.id === id);
+    setLocalNotas((prev) => prev.filter((n) => n.id !== id));
+
+    // `realId` solo lo tienen las notas que vinieron de la base; las optimistas no existen ahí.
+    if (!nota?.realId || !ghlContactId) return;
+
+    eliminarNota(nota.realId).catch((e) => {
+      console.error("La nota no se pudo borrar:", e);
+      // Se re-pide la verdad en vez de dejar la pantalla afirmando que borró algo.
+      fetchNotas(ghlContactId)
+        .then((r) => setLocalNotas((r.notas ?? []).map(notaRealAItem)))
+        .catch(() => {
+          /* backend caído: no hay verdad que restaurar */
+        });
+    });
   };
 
   return (

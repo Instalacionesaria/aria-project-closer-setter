@@ -16,6 +16,7 @@ import {
   traerMiDia,
   type RespuestaAvanzar,
 } from "./seguimientos/cliente";
+import { emitirAviso, emitirAvisos } from "./avisos";
 import type { ModoSeguimiento } from "./seguimientos/dominio";
 import type { SituacionSeguimiento } from "./ghl/contrato";
 import { etapaDesdeTags } from "./ghl/etapas";
@@ -1217,8 +1218,17 @@ export function ClosurerProvider({ children }: { children: React.ReactNode }) {
                 "[avanzar] no se pudo persistir el resultado de",
                 c.ghlContactId,
               );
+              emitirAviso(
+                "El resultado no se pudo registrar. Revisá la conexión y volvé a intentarlo.",
+              );
               return;
             }
+            /**
+             * El registro salió, pero algo accesorio no. El caso que motivó esto es la nota:
+             * `guardarNotaDeAvance()` no lanza —una nota no puede impedir registrar una venta—
+             * así que sin esto el usuario veía el toast verde con la nota perdida.
+             */
+            emitirAvisos(r.advertencias);
             // El backend distingue "quedó registrado" de "llegó a GHL". Un tag que no se aplicó
             // significa que el workflow de GHL no se va a disparar, así que no se puede tratar
             // como éxito silencioso.
