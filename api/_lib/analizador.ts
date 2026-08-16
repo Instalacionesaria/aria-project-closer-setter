@@ -57,7 +57,10 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { botAtendiendo, TAGS } from "../../src/lib/ghl/contrato.js";
-import { ETIQUETA_AUTOR, type AutorMensaje } from "../../src/lib/ghl/autoria.js";
+import {
+  ETIQUETA_AUTOR,
+  type AutorMensaje,
+} from "../../src/lib/ghl/autoria.js";
 import { formateador } from "../../src/lib/fechas.js";
 import { autorDeMensajeGhl } from "./autoria.js";
 import { env } from "./env.js";
@@ -65,7 +68,14 @@ import { ghl } from "./ghl/index.js";
 import { cargarPromptAgente, type PromptAgente } from "./promptAgente.js";
 import { credencialesActivas } from "./credenciales.js";
 import { alarmasDe, type Alarma } from "./auditor/heuristicas.js";
-import { AGENTES_VOZ, AUDITOR_VOZ_HABILITADO, auditorHabilitado, elRojoApagaElBot, type AgenteVozId, type NivelVeredicto } from "../../src/lib/auditores.js";
+import {
+  AGENTES_VOZ,
+  AUDITOR_VOZ_HABILITADO,
+  auditorHabilitado,
+  elRojoApagaElBot,
+  type AgenteVozId,
+  type NivelVeredicto,
+} from "../../src/lib/auditores.js";
 import { db, orgActiva } from "./repo.js";
 import {
   contactosConTag,
@@ -145,7 +155,10 @@ export type AgenteAuditableId = AgenteTextoId | AgenteVozId;
  * urgentes de `bot_pausado_fallo` + `zona_setter`, así que el ruteo sale solo del territorio del
  * contacto y no hizo falta una línea nueva.
  */
-export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = ["appointment-flow-ai", "lead-flow-ai"];
+export const AUDITORES_ACTIVOS: readonly AgenteTextoId[] = [
+  "appointment-flow-ai",
+  "lead-flow-ai",
+];
 
 /**
  * TODO agente con auditor cableado — texto y voz. Es lo que los endpoints devuelven como
@@ -180,7 +193,10 @@ export const AGENTES_CON_AUDITOR: readonly AgenteAuditableId[] = [
  * mismos agentes con el mismo contexto, y duplicar estos textos garantizaría que un día digan
  * cosas distintas del mismo agente.
  */
-export const TERRITORIOS: Record<Territorio, { tag: string; agenteId: AgenteTextoId; contexto: string }> = {
+export const TERRITORIOS: Record<
+  Territorio,
+  { tag: string; agenteId: AgenteTextoId; contexto: string }
+> = {
   closer: {
     tag: TAGS.zonaCloser.valor,
     agenteId: "appointment-flow-ai",
@@ -277,7 +293,10 @@ cuyo contenido no tenemos. No supongas qué decía.`,
   · Hay menos de dos intercambios reales (menos de 2 del contacto o menos de 2 del agente).`,
 };
 
-export function rubricaDe(criterios: string, medio: MedioRubrica = MEDIO_CHAT): string {
+export function rubricaDe(
+  criterios: string,
+  medio: MedioRubrica = MEDIO_CHAT,
+): string {
   return `Sos un auditor de calidad de agentes de IA que atienden ${medio.descripcion}. Tu trabajo tiene dos salidas distintas y no hay que mezclarlas:
 
   A. INTERVENCIÓN: ¿hay que apagar al agente y que un humano tome esta conversación AHORA?
@@ -416,9 +435,15 @@ EL VERDE NO ES "NO ENCONTRÉ NADA". Es una afirmación medida, y por eso hay que
   · "evidencia": la línea "AGENTE IA" EXACTA Y LITERAL que lo demuestra, copiada del
     transcript. Sin ella el destacado no se guarda.
 
-Si la conversación salió limpia pero no podés señalar nada concreto que el agente haya hecho
-BIEN, dejá "destacado" y "evidencia" vacíos. El nivel sigue siendo verde: no encontrar un
-elogio no es lo mismo que encontrar una falla. Lo que NO se hace es inventar un mérito.
+UN VERDE SIN "destacado" ES UN VEREDICTO A MEDIAS, no la salida fácil. El amarillo tiene que
+nombrar el fallo y citarlo; el verde tiene la misma obligación con el acierto. Antes de dejarlo
+vacío, buscá de verdad: casi toda conversación donde el agente trabajó bien tiene UNA línea suya
+que se puede citar — cómo abrió, cómo confirmó un dato, cómo manejó un silencio, cómo cerró.
+
+Si aun así no hay una sola línea "AGENTE IA" citable, dejá "destacado" y "evidencia" vacíos y
+**decí en el "resumen" por qué no la había**. El nivel sigue siendo verde: no encontrar un elogio
+no es lo mismo que encontrar una falla. Lo que NO se hace es inventar un mérito — un destacado
+fabricado es peor que un verde callado, porque afirma salud que nadie midió.
 
 En amarillo, "destacado" dice qué se puede mejorar y "evidencia" la línea que lo muestra.
 En rojo los dos van vacíos: para eso están el diagnóstico y la corrección de cada hallazgo.
@@ -667,7 +692,12 @@ const ESQUEMA_VEREDICTO = {
     auditable: { type: "boolean" },
     motivo_no_auditable: {
       type: "string",
-      enum: ["", "sin_mensajes_del_agente", "mayormente_audio", "conversacion_muy_corta"],
+      enum: [
+        "",
+        "sin_mensajes_del_agente",
+        "mayormente_audio",
+        "conversacion_muy_corta",
+      ],
     },
     nivel: { type: "string", enum: ["verde", "amarillo", "rojo"] },
     /**
@@ -708,7 +738,11 @@ const ESQUEMA_VEREDICTO = {
           titulo: { type: "string" },
           categoria: {
             type: "string",
-            enum: ["comportamiento", "base_conocimiento", "informacion_adicional"],
+            enum: [
+              "comportamiento",
+              "base_conocimiento",
+              "informacion_adicional",
+            ],
           },
           severidad: { type: "string", enum: ["rojo", "amarillo"] },
           criterio: { type: "string", enum: [...CRITERIOS] },
@@ -757,7 +791,8 @@ const ESQUEMA_VEREDICTO = {
 
 export type Sentimiento = "positivo" | "neutral" | "molesto";
 export type Severidad = "rojo" | "amarillo";
-export type CategoriaHallazgo = "comportamiento" | "base_conocimiento" | "informacion_adicional";
+export type CategoriaHallazgo =
+  "comportamiento" | "base_conocimiento" | "informacion_adicional";
 
 export interface Hallazgo {
   errorCode: string;
@@ -869,7 +904,11 @@ const partesFechaHora = () =>
  * Del formateador se usa solo la conversión de zona horaria, que es lo que sí hace bien.
  */
 function selloDeTiempo(d: Date): string {
-  const p = Object.fromEntries(partesFechaHora().formatToParts(d).map((x) => [x.type, x.value]));
+  const p = Object.fromEntries(
+    partesFechaHora()
+      .formatToParts(d)
+      .map((x) => [x.type, x.value]),
+  );
   const dd = (v: string | undefined) => String(v ?? "").padStart(2, "0");
   return `${dd(p.day)}/${dd(p.month)} ${dd(p.hour)}:${dd(p.minute)}`;
 }
@@ -881,7 +920,9 @@ function selloDeTiempo(d: Date): string {
  * del sistema, y se recorta a los últimos `MAX_MENSAJES` — lo viejo no explica el fallo de
  * hoy y el transcript es lo que domina el costo del análisis.
  */
-export function clasificarMensajes(mensajes: MensajeGhl[]): MensajeClasificado[] {
+export function clasificarMensajes(
+  mensajes: MensajeGhl[],
+): MensajeClasificado[] {
   return [...mensajes]
     .filter(esMensajeDeChat)
     .reverse()
@@ -901,13 +942,18 @@ export function clasificarMensajes(mensajes: MensajeGhl[]): MensajeClasificado[]
  * resumen es que sin ver la plantilla de workflow que enojó al contacto, el auditor le
  * atribuye el enojo al agente y escribe un motivo falso en la nota `[IA]`.
  */
-export function armarTranscript(clasificados: MensajeClasificado[], truncado = false): string {
+export function armarTranscript(
+  clasificados: MensajeClasificado[],
+  truncado = false,
+): string {
   const lineas = clasificados.map((m) => {
     const sello = m.cuando ? `[${selloDeTiempo(new Date(m.cuando))}] ` : "";
     return `${sello}${ETIQUETA_AUTOR[m.autor]}: ${m.texto}`;
   });
   if (truncado) {
-    lineas.unshift("[…la conversación es más larga; se muestran solo los mensajes más recientes]");
+    lineas.unshift(
+      "[…la conversación es más larga; se muestran solo los mensajes más recientes]",
+    );
   }
   return lineas.join("\n");
 }
@@ -918,10 +964,16 @@ export function armarTranscript(clasificados: MensajeClasificado[], truncado = f
  * "Dejó de responder" es una afirmación temporal, y los modelos calculan mal el tiempo. Se
  * mide acá y se le pasa como dato, con la instrucción de no recalcularlo.
  */
-export function hechosMedidos(clasificados: MensajeClasificado[], ahoraMs = Date.now()): string {
-  const cuenta = (a: AutorMensaje) => clasificados.filter((m) => m.autor === a).length;
+export function hechosMedidos(
+  clasificados: MensajeClasificado[],
+  ahoraMs = Date.now(),
+): string {
+  const cuenta = (a: AutorMensaje) =>
+    clasificados.filter((m) => m.autor === a).length;
   const ultimo = clasificados[clasificados.length - 1];
-  const ultimoAgente = [...clasificados].reverse().find((m) => m.autor === "agente_ia");
+  const ultimoAgente = [...clasificados]
+    .reverse()
+    .find((m) => m.autor === "agente_ia");
   const sinTexto = clasificados.filter((m) => m.sinTexto).length;
 
   const hace = (ms: number | undefined) => {
@@ -929,7 +981,9 @@ export function hechosMedidos(clasificados: MensajeClasificado[], ahoraMs = Date
     const min = Math.max(0, Math.round((ahoraMs - ms) / 60_000));
     if (min < 60) return `hace ${min} min`;
     const h = Math.floor(min / 60);
-    return h < 48 ? `hace ${h} h ${min % 60} min` : `hace ${Math.floor(h / 24)} días`;
+    return h < 48
+      ? `hace ${h} h ${min % 60} min`
+      : `hace ${Math.floor(h / 24)} días`;
   };
 
   // ¿Quedó una pregunta del contacto sin que nadie —ni el agente, ni un humano, ni una
@@ -954,7 +1008,8 @@ export function hechosMedidos(clasificados: MensajeClasificado[], ahoraMs = Date
 /* La llamada al modelo                                                */
 /* ================================================================== */
 
-export type ResultadoEvaluacion = { ok: true; veredicto: Veredicto } | { ok: false; motivo: string };
+export type ResultadoEvaluacion =
+  { ok: true; veredicto: Veredicto } | { ok: false; motivo: string };
 
 const normalizarErrorCode = (crudo: string): string =>
   crudo
@@ -968,7 +1023,9 @@ const normalizarErrorCode = (crudo: string): string =>
     .slice(0, 48);
 
 /** Patrones ya vistos, para que el modelo reuse el código en vez de inventar uno por caso. */
-export async function patronesConocidos(agenteId: AgenteAuditableId): Promise<string> {
+export async function patronesConocidos(
+  agenteId: AgenteAuditableId,
+): Promise<string> {
   const { data } = await db()
     .from("closer_hallazgo_agente")
     .select("error_code, titulo")
@@ -980,8 +1037,11 @@ export async function patronesConocidos(agenteId: AgenteAuditableId): Promise<st
   for (const f of (data ?? []) as { error_code: string; titulo: string }[]) {
     if (!vistos.has(f.error_code)) vistos.set(f.error_code, f.titulo);
   }
-  if (vistos.size === 0) return "(todavía no se detectó ningún patrón — este sería el primero)";
-  return [...vistos.entries()].map(([code, titulo]) => `- ${code}: ${titulo}`).join("\n");
+  if (vistos.size === 0)
+    return "(todavía no se detectó ningún patrón — este sería el primero)";
+  return [...vistos.entries()]
+    .map(([code, titulo]) => `- ${code}: ${titulo}`)
+    .join("\n");
 }
 
 /**
@@ -1075,7 +1135,10 @@ export async function evaluarConversacion(opts: {
      */
     max_tokens: 16000,
     system: [
-      { type: "text" as const, text: opts.encuadre?.contexto ?? TERRITORIOS[opts.territorio].contexto },
+      {
+        type: "text" as const,
+        text: opts.encuadre?.contexto ?? TERRITORIOS[opts.territorio].contexto,
+      },
       {
         type: "text" as const,
         text: opts.prompt.presente
@@ -1117,16 +1180,27 @@ ${opts.patrones}
       effort: esfuerzo,
       format: { type: "json_schema", schema: ESQUEMA_VEREDICTO },
     },
-    messages: [{ role: "user", content: `${opts.hechos}\n\nConversación a auditar:\n\n${opts.transcript}` }],
+    messages: [
+      {
+        role: "user",
+        content: `${opts.hechos}\n\nConversación a auditar:\n\n${opts.transcript}`,
+      },
+    ],
   } as Anthropic.MessageCreateParamsNonStreaming);
 
   // Las clasificadoras pueden declinar. No es un fallo del agente de ventas: no se marca nada.
-  if (respuesta.stop_reason === "refusal") return { ok: false, motivo: "el modelo declinó responder" };
+  if (respuesta.stop_reason === "refusal")
+    return { ok: false, motivo: "el modelo declinó responder" };
   if (respuesta.stop_reason === "max_tokens") {
-    return { ok: false, motivo: "el veredicto salió truncado (max_tokens) — subir el techo" };
+    return {
+      ok: false,
+      motivo: "el veredicto salió truncado (max_tokens) — subir el techo",
+    };
   }
 
-  const texto = respuesta.content.find((b): b is Anthropic.TextBlock => b.type === "text")?.text;
+  const texto = respuesta.content.find(
+    (b): b is Anthropic.TextBlock => b.type === "text",
+  )?.text;
   if (!texto) return { ok: false, motivo: "el modelo no devolvió texto" };
 
   let crudo: any;
@@ -1145,12 +1219,18 @@ ${opts.patrones}
           errorCode: normalizarErrorCode(String(h.error_code ?? "")),
           titulo: String(h.titulo ?? "").slice(0, 120),
           categoria: h.categoria as CategoriaHallazgo,
-          severidad: (h.severidad === "rojo" ? "rojo" : "amarillo") as Severidad,
+          severidad: (h.severidad === "rojo"
+            ? "rojo"
+            : "amarillo") as Severidad,
           criterio: String(h.criterio ?? "ninguno"),
           diagnostico: String(h.diagnostico ?? ""),
-          fragmentoPrompt: typeof h.fragmento_prompt === "string" ? h.fragmento_prompt : null,
-          promptSeccion: typeof h.prompt_seccion === "string" ? h.prompt_seccion : null,
-          correccionTipo: (h.correccion_tipo === "reemplazo" ? "reemplazo" : "agregado") as Hallazgo["correccionTipo"],
+          fragmentoPrompt:
+            typeof h.fragmento_prompt === "string" ? h.fragmento_prompt : null,
+          promptSeccion:
+            typeof h.prompt_seccion === "string" ? h.prompt_seccion : null,
+          correccionTipo: (h.correccion_tipo === "reemplazo"
+            ? "reemplazo"
+            : "agregado") as Hallazgo["correccionTipo"],
           correccion: String(h.correccion ?? ""),
           evidenciaUsuario: String(h.evidencia_usuario ?? ""),
           evidenciaIa: String(h.evidencia_ia ?? ""),
@@ -1173,15 +1253,25 @@ ${opts.patrones}
     ? ((crudo.observaciones ?? []) as any[])
         .map((o) => ({
           etiqueta: String(o?.etiqueta ?? "") as EtiquetaObservacion,
-          texto: String(o?.texto ?? "").trim().slice(0, 400),
-          cita: typeof o?.cita === "string" && o.cita.trim() !== "" ? o.cita.trim().slice(0, 300) : null,
+          texto: String(o?.texto ?? "")
+            .trim()
+            .slice(0, 400),
+          cita:
+            typeof o?.cita === "string" && o.cita.trim() !== ""
+              ? o.cita.trim().slice(0, 300)
+              : null,
         }))
-        .filter((o) => (ETIQUETAS_OBSERVACION as readonly string[]).includes(o.etiqueta) && o.texto !== "")
+        .filter(
+          (o) =>
+            (ETIQUETAS_OBSERVACION as readonly string[]).includes(o.etiqueta) &&
+            o.texto !== "",
+        )
         .slice(0, MAX_OBSERVACIONES)
     : [];
 
   // Una conversación no auditable no puede pedir intervención: no se juzgó nada.
-  const requiereIntervencion = auditable && Boolean(crudo.requiere_intervencion);
+  const requiereIntervencion =
+    auditable && Boolean(crudo.requiere_intervencion);
 
   /**
    * ── El nivel se DERIVA, no se cree ────────────────────────────────────
@@ -1211,7 +1301,8 @@ ${opts.patrones}
    */
   const destacadoCrudo = String(crudo.destacado ?? "").trim();
   const evidenciaCruda = String(crudo.evidencia ?? "").trim();
-  const conRespaldo = nivel !== "rojo" && destacadoCrudo !== "" && evidenciaCruda !== "";
+  const conRespaldo =
+    nivel !== "rojo" && destacadoCrudo !== "" && evidenciaCruda !== "";
 
   return {
     ok: true,
@@ -1220,13 +1311,19 @@ ${opts.patrones}
       motivoNoAuditable: String(crudo.motivo_no_auditable ?? ""),
       nivel,
       // Se recorta pero NO se condiciona a `auditable`: es lo único que un no-auditable puede decir.
-      resumen: String(crudo.resumen ?? "").trim().slice(0, 1200),
+      resumen: String(crudo.resumen ?? "")
+        .trim()
+        .slice(0, 1200),
       destacado: conRespaldo ? destacadoCrudo.slice(0, 240) : "",
       evidencia: conRespaldo ? evidenciaCruda.slice(0, 400) : "",
       requiereIntervencion,
       motivoIntervencion: String(crudo.motivo_intervencion ?? ""),
-      criterioPrincipal: CRITERIOS.includes(crudo.criterio_principal) ? crudo.criterio_principal : "ninguno",
-      sentimiento: sentimientos.includes(crudo.sentimiento) ? crudo.sentimiento : "neutral",
+      criterioPrincipal: CRITERIOS.includes(crudo.criterio_principal)
+        ? crudo.criterio_principal
+        : "ninguno",
+      sentimiento: sentimientos.includes(crudo.sentimiento)
+        ? crudo.sentimiento
+        : "neutral",
       hallazgos,
       observaciones,
     },
@@ -1335,12 +1432,18 @@ export async function guardarAnalisis(e: {
       .single();
 
     if (error) {
-      console.warn("[analizador] no se pudo guardar el análisis:", error.message);
+      console.warn(
+        "[analizador] no se pudo guardar el análisis:",
+        error.message,
+      );
       return null;
     }
     return (data as { id: string }).id;
   } catch (err) {
-    console.warn("[analizador] no se pudo guardar el análisis:", (err as Error).message);
+    console.warn(
+      "[analizador] no se pudo guardar el análisis:",
+      (err as Error).message,
+    );
     return null;
   }
 }
@@ -1380,7 +1483,10 @@ export async function guardarHallazgos(
     .select("id");
 
   if (error) {
-    console.warn("[analizador] no se pudieron guardar los hallazgos:", error.message);
+    console.warn(
+      "[analizador] no se pudieron guardar los hallazgos:",
+      error.message,
+    );
     return 0;
   }
   return data?.length ?? 0;
@@ -1413,12 +1519,14 @@ async function alarmasDelCache(ghlContactId: string): Promise<Alarma[]> {
 
   // La consulta viene descendente para que el `limit` agarre los ÚLTIMOS; las heurísticas
   // necesitan orden cronológico.
-  const mensajes: MensajeClasificado[] = (data as unknown as FilaMensajeCache[]).reverse().map((m) => ({
-    autor: autorDeFila(m),
-    texto: m.body ?? "",
-    cuando: m.timestamp_ghl ? new Date(m.timestamp_ghl).getTime() : 0,
-    sinTexto: !m.body?.trim(),
-  }));
+  const mensajes: MensajeClasificado[] = (data as unknown as FilaMensajeCache[])
+    .reverse()
+    .map((m) => ({
+      autor: autorDeFila(m),
+      texto: m.body ?? "",
+      cuando: m.timestamp_ghl ? new Date(m.timestamp_ghl).getTime() : 0,
+      sinTexto: !m.body?.trim(),
+    }));
 
   return alarmasDe(mensajes);
 }
@@ -1510,7 +1618,9 @@ export function elAgenteAtiende(tags: readonly string[]): boolean {
   return botAtendiendo(tags) || env.auditorSinPortonTags();
 }
 
-export async function decidirAnalisis(ghlContactId: string): Promise<DecisionAuditor> {
+export async function decidirAnalisis(
+  ghlContactId: string,
+): Promise<DecisionAuditor> {
   const umbral = env.auditorUmbralIa();
 
   const { count } = await db()
@@ -1603,8 +1713,12 @@ export async function decidirAnalisis(ghlContactId: string): Promise<DecisionAud
       .eq("ghl_contact_id", ghlContactId)
       .maybeSingle();
 
-    const ultimoMs = contacto?.last_message_ghl_at ? Date.parse(contacto.last_message_ghl_at as string) : 0;
-    const diasSinActividad = ultimoMs ? (Date.now() - ultimoMs) / 86_400_000 : Infinity;
+    const ultimoMs = contacto?.last_message_ghl_at
+      ? Date.parse(contacto.last_message_ghl_at as string)
+      : 0;
+    const diasSinActividad = ultimoMs
+      ? (Date.now() - ultimoMs) / 86_400_000
+      : Infinity;
     if (diasSinActividad > env.auditorDiasArranque()) {
       return {
         correr: false,
@@ -1617,7 +1731,14 @@ export async function decidirAnalisis(ghlContactId: string): Promise<DecisionAud
     }
   }
 
-  return { correr: true, motivo: "", iaAhora, lineaBase, delta, soloSembrar: false };
+  return {
+    correr: true,
+    motivo: "",
+    iaAhora,
+    lineaBase,
+    delta,
+    soloSembrar: false,
+  };
 }
 
 /* ================================================================== */
@@ -1677,19 +1798,27 @@ export async function analizarYMarcar(
 
     // Territorio + estado actual en una sola lectura del contacto.
     const contacto = await ghl().obtenerContacto(ghlContactId);
-    if (!contacto) return { analizado: false, motivo: "GHL no devolvió el contacto" };
+    if (!contacto)
+      return { analizado: false, motivo: "GHL no devolvió el contacto" };
 
     const tags = contacto.tags ?? [];
 
     /* ── Portón 1: territorio ─────────────────────────────────────────── */
     const territorio = territorioDe(tags);
     if (!territorio) {
-      return { analizado: false, motivo: "sin territorio (ni zona_closer ni zona_setter)" };
+      return {
+        analizado: false,
+        motivo: "sin territorio (ni zona_closer ni zona_setter)",
+      };
     }
     if (!AUDITORES_ACTIVOS.includes(TERRITORIOS[territorio].agenteId)) {
       // Auditar pre-agenda con la rúbrica de post-agenda daría veredictos malos sobre un
       // trabajo distinto, y encima gastando. El auditor del setter será su propio agente.
-      return { analizado: false, motivo: "el auditor de chat del setter todavía no existe", territorio };
+      return {
+        analizado: false,
+        motivo: "el auditor de chat del setter todavía no existe",
+        territorio,
+      };
     }
 
     /**
@@ -1707,7 +1836,8 @@ export async function analizarYMarcar(
     if (!botAtendiendo(tags) && !opts.dryRun && !env.auditorSinPortonTags()) {
       return {
         analizado: false,
-        motivo: "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",
+        motivo:
+          "el agente de IA no está atendiendo a este contacto (sin bot_activado ni bot_reactivar)",
         territorio,
       };
     }
@@ -1719,7 +1849,11 @@ export async function analizarYMarcar(
 
     /* ── Portón 4: el debounce ────────────────────────────────────────── */
     const decision = await decidirAnalisis(ghlContactId);
-    const debounce = { iaAhora: decision.iaAhora, lineaBase: decision.lineaBase, delta: decision.delta };
+    const debounce = {
+      iaAhora: decision.iaAhora,
+      lineaBase: decision.lineaBase,
+      delta: decision.delta,
+    };
 
     if (!decision.correr && !opts.forzar) {
       if (decision.soloSembrar && !opts.dryRun) {
@@ -1754,7 +1888,12 @@ export async function analizarYMarcar(
           disparo: "linea_base",
         });
       }
-      return { analizado: false, motivo: decision.motivo, territorio, debounce };
+      return {
+        analizado: false,
+        motivo: decision.motivo,
+        territorio,
+        debounce,
+      };
     }
 
     /**
@@ -1775,24 +1914,39 @@ export async function analizarYMarcar(
         p_ventana_segundos: env.auditorClaimSegundos(),
       });
       if (gano === false) {
-        return { analizado: false, motivo: "otro análisis de este contacto está corriendo", territorio, debounce };
+        return {
+          analizado: false,
+          motivo: "otro análisis de este contacto está corriendo",
+          territorio,
+          debounce,
+        };
       }
     }
 
     const conversationId = await conversacionDeContacto(ghlContactId);
-    if (!conversationId) return { analizado: false, motivo: "sin conversación", territorio, debounce };
+    if (!conversationId)
+      return {
+        analizado: false,
+        motivo: "sin conversación",
+        territorio,
+        debounce,
+      };
 
-    const { mensajes, truncado } = await mensajesDeConversacionPaginado(conversationId, {
-      limite: 100,
-      paginas: PAGINAS_GHL,
-    });
+    const { mensajes, truncado } = await mensajesDeConversacionPaginado(
+      conversationId,
+      {
+        limite: 100,
+        paginas: PAGINAS_GHL,
+      },
+    );
     const clasificados = clasificarMensajes(mensajes);
 
     /* ── Portón 5: los hechos, no los tags ────────────────────────────── */
     if (!clasificados.some((m) => m.autor === "agente_ia")) {
       return {
         analizado: false,
-        motivo: "la conversación no tiene ningún mensaje del agente: no hay nada que auditar",
+        motivo:
+          "la conversación no tiene ningún mensaje del agente: no hay nada que auditar",
         territorio,
         debounce,
       };
@@ -1832,7 +1986,12 @@ export async function analizarYMarcar(
     });
 
     if (!evaluacion.ok) {
-      return { analizado: false, motivo: evaluacion.motivo, territorio, debounce };
+      return {
+        analizado: false,
+        motivo: evaluacion.motivo,
+        territorio,
+        debounce,
+      };
     }
     const veredicto = evaluacion.veredicto;
 
@@ -1973,10 +2132,14 @@ export async function analizarTerritorio(
   truncado: boolean;
   resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis>;
 }> {
-  const { contactos, truncado } = await contactosConTag(TERRITORIOS[territorio].tag);
+  const { contactos, truncado } = await contactosConTag(
+    TERRITORIOS[territorio].tag,
+  );
   const candidatos = contactos.filter((c) => elAgenteAtiende(c.tags));
 
-  const resultados: Array<{ contactId: string; nombre: string } & ResultadoAnalisis> = [];
+  const resultados: Array<
+    { contactId: string; nombre: string } & ResultadoAnalisis
+  > = [];
   for (const c of candidatos) {
     resultados.push({
       contactId: c.id,

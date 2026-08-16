@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { botAtendiendo, TAGS, TAGS_BOT } from "../../src/lib/ghl/contrato";
 import { autorDeMensaje } from "../../src/lib/ghl/autoria";
-import { armarTranscript, hechosMedidos, territorioDe, type MensajeClasificado } from "./analizador";
+import {
+  armarTranscript,
+  CRITERIOS_CLOSER,
+  hechosMedidos,
+  rubricaDe,
+  territorioDe,
+  type MensajeClasificado,
+} from "./analizador";
 
 /**
  * El portón que no existía y costó el bug del 2026-08-04. Estos casos son el contrato: si
@@ -15,7 +22,9 @@ describe("botAtendiendo — el portón del auditor", () => {
   });
 
   it("bot_activado sí", () => {
-    expect(botAtendiendo([TAGS.zonaCloser.valor, TAGS_BOT.botActivado.valor])).toBe(true);
+    expect(
+      botAtendiendo([TAGS.zonaCloser.valor, TAGS_BOT.botActivado.valor]),
+    ).toBe(true);
   });
 
   /**
@@ -44,7 +53,12 @@ describe("botAtendiendo — el portón del auditor", () => {
    * mandó a Intervenciones Urgentes.
    */
   it("el caso que causó el bug: zona_closer post-call, sin bot", () => {
-    expect(botAtendiendo([TAGS.zonaCloser.valor, TAGS_BOT.botDesactivadoPostcall.valor])).toBe(false);
+    expect(
+      botAtendiendo([
+        TAGS.zonaCloser.valor,
+        TAGS_BOT.botDesactivadoPostcall.valor,
+      ]),
+    ).toBe(false);
   });
 
   it("tolera mayúsculas y espacios — GHL no garantiza higiene de tags", () => {
@@ -59,26 +73,46 @@ describe("botAtendiendo — el portón del auditor", () => {
  */
 describe("autorDeMensaje — quién escribió cada mensaje", () => {
   it("un entrante es siempre del contacto, sin importar source ni userId", () => {
-    expect(autorDeMensaje({ direccion: "inbound", source: "api", userId: "" })).toBe("contacto");
-    expect(autorDeMensaje({ direccion: "inbound", source: "app", userId: "0peGoq7V" })).toBe("contacto");
+    expect(
+      autorDeMensaje({ direccion: "inbound", source: "api", userId: "" }),
+    ).toBe("contacto");
+    expect(
+      autorDeMensaje({
+        direccion: "inbound",
+        source: "app",
+        userId: "0peGoq7V",
+      }),
+    ).toBe("contacto");
   });
 
   it("source=app SIN userId es el chatbot — la firma real de las respuestas a Moisés", () => {
     expect(
-      autorDeMensaje({ direccion: "outbound", source: "app", messageType: "TYPE_WHATSAPP" }),
+      autorDeMensaje({
+        direccion: "outbound",
+        source: "app",
+        messageType: "TYPE_WHATSAPP",
+      }),
     ).toBe("agente_ia");
   });
 
   it("source=app CON userId es un humano tipeando en GHL", () => {
     expect(
-      autorDeMensaje({ direccion: "outbound", source: "app", userId: "BtefrkUaWSWBV4g72vbR" }),
+      autorDeMensaje({
+        direccion: "outbound",
+        source: "app",
+        userId: "BtefrkUaWSWBV4g72vbR",
+      }),
     ).toBe("asesor");
   });
 
   /** El `userId` de un workflow es el de quien lo ARMÓ, no el autor del texto: se ignora. */
   it("source=workflow es una plantilla, aunque traiga userId", () => {
     expect(
-      autorDeMensaje({ direccion: "outbound", source: "workflow", userId: "0peGoq7VvFqnDGA7gxtX" }),
+      autorDeMensaje({
+        direccion: "outbound",
+        source: "workflow",
+        userId: "0peGoq7VvFqnDGA7gxtX",
+      }),
     ).toBe("workflow");
   });
 
@@ -87,31 +121,53 @@ describe("autorDeMensaje — quién escribió cada mensaje", () => {
    * pausarle el bot a una persona real por algo que escribió una integración.
    */
   it("source=api sin userId es DESCONOCIDO, nunca el agente", () => {
-    expect(autorDeMensaje({ direccion: "outbound", source: "api" })).toBe("desconocido");
+    expect(autorDeMensaje({ direccion: "outbound", source: "api" })).toBe(
+      "desconocido",
+    );
     expect(autorDeMensaje({ direccion: "outbound" })).toBe("desconocido");
   });
 
   it("los eventos de actividad no son conversación", () => {
     expect(
-      autorDeMensaje({ direccion: "outbound", source: "app", messageType: "TYPE_ACTIVITY_APPOINTMENT" }),
+      autorDeMensaje({
+        direccion: "outbound",
+        source: "app",
+        messageType: "TYPE_ACTIVITY_APPOINTMENT",
+      }),
     ).toBe("sistema");
   });
 
   it("la válvula de configuración permite reconocer otra firma sin desplegar", () => {
-    expect(autorDeMensaje({ direccion: "outbound", source: "api" }, { fuentesIa: ["api"] })).toBe("agente_ia");
     expect(
-      autorDeMensaje({ direccion: "outbound", source: "app", userId: "svc-bot" }, { userIdsIa: ["svc-bot"] }),
+      autorDeMensaje(
+        { direccion: "outbound", source: "api" },
+        { fuentesIa: ["api"] },
+      ),
+    ).toBe("agente_ia");
+    expect(
+      autorDeMensaje(
+        { direccion: "outbound", source: "app", userId: "svc-bot" },
+        { userIdsIa: ["svc-bot"] },
+      ),
     ).toBe("agente_ia");
   });
 
   it("lo que mandó nuestro compositor es del asesor, sin inferir nada", () => {
-    expect(autorDeMensaje({ direccion: "outbound", source: "api", enviadoPorElTool: true })).toBe("asesor");
+    expect(
+      autorDeMensaje({
+        direccion: "outbound",
+        source: "api",
+        enviadoPorElTool: true,
+      }),
+    ).toBe("asesor");
   });
 });
 
 describe("territorioDe", () => {
   it("closer gana si por error conviven los dos tags (etapa más avanzada)", () => {
-    expect(territorioDe([TAGS.zonaSetter.valor, TAGS.zonaCloser.valor])).toBe("closer");
+    expect(territorioDe([TAGS.zonaSetter.valor, TAGS.zonaCloser.valor])).toBe(
+      "closer",
+    );
   });
 
   it("sin ninguno, null", () => {
@@ -153,7 +209,10 @@ describe("armarTranscript", () => {
   });
 
   it("una conversación sin agente no tiene ninguna línea AGENTE IA — el portón 5 la descarta", () => {
-    const clasificados = [m("contacto", "hola"), m("contacto", "¿hay alguien?")];
+    const clasificados = [
+      m("contacto", "hola"),
+      m("contacto", "¿hay alguien?"),
+    ];
     expect(clasificados.some((x) => x.autor === "agente_ia")).toBe(false);
     expect(armarTranscript(clasificados)).not.toContain("AGENTE IA:");
   });
@@ -164,7 +223,9 @@ describe("armarTranscript", () => {
    * runtime — `es-PE` con `format()` devolvía `4/8, 13:00`, sin rellenar el día.
    */
   it("cada línea lleva fecha y hora con formato estable", () => {
-    expect(armarTranscript([m("contacto", "hola")])).toMatch(/^\[\d{2}\/\d{2} \d{2}:\d{2}\] CONTACTO: hola$/);
+    expect(armarTranscript([m("contacto", "hola")])).toMatch(
+      /^\[\d{2}\/\d{2} \d{2}:\d{2}\] CONTACTO: hola$/,
+    );
   });
 
   /** La hora va en la zona de la org, no en UTC: 18:00Z es la 1 de la tarde en Lima. */
@@ -178,11 +239,48 @@ describe("armarTranscript", () => {
   });
 });
 
+describe("el verde tiene que sostenerse, como el amarillo (2026-08-16)", () => {
+  /**
+   * Medido en producción: 8 de 9 llamadas auditables salieron verdes, y la rúbrica le exigía al
+   * amarillo tres artefactos (hallazgo + cita + error_code) y al verde ninguno. El verde era la
+   * opción barata. Decisión de Fabio: que cite qué hizo bien, igual que el amarillo cita el fallo.
+   *
+   * Lo que NO se hizo, y por eso estos tests fijan las dos mitades: quitar la salida de "no hay
+   * nada citable". Sin ella el modelo fabrica méritos, y un destacado inventado afirma salud que
+   * nadie midió — peor que un verde callado.
+   */
+  const RUBRICA = rubricaDe(CRITERIOS_CLOSER);
+
+  it("le pide al verde el mismo esfuerzo que al amarillo", () => {
+    expect(RUBRICA).toContain(
+      'UN VERDE SIN "destacado" ES UN VEREDICTO A MEDIAS',
+    );
+    expect(RUBRICA).toContain("no la salida fácil");
+  });
+
+  it("y le da ejemplos de dónde buscar antes de rendirse", () => {
+    expect(RUBRICA).toContain("cómo abrió");
+    expect(RUBRICA).toContain("cómo cerró");
+  });
+
+  it("pero conserva la salida honesta, con su precio: hay que justificarla", () => {
+    expect(RUBRICA).toContain('dejá "destacado" y "evidencia" vacíos');
+    expect(RUBRICA).toContain("por qué no la había");
+  });
+
+  it("y sigue prohibiendo inventar el mérito", () => {
+    expect(RUBRICA).toContain("NO se hace es inventar un mérito");
+  });
+});
+
 describe("hechosMedidos", () => {
   const ahora = Date.parse("2026-08-04T18:00:00Z");
 
   it("cuenta los mensajes por autor", () => {
-    const h = hechosMedidos([m("contacto", "a", 10), m("agente_ia", "b", 9), m("workflow", "c", 8)], ahora);
+    const h = hechosMedidos(
+      [m("contacto", "a", 10), m("agente_ia", "b", 9), m("workflow", "c", 8)],
+      ahora,
+    );
     expect(h).toContain("contacto 1");
     expect(h).toContain("agente IA 1");
     expect(h).toContain("automatización 1");
@@ -193,17 +291,29 @@ describe("hechosMedidos", () => {
    * si el último mensaje es del contacto, nadie respondió después.
    */
   it("dice NO cuando el último mensaje quedó sin respuesta", () => {
-    const h = hechosMedidos([m("agente_ia", "hola", 30), m("contacto", "¿y el link?", 5)], ahora);
-    expect(h).toContain("¿Alguien respondió después del último mensaje del contacto?: NO");
+    const h = hechosMedidos(
+      [m("agente_ia", "hola", 30), m("contacto", "¿y el link?", 5)],
+      ahora,
+    );
+    expect(h).toContain(
+      "¿Alguien respondió después del último mensaje del contacto?: NO",
+    );
   });
 
   it("dice SÍ cuando contestó una AUTOMATIZACIÓN — eso es seguimiento, no abandono", () => {
-    const h = hechosMedidos([m("contacto", "¿y el link?", 30), m("workflow", "recordatorio", 5)], ahora);
-    expect(h).toContain("¿Alguien respondió después del último mensaje del contacto?: SÍ");
+    const h = hechosMedidos(
+      [m("contacto", "¿y el link?", 30), m("workflow", "recordatorio", 5)],
+      ahora,
+    );
+    expect(h).toContain(
+      "¿Alguien respondió después del último mensaje del contacto?: SÍ",
+    );
   });
 
   it("informa el umbral de silencio en vez de pedirle al modelo que lo invente", () => {
-    expect(hechosMedidos([m("contacto", "hola")], ahora)).toContain("60 minutos");
+    expect(hechosMedidos([m("contacto", "hola")], ahora)).toContain(
+      "60 minutos",
+    );
   });
 
   it("distingue 'nunca escribió' de 'hace rato' para el agente", () => {
@@ -213,7 +323,10 @@ describe("hechosMedidos", () => {
   });
 
   it("cuenta los mensajes sin texto — el modelo tiene que saber qué no puede leer", () => {
-    const h = hechosMedidos([m("contacto", "[nota de voz sin transcripción]", 5, true)], ahora);
+    const h = hechosMedidos(
+      [m("contacto", "[nota de voz sin transcripción]", 5, true)],
+      ahora,
+    );
     expect(h).toContain("Mensajes sin texto (audio/imagen): 1 de 1");
   });
 });
