@@ -41,9 +41,14 @@ function headers(version: string): Record<string, string> {
   };
 }
 
-async function get(ruta: string, params: Record<string, string | number>, version = VERSION_GENERAL): Promise<any> {
+async function get(
+  ruta: string,
+  params: Record<string, string | number>,
+  version = VERSION_GENERAL,
+): Promise<any> {
   const url = new URL(BASE + ruta);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
+  for (const [k, v] of Object.entries(params))
+    url.searchParams.set(k, String(v));
 
   const r = await fetch(url, { headers: headers(version) });
   if (!r.ok) {
@@ -142,7 +147,9 @@ export interface MensajeGhl {
  * contacto con varias conversaciones (WhatsApp + SMS + email) tenía que auditarse por la que
  * GHL pusiera primera. Ahora gana la del último mensaje.
  */
-export async function conversacionDeContacto(ghlContactId: string): Promise<string | null> {
+export async function conversacionDeContacto(
+  ghlContactId: string,
+): Promise<string | null> {
   if (!env.tieneCredencialesGhl()) return null;
   const datos = await get("/conversations/search", {
     locationId: env.ghlLocationId(),
@@ -151,9 +158,38 @@ export async function conversacionDeContacto(ghlContactId: string): Promise<stri
   const convs = (datos.conversations ?? []) as any[];
   if (convs.length === 0) return null;
   const masReciente = [...convs].sort(
-    (a, b) => (Number(b?.lastMessageDate) || 0) - (Number(a?.lastMessageDate) || 0),
+    (a, b) =>
+      (Number(b?.lastMessageDate) || 0) - (Number(a?.lastMessageDate) || 0),
   )[0];
   return masReciente?.id ?? null;
+}
+
+/**
+ * TODAS las conversaciones del contacto, de la más reciente a la más vieja.
+ *
+ * `conversacionDeContacto` devuelve solo la última y está bien para lo que hace: auditar y
+ * reconciliar miran el hilo vivo. Para rellenar el historial no alcanza — un contacto puede tener
+ * WhatsApp y SMS abiertos a la vez, y quedarse con uno dejaría media conversación afuera para
+ * siempre, sin que nada avise.
+ *
+ * Misma llamada a GHL que la singular: no cuesta una petición extra.
+ */
+export async function conversacionesDeContacto(
+  ghlContactId: string,
+): Promise<string[]> {
+  if (!env.tieneCredencialesGhl()) return [];
+  const datos = await get("/conversations/search", {
+    locationId: env.ghlLocationId(),
+    contactId: ghlContactId,
+  });
+  const convs = (datos.conversations ?? []) as any[];
+  return [...convs]
+    .sort(
+      (a, b) =>
+        (Number(b?.lastMessageDate) || 0) - (Number(a?.lastMessageDate) || 0),
+    )
+    .map((c) => c?.id)
+    .filter((id): id is string => Boolean(id));
 }
 
 export interface OpcionesMensajes {
@@ -168,6 +204,11 @@ export interface MensajesLeidos {
   mensajes: MensajeGhl[];
   /** `true` = se alcanzó el tope de páginas y hay mensajes más viejos sin traer. */
   truncado: boolean;
+  /**
+   * Páginas que se pidieron DE VERDAD, no el tope. Quien cuenta el gasto en GHL necesita el
+   * número real: una conversación de 3 mensajes cuesta una llamada, no cinco.
+   */
+  paginas: number;
 }
 
 /**
@@ -186,7 +227,8 @@ export async function mensajesDeConversacionPaginado(
   conversationId: string,
   opts: OpcionesMensajes = {},
 ): Promise<MensajesLeidos> {
-  if (!env.tieneCredencialesGhl()) return { mensajes: [], truncado: false };
+  if (!env.tieneCredencialesGhl())
+    return { mensajes: [], truncado: false, paginas: 0 };
 
   const limite = Math.min(Math.max(opts.limite ?? 100, 1), 100);
   const topePaginas = Math.max(opts.paginas ?? 1, 1);
@@ -194,20 +236,32 @@ export async function mensajesDeConversacionPaginado(
   const mensajes: MensajeGhl[] = [];
   let cursor: string | undefined;
   let truncado = false;
+  let paginasPedidas = 0;
 
   for (let pagina = 0; pagina < topePaginas; pagina++) {
     const params: Record<string, string | number> = { limit: limite };
     if (cursor) params.lastMessageId = cursor;
 
-    const datos = await get(`/conversations/${conversationId}/messages`, params);
+    paginasPedidas++;
+    const datos = await get(
+      `/conversations/${conversationId}/messages`,
+      params,
+    );
     const contenedor = datos.messages;
-    const anidado = contenedor && typeof contenedor === "object" && !Array.isArray(contenedor);
-    const lote = (anidado ? (contenedor.messages ?? []) : (contenedor ?? [])) as MensajeGhl[];
+    const anidado =
+      contenedor &&
+      typeof contenedor === "object" &&
+      !Array.isArray(contenedor);
+    const lote = (
+      anidado ? (contenedor.messages ?? []) : (contenedor ?? [])
+    ) as MensajeGhl[];
 
     mensajes.push(...lote);
 
     const hayMas = anidado ? Boolean(contenedor.nextPage) : false;
-    cursor = anidado ? (contenedor.lastMessageId as string | undefined) : undefined;
+    cursor = anidado
+      ? (contenedor.lastMessageId as string | undefined)
+      : undefined;
 
     if (!hayMas || !cursor || lote.length === 0) break;
     // Se agotó el tope y GHL dice que todavía queda: el caller tiene que saberlo para no
@@ -215,7 +269,7 @@ export async function mensajesDeConversacionPaginado(
     if (pagina === topePaginas - 1) truncado = true;
   }
 
-  return { mensajes, truncado };
+  return { mensajes, truncado, paginas: paginasPedidas };
 }
 
 /** La forma de siempre, para los callers a los que una página les alcanza. */
@@ -234,7 +288,8 @@ export async function mensajesDeConversacion(
  * furiosa, para el auditor ese mensaje no existió y el turno anterior parecía sin respuesta.
  * Ahora el mensaje sobrevive y `textoDeMensaje` deja un marcador honesto de qué llegó.
  */
-export const esMensajeDeChat = (m: MensajeGhl) => !(m.messageType ?? "").startsWith("TYPE_ACTIVITY");
+export const esMensajeDeChat = (m: MensajeGhl) =>
+  !(m.messageType ?? "").startsWith("TYPE_ACTIVITY");
 
 /**
  * El texto del mensaje, o un marcador de qué llegó cuando no hay texto que leer.
@@ -270,7 +325,8 @@ function derivarFuente(tags: string[]): string {
   const bajos = tags.map((t) => t.toLowerCase());
   if (bajos.includes("lead_meta_ads")) return "META ADS";
   if (bajos.some((t) => t.includes("vsl"))) return "VSL OPT-IN";
-  if (bajos.some((t) => t.includes("instagram") || t === "ig")) return "📷 IG PROFILE";
+  if (bajos.some((t) => t.includes("instagram") || t === "ig"))
+    return "📷 IG PROFILE";
   return "DIRECTO";
 }
 
@@ -295,7 +351,9 @@ export async function contactosConTag(
   const contactos = ((datos.contacts ?? []) as any[]).map((c) => ({
     id: c.id,
     nombre:
-      c.contactName || [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || "Sin nombre",
+      c.contactName ||
+      [c.firstName, c.lastName].filter(Boolean).join(" ").trim() ||
+      "Sin nombre",
     fuente: derivarFuente(c.tags ?? []),
     tags: c.tags ?? [],
   }));
@@ -306,11 +364,15 @@ export async function contactosConTag(
  * Motivo de la última nota `[IA] ...` del contacto, sin el prefijo.
  * Es donde el analizador deja por qué pausó al bot; sin nota, null (el caller decide el texto).
  */
-export async function ultimaNotaIa(ghlContactId: string): Promise<string | null> {
+export async function ultimaNotaIa(
+  ghlContactId: string,
+): Promise<string | null> {
   if (!env.tieneCredencialesGhl()) return null;
   const datos = await get(`/contacts/${ghlContactId}/notes`, {});
   const notas = (datos.notes ?? []) as any[];
-  const ordenadas = [...notas].sort((a, b) => (b.dateAdded ?? "").localeCompare(a.dateAdded ?? ""));
+  const ordenadas = [...notas].sort((a, b) =>
+    (b.dateAdded ?? "").localeCompare(a.dateAdded ?? ""),
+  );
   const ia = ordenadas.find((n) => (n.body ?? "").startsWith("[IA]"));
   return ia ? (ia.body as string).replace(/^\[IA\]\s*/, "") : null;
 }
@@ -344,7 +406,8 @@ export interface CampoPerfilLeido {
  * Acá se baja primero, con lo que la insensibilidad a mayúsculas alcanza también al prefijo.
  * Es más barato que depender de que GHL nunca cambie la caja del prefijo.
  */
-export const normalizarClave = (k: string) => k.toLowerCase().replace(/^contact\./, "");
+export const normalizarClave = (k: string) =>
+  k.toLowerCase().replace(/^contact\./, "");
 
 /**
  * El valor de un custom field llega tipado como `string`, pero GHL manda números para los
@@ -368,7 +431,10 @@ function aTexto(valor: unknown): string {
  * Devuelve `null` para el campo vacío — misma regla que el Perfil: "existe la clave" y "hay
  * un dato" son lo mismo.
  */
-export function leerCampo(contacto: ContactoGhl, literal: string): string | null {
+export function leerCampo(
+  contacto: ContactoGhl,
+  literal: string,
+): string | null {
   const buscada = normalizarClave(literal);
   for (const [clave, valor] of Object.entries(contacto.customFields ?? {})) {
     if (normalizarClave(clave) !== buscada) continue;
@@ -378,7 +444,10 @@ export function leerCampo(contacto: ContactoGhl, literal: string): string | null
 }
 
 /** El mismo campo, leído como entero. `null` si no está o si no es un número (nunca `0`). */
-export function leerEntero(contacto: ContactoGhl, literal: string): number | null {
+export function leerEntero(
+  contacto: ContactoGhl,
+  literal: string,
+): number | null {
   const texto = leerCampo(contacto, literal);
   if (texto === null) return null;
   const n = Number.parseInt(texto, 10);
@@ -426,13 +495,15 @@ export function perfilDesdeContacto(contacto: ContactoGhl): CampoPerfilLeido[] {
   const campos: CampoPerfilLeido[] = [];
 
   const telefono = aTexto(contacto.telefono);
-  if (telefono) campos.push({ label: "Teléfono", value: telefono, group: "detalles" });
+  if (telefono)
+    campos.push({ label: "Teléfono", value: telefono, group: "detalles" });
 
   const email = aTexto(contacto.email);
   if (email) campos.push({ label: "Correo", value: email, group: "detalles" });
 
   const fuente = derivarFuente(contacto.tags ?? []);
-  if (fuente !== "DIRECTO") campos.push({ label: "Fuente", value: fuente, group: "origen" });
+  if (fuente !== "DIRECTO")
+    campos.push({ label: "Fuente", value: fuente, group: "origen" });
 
   for (const campo of CAMPOS_PERFIL_ORDENADOS) {
     const valor = porClave.get(normalizarClave(campo.valor));

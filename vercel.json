@@ -27,6 +27,9 @@
     "api/auditor-amarillo.ts": {
       "maxDuration": 300
     },
+    "api/mensajes-respaldo.ts": {
+      "maxDuration": 300
+    },
     "api/voz-respaldo.ts": {
       "maxDuration": 300
     },
