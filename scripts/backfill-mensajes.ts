@@ -94,6 +94,8 @@ for (const orgId of organizaciones) {
     console.log(
       `  truncados ....... ${r.truncados.length}${r.truncados.length ? ` → ${r.truncados.join(", ")}` : ""}`,
     );
+    if (r.cortadoPorTiempo)
+      console.log(`  CORTADO por tiempo: quedaron ${r.pendientes} sin mirar`);
     console.log(`  errores ......... ${r.errores.length}`);
     for (const e of r.errores.slice(0, 10)) console.log(`      ${e}`);
     console.log(`  tardó ........... ${seg}s\n`);

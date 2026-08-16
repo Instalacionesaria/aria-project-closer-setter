@@ -50,6 +50,15 @@ import { db } from "./repo.js";
  */
 const PAGINAS = 5;
 
+export interface OpcionesBackfill {
+  /**
+   * Momento (epoch ms) en el que hay que parar. Vercel mata la función a los `maxDuration` y con
+   * ella se pierde el reporte entero: cuántos se rellenaron, cuáles fallaron, qué quedó. Cortando
+   * ANTES por cuenta propia, la respuesta sale y dice dónde retomar.
+   */
+  hasta?: number;
+}
+
 export interface ResultadoBackfill {
   /** Contactos que se miraron en esta corrida. */
   revisados: number;
@@ -63,6 +72,10 @@ export interface ResultadoBackfill {
   llamadasGhl: number;
   /** Mensajes que GHL devolvió sin `dateAdded`: se descartan en vez de inventarles una hora. */
   sinFecha: number;
+  /** `true` = se acabó el tiempo antes de terminar la lista. `pendientes` dice cuántos quedaron. */
+  cortadoPorTiempo: boolean;
+  /** Contactos de la lista que no se llegaron a mirar. */
+  pendientes: number;
 }
 
 /**
@@ -73,6 +86,7 @@ export interface ResultadoBackfill {
  */
 export async function backfillMensajes(
   ghlContactIds: readonly string[],
+  opts: OpcionesBackfill = {},
 ): Promise<ResultadoBackfill> {
   const r: ResultadoBackfill = {
     revisados: 0,
@@ -81,9 +95,20 @@ export async function backfillMensajes(
     errores: [],
     llamadasGhl: 0,
     sinFecha: 0,
+    cortadoPorTiempo: false,
+    pendientes: 0,
   };
 
-  for (const ghlContactId of ghlContactIds) {
+  for (const [i, ghlContactId] of ghlContactIds.entries()) {
+    /**
+     * El corte va ANTES de empezar el contacto, no en la mitad: así ninguno queda con una
+     * conversación sí y otra no. Sería idempotente igual, pero el reporte mentiría.
+     */
+    if (opts.hasta && Date.now() > opts.hasta) {
+      r.cortadoPorTiempo = true;
+      r.pendientes = ghlContactIds.length - i;
+      break;
+    }
     r.revisados++;
     try {
       const conversaciones = await conversacionesDeContacto(ghlContactId);
@@ -158,12 +183,28 @@ export async function backfillMensajes(
  * El orden importa cuando el lote se corta por tope: un contacto con cero mensajes es una ficha
  * que se ve rota, y uno al que le faltan los tres más viejos es una molestia. Se atiende primero
  * lo que se nota.
+ *
+ * ── Los congelados NO entran ──────────────────────────────────────────
+ *
+ * `congelado` = el contacto no está en ningún territorio, y la regla es que no se gasta ni una
+ * llamada de GHL más en él. Encima, sin actividad suelen tener pocos mensajes, así que el orden
+ * "más vacíos primero" los habría puesto al frente: el lote se lo comían justo los que no hay que
+ * mirar.
+ *
+ * ── El orden desempata por id ─────────────────────────────────────────
+ *
+ * Con solo la cantidad de mensajes, dos empatados quedaban en el orden que devolviera la base —
+ * distinto entre corridas. Partir el trabajo en tandas con `desde` necesita que la lista sea LA
+ * MISMA cada vez, o una tanda se saltea contactos que otra ya había pasado.
  */
-export async function contactosParaBackfill(limite: number): Promise<string[]> {
-  const contactos = await todasLasFilas<{ ghl_contact_id: string }>(
-    "closer_contactos",
-    "ghl_contact_id",
-  );
+export async function contactosParaBackfill(
+  limite: number,
+  desde = 0,
+): Promise<string[]> {
+  const contactos = await todasLasFilas<{
+    ghl_contact_id: string;
+    congelado: boolean;
+  }>("closer_contactos", "ghl_contact_id, congelado");
   const mensajes = await todasLasFilas<{ ghl_contact_id: string }>(
     "closer_mensajes",
     "ghl_contact_id",
@@ -174,9 +215,21 @@ export async function contactosParaBackfill(limite: number): Promise<string[]> {
     cuenta.set(m.ghl_contact_id, (cuenta.get(m.ghl_contact_id) ?? 0) + 1);
 
   return contactos
+    .filter((c) => !c.congelado)
     .map((c) => c.ghl_contact_id)
-    .sort((a, b) => (cuenta.get(a) ?? 0) - (cuenta.get(b) ?? 0))
-    .slice(0, limite);
+    .sort(
+      (a, b) => (cuenta.get(a) ?? 0) - (cuenta.get(b) ?? 0) || a.localeCompare(b),
+    )
+    .slice(desde, desde + limite);
+}
+
+/** Cuántos contactos NO congelados hay, para poder decir cuántos quedan por delante. */
+export async function totalParaBackfill(): Promise<number> {
+  const contactos = await todasLasFilas<{ congelado: boolean }>(
+    "closer_contactos",
+    "congelado",
+  );
+  return contactos.filter((c) => !c.congelado).length;
 }
 
 /** Cuántas filas pide por vuelta. Por debajo del tope de PostgREST, para que el corte sea nuestro. */
@@ -203,6 +256,16 @@ async function todasLasFilas<T>(tabla: string, columnas: string): Promise<T[]> {
     const { data, error } = await db()
       .from(tabla)
       .select(columnas)
+      /**
+       * El `order` NO es decorativo: Postgres no garantiza ningún orden sin `ORDER BY`, así que
+       * dos páginas seguidas pueden repetir una fila y saltearse otra — y el webhook inserta
+       * mensajes todo el tiempo, que es el escenario exacto donde eso ocurre. Se probó contra la
+       * base y hoy no se reproduce (el plan es un seq scan estable), pero la garantía no existe:
+       * sin esto el conteo volvería a salir mal en silencio el día que cambie el planificador.
+       *
+       * `ghl_contact_id` sirve para las dos tablas que pasan por acá.
+       */
+      .order("ghl_contact_id")
       .range(desde, desde + PAGINA_FILAS - 1);
     if (error) throw new Error(`${tabla}: ${error.message}`);
     const lote = (data ?? []) as T[];

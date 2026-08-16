@@ -34,10 +34,22 @@ import {
 import {
   backfillMensajes,
   contactosParaBackfill,
+  totalParaBackfill,
 } from "./_lib/backfillMensajes.js";
 
-/** Contactos por corrida. Con `maxDuration: 300` entran cómodos; se puede bajar con `?tope=`. */
+/** Contactos por corrida. Se puede subir o bajar con `?tope=`. */
 const TOPE_POR_DEFECTO = 60;
+
+/**
+ * Cuánto del presupuesto de la función se usa antes de cortar solo.
+ *
+ * `maxDuration` es 300 s y Vercel mata sin avisar: el reporte se pierde entero y no queda forma de
+ * saber cuántos se rellenaron ni dónde retomar. Cortando a los 240 s quedan 60 para responder.
+ *
+ * Hace falta de verdad: 60 contactos × hasta 6 llamadas a GHL en serie, a ~400 ms cada una, son
+ * ~145 s. Con `?tope=200` —que está permitido— se pasa de los 300 sin este corte.
+ */
+const PRESUPUESTO_MS = 240_000;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Falla CERRADO, igual que los crons: esto escribe en la base y gasta llamadas a GHL.
@@ -56,13 +68,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .json({ ok: false, error: "Solo con el secreto del cron." });
   }
 
-  const crudo = Number(
-    Array.isArray(req.query.tope) ? req.query.tope[0] : req.query.tope,
-  );
+  const arranque = Date.now();
+  const hasta = arranque + PRESUPUESTO_MS;
+
+  const unParam = (k: string) => {
+    const v = req.query[k];
+    return Number(Array.isArray(v) ? v[0] : v);
+  };
+  const crudo = unParam("tope");
   const tope =
     Number.isFinite(crudo) && crudo > 0
       ? Math.min(crudo, 200)
       : TOPE_POR_DEFECTO;
+  // `?desde=` para partir el trabajo en tandas: la lista está ordenada de forma estable, así que
+  // `desde=60` retoma exactamente donde terminó `tope=60`.
+  const crudoDesde = unParam("desde");
+  const desde = Number.isFinite(crudoDesde) && crudoDesde > 0 ? crudoDesde : 0;
 
   let organizaciones: string[];
   try {
@@ -89,9 +110,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       porEmpresa[cred.nombre] = await conCredenciales(cred, async () => {
-        const ids = await contactosParaBackfill(tope);
-        const r = await backfillMensajes(ids);
-        return { corrio: true, ...r };
+        const total = await totalParaBackfill();
+        const ids = await contactosParaBackfill(tope, desde);
+        const r = await backfillMensajes(ids, { hasta });
+
+        /**
+         * Si algún contacto falló, ESTA empresa no salió bien. Antes `ok` solo miraba los fallos
+         * a nivel empresa, así que los 60 contactos podían fallar uno por uno y la respuesta
+         * decía `ok: true` — el éxito reportado que no ocurrió (regla 2).
+         */
+        if (r.errores.length > 0) fallaron++;
+
+        return {
+          corrio: true,
+          ...r,
+          /** Cuántos contactos no congelados hay en total, para saber cuántas tandas faltan. */
+          totalContactos: total,
+          desde,
+          /** Dónde arrancar la próxima tanda. `null` = no queda nada por delante. */
+          proximoDesde: desde + r.revisados < total ? desde + r.revisados : null,
+        };
       });
     } catch (e) {
       fallaron++;
