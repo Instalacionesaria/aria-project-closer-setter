@@ -297,6 +297,54 @@ describe("estadoBotDesdeTags — el ruteo del Buzón depende de esto (doc §2)",
     );
   });
 
+  /**
+   * La regla del Buzón, con los tags por agente (2026-08-16).
+   *
+   * El Buzón General es la cola de "nadie le está respondiendo": son los contactos que un humano
+   * tiene que atender a mano. Un contacto cuyo bot está atendiendo NO va ahí — sus mensajes son
+   * trabajo del agente, y aparecen para el auditor, no para el closer.
+   *
+   * Con un solo `bot_activado` esto era una pregunta; con los tags por agente sigue siendo la
+   * misma: da igual CUÁL de los dos atiende, si hay uno atendiendo el mensaje no es del humano.
+   * Si `botDesdeTags` no reconociera los nuevos, los 42 contactos con `bot_activado_appflow`
+   * caerían todos al Buzón el día que GHL empiece a aplicarlos — una cola inflada con gente que
+   * ya está siendo atendida.
+   */
+  it("los tags por agente también sacan al contacto del Buzón", () => {
+    expect(estadoBotDesdeTags(["zona_closer", "bot_activado_appflow"])).toBe(
+      "prendido",
+    );
+    expect(estadoBotDesdeTags(["zona_setter", "bot_activado_leadflow"])).toBe(
+      "prendido",
+    );
+  });
+
+  /**
+   * Y al revés: el tag que el auditor aplica al encontrar un fallo devuelve al contacto al
+   * circuito humano. Es lo que tiene que pasar — el bot quedó pausado y alguien debe responder.
+   */
+  it("y el desactivado por el auditor lo devuelve a apagado", () => {
+    expect(
+      estadoBotDesdeTags(["bot_activado_appflow", "bot_desactivado_appflow"]),
+    ).toBe("apagado");
+    expect(
+      estadoBotDesdeTags(["bot_activado_leadflow", "bot_desactivado_leadflow"]),
+    ).toBe("apagado");
+  });
+
+  /**
+   * El cruce: el fallo de UN agente no puede sacar del circuito del bot al otro. Un contacto que
+   * tuviera los dos activos y solo uno desactivado sigue teniendo un bot atendiendo... pero el
+   * estado del contacto es uno solo y los apagados ganan, así que cae en apagado. Se deja escrito
+   * porque es la consecuencia menos obvia del cambio: un fallo del leadflow manda al Buzón un
+   * contacto cuyo appflow sigue activo, y eso es deliberado — hay una intervención abierta.
+   */
+  it("un desactivado gana aunque el otro agente siga activo (intervención abierta)", () => {
+    expect(
+      estadoBotDesdeTags(["bot_activado_appflow", "bot_desactivado_leadflow"]),
+    ).toBe("apagado");
+  });
+
   it("los tags de apagado GANAN sobre bot_activado residual — el orden del doc importa", () => {
     expect(
       estadoBotDesdeTags(["bot_activado", "bot_desactivado_postcall"]),
