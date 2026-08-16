@@ -186,7 +186,9 @@ function AgentCard({
                 : "✓ SIN FALLAS"}
             </span>
             <span className="text-[10px] font-medium text-emerald-700/60 dark:text-emerald-400/60">
-              de {agent.analisis}
+              {/* `conVeredicto`, no `analisis`: los análisis sin nivel no pueden ser verdes y
+                  contarlos acá hundía la salud del agente con filas que nunca sumarían (040). */}
+              de {agent.conVeredicto}
             </span>
           </div>
         ) : (

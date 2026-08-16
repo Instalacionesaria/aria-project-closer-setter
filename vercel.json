@@ -7,7 +7,7 @@
       "maxDuration": 60
     },
     "api/webhooks/llamada.ts": {
-      "maxDuration": 60
+      "maxDuration": 300
     },
     "api/closer/analizar.ts": {
       "maxDuration": 60
@@ -27,6 +27,9 @@
     "api/auditor-amarillo.ts": {
       "maxDuration": 300
     },
+    "api/voz-respaldo.ts": {
+      "maxDuration": 300
+    },
     "api/territorio-respaldo.ts": {
       "maxDuration": 300
     }
@@ -35,6 +38,10 @@
     {
       "path": "/api/closer/citas-respaldo",
       "schedule": "25,55 * * * *"
+    },
+    {
+      "path": "/api/voz-respaldo",
+      "schedule": "35 */2 * * *"
     },
     {
       "path": "/api/meta-respaldo",

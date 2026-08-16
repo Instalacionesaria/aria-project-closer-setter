@@ -394,6 +394,12 @@ export interface AgenteTextoMetricas {
    * todavía (todos anteriores a la `031`), que no es lo mismo que cero verdes de doce análisis.
    */
   verdes: number | null;
+  /**
+   * El denominador de `verdes`. NO es `analisis`: un análisis anterior a la `031` no tiene nivel
+   * y no puede ser verde, así que contarlo en la M de "N verdes de M" hunde la salud del agente
+   * con una fila que nunca podría subirla (`040`).
+   */
+  conVeredicto: number;
 }
 
 export interface AgentesTextoResponse {
@@ -1341,12 +1347,10 @@ export async function login(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),
   });
-  return (await res
-    .json()
-    .catch(() => ({
-      ok: false,
-      error: "El servidor no respondió.",
-    }))) as LoginResponse;
+  return (await res.json().catch(() => ({
+    ok: false,
+    error: "El servidor no respondió.",
+  }))) as LoginResponse;
 }
 
 export async function logout(): Promise<void> {
@@ -1397,12 +1401,10 @@ export async function cambiarPassword(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ actual, nueva }),
   });
-  return (await res
-    .json()
-    .catch(() => ({
-      ok: false,
-      error: "El servidor no respondió.",
-    }))) as CambioPasswordResponse;
+  return (await res.json().catch(() => ({
+    ok: false,
+    error: "El servidor no respondió.",
+  }))) as CambioPasswordResponse;
 }
 
 /* ================================================================== */

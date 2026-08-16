@@ -897,3 +897,56 @@ Auditoría" no puede terminar apagándole el botón a quien vive de él.
 **El hallazgo salió de mandar a revisar el propio arreglo.** Vale anotarlo: el bug del confeti no lo
 introdujo el cambio de D47 —estaba en producción desde antes y nadie lo había visto— y apareció
 porque alguien recorrió esa ruta preguntando "¿y si el store no tiene el contacto?".
+
+---
+
+## D50 · El auditor de voz necesitaba una red, no un techo más alto
+
+**2026-08-16**, de la revisión de los auditores contra lo que produjeron de verdad.
+
+De **17 llamadas contestadas con transcripción, solo 13 tenían análisis**. Tres de las cuatro
+faltantes son posteriores al encendido del auditor y tenían todo lo necesario: 76 s, 26 s y una de
+**127 s**.
+
+La causa: `analizarLlamada()` tenía **un solo llamador**, el webhook, y la inferencia corría ahí
+adentro con 60 s de presupuesto. Una llamada larga con `effort: high` y 16.000 tokens de techo
+tarda más que eso, y cuando Vercel corta la función el análisis muere **sin dejar rastro** — no hay
+fila, no hay error guardado, y lo único que lo habría dicho es el cuerpo de una respuesta HTTP que
+Assistable descarta. La de 127 s, la más larga y la que más tokens produce, es justo la que uno
+esperaría que se caiga primero.
+
+**Subir `maxDuration` no era el arreglo.** Mueve el techo; no crea la segunda oportunidad. Se subió
+igual a 300 s (cortar una inferencia a mitad tira lo ya pagado), pero lo que cierra el agujero es
+`api/voz-respaldo.ts`: un cron cada 2 h que busca llamadas contestadas, con transcripción y **sin
+análisis**, y las manda al mismo auditor. Es el patrón de `territorio-respaldo` y por el mismo
+motivo: el webhook tapa el caso frecuente, el cron cierra el conjunto.
+
+El tope es **5 por empresa y por corrida**, mucho más bajo que el de territorio, y la diferencia es
+que acá cada ítem es **una inferencia paga** — allá el costo son llamadas a la API de GHL. 60
+análisis diarios por empresa como techo duro, aunque entren mil llamadas. Lo que quedó afuera se
+reporta en `pendientes`: un barrido que no dice que dejó cosas se lee como "ya está todo auditado".
+
+## D51 · El denominador del chip de verdes, otra vez
+
+**2026-08-16.** El mismo bug, tercera aparición, y vale por lo que enseña sobre su forma.
+
+En producción la tarjeta de `appointment-flow-ai` decía **"0 VERDES de 3"**. Lo honesto era "0 de
+1": las otras dos filas son análisis del 2026-08-07 con `nivel = null` — legado de la `031`, que
+dejó sin nivel las filas viejas de `fallo = false` a propósito, porque rellenarlas como verdes
+habría fabricado salud medida. **No pueden ser verdes**, así que engordaban la M sin poder sumar
+nunca a la N.
+
+Las tres veces el error tuvo la misma forma: **alguien tocó una mitad del chip y no la otra.** La
+primera, el numerador no filtraba `auditable` y la vista sí. La segunda, el arreglo agregó
+`nivel is not null` al numerador y no al denominador. Ninguna rompió un test ni lanzó un error: el
+número quedaba mal, con toda la cara de un dato medido.
+
+La `040` agrega `con_veredicto` a la vista **como columna aparte**, no como filtro del WHERE. Meter
+`nivel is not null` en el WHERE habría roto el panel de ánimo: el sentimiento de una fila legacy es
+un dato válido —el modelo lo midió— que no depende del veredicto. Son dos preguntas distintas sobre
+el mismo conjunto, así que son dos contadores.
+
+Y ahora hay un test (`_denominadorVerdes.test.ts`) que lee las dos mitades —la query de PostgREST y
+el SQL de la vista— y falla si dejan de decir lo mismo. Las dos mitades viven en lenguajes
+distintos y lo único que las ata es que coincidan; eso no se ve desde una aserción sobre un
+resultado.

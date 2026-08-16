@@ -1,4 +1,11 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   fetchAgentesTexto,
   fetchAjustesAgentes,
@@ -38,7 +45,15 @@ import {
  * al estado normal esperado, que es el peor error posible en esta pantalla.
  */
 
-export type { AgentId, AlertCategoria, AlertSeveridad, CasoAlerta, CasoEstado, PatronAlerta, AjusteAplicado };
+export type {
+  AgentId,
+  AlertCategoria,
+  AlertSeveridad,
+  CasoAlerta,
+  CasoEstado,
+  PatronAlerta,
+  AjusteAplicado,
+};
 
 import { auditorHabilitado, MOTIVO_VOZ_BLOQUEADO } from "./auditores";
 
@@ -159,6 +174,11 @@ export interface AgentInfo extends AgentCatalogo {
   verdes: number | null;
   /** Cuántos análisis sostienen los números. 0 = el auditor no corrió sobre este agente. */
   analisis: number;
+  /**
+   * El denominador de `verdes`, que NO es `analisis`: una fila sin nivel (legado de la `031`) no
+   * puede ser verde, y contarla ahí hunde la salud del agente con algo que nunca sumaría (`040`).
+   */
+  conVeredicto: number;
   metric: string | null;
   delta: { text: string; up: boolean } | null;
   subtext: string | null;
@@ -180,7 +200,9 @@ export function componerAgentes(
   conAuditor: AgentId[],
 ): AgentInfo[] {
   return catalogo.map((base) => {
-    const m = medidos.find((x) => x.id === (base.id as AgenteTextoMetricas["id"]));
+    const m = medidos.find(
+      (x) => x.id === (base.id as AgenteTextoMetricas["id"]),
+    );
     const bloqueado = !auditorHabilitado(base.id);
     return {
       ...base,
@@ -192,6 +214,7 @@ export function componerAgentes(
       tieneAuditor: conAuditor.includes(base.id) && !bloqueado,
       verdes: m?.verdes ?? null,
       analisis: m?.analisis ?? 0,
+      conVeredicto: m?.conVeredicto ?? 0,
       metric: m?.metric ?? null,
       delta: m?.delta ?? null,
       subtext: m?.subtext ?? null,
@@ -228,7 +251,11 @@ export interface GrupoAlerta {
  * exactamente el malentendido que documentó §32.D ("×15 casos" mostrando 2 ejemplos). En
  * SQL sería un `COUNT(*)` desacoplado de los casos que viajan.
  */
-export function groupAlerts(patrones: PatronAlerta[], casos: CasoAlerta[], ahoraMs = Date.now()): GrupoAlerta[] {
+export function groupAlerts(
+  patrones: PatronAlerta[],
+  casos: CasoAlerta[],
+  ahoraMs = Date.now(),
+): GrupoAlerta[] {
   const porClave = new Map<string, CasoAlerta[]>();
   for (const c of casos) {
     const key = `${c.agenteId}::${c.errorCode}`;
@@ -240,7 +267,9 @@ export function groupAlerts(patrones: PatronAlerta[], casos: CasoAlerta[], ahora
     const key = `${patron.agenteId}::${patron.errorCode}`;
     const grupo = porClave.get(key) ?? [];
     const hayActivos = grupo.some((c) => c.estado === "activo");
-    const hayResueltosPorHumano = grupo.some((c) => c.estado === "resuelto_por_humano");
+    const hayResueltosPorHumano = grupo.some(
+      (c) => c.estado === "resuelto_por_humano",
+    );
     const masViejo = grupo.reduce(
       (min, c) => Math.min(min, Date.parse(c.analizadoEl) || Infinity),
       Infinity,
@@ -253,9 +282,12 @@ export function groupAlerts(patrones: PatronAlerta[], casos: CasoAlerta[], ahora
       casesCount: grupo.length,
       hayActivos,
       abierto: hayActivos || hayResueltosPorHumano,
-      todosParcheados: grupo.length > 0 && grupo.every((c) => c.estado === "parcheado"),
+      todosParcheados:
+        grupo.length > 0 && grupo.every((c) => c.estado === "parcheado"),
       soloResueltosPorHumano: hayResueltosPorHumano && !hayActivos,
-      diasAbierto: Number.isFinite(masViejo) ? Math.floor((ahoraMs - masViejo) / 86_400_000) : 0,
+      diasAbierto: Number.isFinite(masViejo)
+        ? Math.floor((ahoraMs - masViejo) / 86_400_000)
+        : 0,
     };
   });
 }
@@ -291,11 +323,17 @@ interface AgentAuditStoreValue {
 
 const AgentAuditCtx = createContext<AgentAuditStoreValue | null>(null);
 
-export function AgentAuditProvider({ children }: { children: React.ReactNode }) {
+export function AgentAuditProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [estado, setEstado] = useState<EstadoCarga>("cargando");
   const [errorMensaje, setErrorMensaje] = useState<string | null>(null);
   const [ventanaDias, setVentanaDias] = useState(30);
-  const [agents, setAgents] = useState<AgentInfo[]>(() => componerAgentes(AGENTS_CATALOGO, [], []));
+  const [agents, setAgents] = useState<AgentInfo[]>(() =>
+    componerAgentes(AGENTS_CATALOGO, [], []),
+  );
   const [patrones, setPatrones] = useState<PatronAlerta[]>([]);
   const [casos, setCasos] = useState<CasoAlerta[]>([]);
   const [ajustes, setAjustes] = useState<AjusteAplicado[]>([]);
@@ -317,11 +355,22 @@ export function AgentAuditProvider({ children }: { children: React.ReactNode }) 
         fetchAjustesAgentes(),
       ]);
       setVentanaDias(alertas.ventanaDias);
-      setAgents(componerAgentes(AGENTS_CATALOGO, texto.agentes, alertas.agentesConAuditor));
+      setAgents(
+        componerAgentes(
+          AGENTS_CATALOGO,
+          texto.agentes,
+          alertas.agentesConAuditor,
+        ),
+      );
       setPatrones(alertas.patrones);
       setCasos(alertas.casos);
       setAjustes(hist.ajustes);
-      setAnalisisTotales(Object.values(alertas.analisisPorAgente).reduce((a, b) => a + (b ?? 0), 0));
+      setAnalisisTotales(
+        Object.values(alertas.analisisPorAgente).reduce(
+          (a, b) => a + (b ?? 0),
+          0,
+        ),
+      );
       setEstado("listo");
     } catch (e) {
       // Antes esto era `.catch(() => {})` y la pestaña se veía idéntica con datos falsos.
@@ -355,18 +404,32 @@ export function AgentAuditProvider({ children }: { children: React.ReactNode }) 
    * servidor lo confirme es el éxito falso que prohíbe la cabecera de `api.ts`. La vista
    * deshabilita el botón mientras esto corre y muestra el error si lanza.
    */
-  const marcarGrupoResuelto = useCallback(async (agenteId: AgentId, errorCode: string) => {
-    const delGrupo = casosRef.current.filter(
-      (c) => c.agenteId === agenteId && c.errorCode === errorCode && c.estado !== "parcheado",
-    );
-    if (delGrupo.length === 0) return; // early-return, regla 5 del patrón del closer
+  const marcarGrupoResuelto = useCallback(
+    async (agenteId: AgentId, errorCode: string) => {
+      const delGrupo = casosRef.current.filter(
+        (c) =>
+          c.agenteId === agenteId &&
+          c.errorCode === errorCode &&
+          c.estado !== "parcheado",
+      );
+      if (delGrupo.length === 0) return; // early-return, regla 5 del patrón del closer
 
-    const r = await registrarAjusteAgente({ agenteId, errorCode, casosIds: delGrupo.map((c) => c.id) });
+      const r = await registrarAjusteAgente({
+        agenteId,
+        errorCode,
+        casosIds: delGrupo.map((c) => c.id),
+      });
 
-    setAjustes((prev) => [r.ajuste, ...prev]); // la fila que DEVOLVIÓ el servidor, con su fecha real
-    const cerrados = new Set(delGrupo.map((c) => c.id));
-    setCasos((prev) => prev.map((c) => (cerrados.has(c.id) ? { ...c, estado: "parcheado" as const } : c)));
-  }, []);
+      setAjustes((prev) => [r.ajuste, ...prev]); // la fila que DEVOLVIÓ el servidor, con su fecha real
+      const cerrados = new Set(delGrupo.map((c) => c.id));
+      setCasos((prev) =>
+        prev.map((c) =>
+          cerrados.has(c.id) ? { ...c, estado: "parcheado" as const } : c,
+        ),
+      );
+    },
+    [],
+  );
 
   /**
    * Silencioso a propósito, y es la única excepción de este módulo.
@@ -427,11 +490,14 @@ export function AgentAuditProvider({ children }: { children: React.ReactNode }) 
     ],
   );
 
-  return <AgentAuditCtx.Provider value={value}>{children}</AgentAuditCtx.Provider>;
+  return (
+    <AgentAuditCtx.Provider value={value}>{children}</AgentAuditCtx.Provider>
+  );
 }
 
 export function useAgentAudit(): AgentAuditStoreValue {
   const ctx = useContext(AgentAuditCtx);
-  if (!ctx) throw new Error("useAgentAudit debe usarse dentro de AgentAuditProvider");
+  if (!ctx)
+    throw new Error("useAgentAudit debe usarse dentro de AgentAuditProvider");
   return ctx;
 }

@@ -76,6 +76,15 @@ export interface AgenteTextoMetricas {
    * No es cero: cero verdes de 12 análisis es un dato feo pero medido, y hay que poder decirlo.
    */
   verdes: number | null;
+  /**
+   * El denominador de `verdes`, y por eso NO es `analisis` (`040`).
+   *
+   * `analisis` cuenta todo lo medido —es la base del sentimiento y del volumen— pero una fila
+   * anterior a la `031` tiene `nivel = null` y **no puede ser verde**. Contarla en la M del chip
+   * "N verdes de M" baja la salud del agente con una fila que nunca podría subirla: en producción
+   * la tarjeta decía "0 verdes de 3" cuando lo honesto era "0 de 1".
+   */
+  conVeredicto: number;
 }
 
 const pct = (num: number, den: number) =>
@@ -154,6 +163,16 @@ async function sentimientoDe(agenteId: AgenteAuditableId) {
   return {
     conversaciones: Number(data.conversaciones ?? 0),
     analisis: Number(data.analisis ?? 0),
+    /**
+     * El denominador del chip de verdes, y NO `analisis` (`040`).
+     *
+     * Un análisis anterior a la `031` tiene `nivel = null` y no puede ser verde, así que sumarlo
+     * a la M de "N verdes de M" baja la salud del agente por una fila que nunca podría subirla.
+     * Medido en producción: la tarjeta de `appointment-flow-ai` decía "0 verdes de 3" cuando lo
+     * honesto era "0 de 1". `analisis` sigue siendo la población del sentimiento, que sí es un
+     * dato válido en esas filas.
+     */
+    conVeredicto: Number(data.con_veredicto ?? 0),
     sentiment: {
       positivos: Number(data.pct_positivos ?? 0),
       neutrales: Number(data.pct_neutrales ?? 0),
@@ -279,7 +298,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
          * Sin análisis todavía, null: la tarjeta muestra el vacío honesto, no un 0%.
          */
         const verdesVoz = await verdesDe(id);
-        const analizadas = agregado?.analisis ?? 0;
+        // Las que TIENEN veredicto, no todas las analizadas: ver `conVeredicto`.
+        const analizadas = agregado?.conVeredicto ?? 0;
         if (analizadas > 0 && verdesVoz !== null) {
           const tasa = pct(verdesVoz, analizadas);
           metric = `${tasa}%`;
@@ -349,6 +369,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             ],
         history: await historialDe(id),
         analisis: agregado?.analisis ?? 0,
+        conVeredicto: agregado?.conVeredicto ?? 0,
         verdes: await verdesDe(id),
       });
     }
