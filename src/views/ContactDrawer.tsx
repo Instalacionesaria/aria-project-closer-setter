@@ -71,6 +71,7 @@ import {
 } from "../lib/closerStore";
 import { StatusIcons } from "../components/StatusIcons";
 import { EVENTO_AVISO } from "../lib/avisos";
+import { fusionarMensajes } from "../lib/chat";
 import {
   INDICADORES_VACIOS,
   type IndicadoresContacto,
@@ -2394,7 +2395,12 @@ function CatalogItem({
 }
 
 interface ChatMessage {
-  id: number;
+  /**
+   * `string` = el uuid de `closer_mensajes`; `number` = el reloj del browser en una burbuja
+   * optimista que todavía no existe del lado del servidor. Los dos conviven en la lista, y la
+   * diferencia es justo la que distingue "ya está guardado" de "todavía viaja".
+   */
+  id: string | number;
   text: string;
   time: string;
   outgoing: boolean;
@@ -2576,6 +2582,52 @@ function ChatTab({
   const [justActivated, setJustActivated] = useState(false);
   // § toast/pin (2026-07-11): barra de completado tras responder — reemplaza al viejo toggle "mantener".
   const [showCompleteBar, setShowCompleteBar] = useState(false);
+  /**
+   * ── El scroll del chat, como en WhatsApp ────────────────────────────
+   *
+   * Una conversación se abre por el final: lo último es lo que importa. Antes el contenedor
+   * arrancaba arriba, así que en las conversaciones largas el closer veía el saludo inicial de
+   * hace tres semanas y tenía que bajar a mano cada vez.
+   *
+   * Y al llegar un mensaje nuevo NO se salta al fondo siempre: si el closer subió a leer algo,
+   * arrastrarlo hacia abajo le arranca la lectura de las manos. Solo se sigue al fondo cuando ya
+   * estaba ahí — el mismo criterio de cualquier chat.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pegadoAlFondoRef = useRef(true);
+
+  /** ¿Está mirando el final? 80 px de tolerancia: nadie deja el scroll clavado al pixel. */
+  const alFondo = (el: HTMLDivElement) =>
+    el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const alScrollear = () => {
+      pegadoAlFondoRef.current = alFondo(el);
+    };
+    el.addEventListener("scroll", alScrollear, { passive: true });
+    return () => el.removeEventListener("scroll", alScrollear);
+  }, []);
+
+  // Al abrir otra ficha se vuelve a arrancar por el final, sin animación: es el estado inicial.
+  useEffect(() => {
+    pegadoAlFondoRef.current = true;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [ghlContactId]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !pegadoAlFondoRef.current) return;
+    // `requestAnimationFrame`: las burbujas todavía no midieron su alto en este tick, y sin
+    // esperar al layout el scroll queda a la altura de la lista anterior.
+    const id = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(id);
+  }, [messages]);
+
   const prevBotEstado = useRef(botEstado);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const lastConvSigRef = useRef(""); // firma de la última conversación traída, para no re-renderizar si no cambió
@@ -2604,16 +2656,41 @@ function ChatTab({
             .join("|");
           if (sig !== lastConvSigRef.current) {
             lastConvSigRef.current = sig;
-            setMessages(
-              res.messages.map((m, i) => ({
-                id: i + 1,
-                text: m.text,
-                time: m.time,
-                outgoing: m.outgoing,
-                estado: m.estado,
-                errorEnvio: m.errorEnvio,
-              })),
-            );
+
+            const delServidor: ChatMessage[] = res.messages.map((m) => ({
+              // El id REAL de `closer_mensajes`, no la posición. Con `i + 1` la clave de React
+              // de cada burbuja cambiaba en cuanto entraba un mensaje viejo por la
+              // reconciliación, y React repintaba la conversación entera.
+              id: m.id,
+              text: m.text,
+              time: m.time,
+              outgoing: m.outgoing,
+              estado: m.estado,
+              errorEnvio: m.errorEnvio,
+            }));
+
+            /**
+             * ── MERGE, no reemplazo ─────────────────────────────────────
+             *
+             * El reloj repregunta cada 5 s y antes pisaba la lista entera. Un mensaje recién
+             * enviado todavía no está en la respuesta —GHL tarda un momento en devolverlo—, así
+             * que la burbuja **desaparecía de la pantalla y volvía unos segundos después**. En
+             * WhatsApp eso no pasa nunca, y es exactamente lo que Fabio reportó como
+             * desincronización.
+             *
+             * Peor era el otro caso: un envío que falló de verdad (sin red) se marcaba `failed`
+             * en local, y como el servidor nunca lo tuvo, el siguiente poll lo borraba. El
+             * closer veía el error un segundo y después nada — un mensaje que el contacto no
+             * recibió, desaparecido sin rastro.
+             *
+             * Se conservan los locales que el servidor todavía no reconoce, comparando por
+             * texto: es el único puente entre la burbuja optimista (id del reloj del browser) y
+             * la fila real (uuid de la base).
+             */
+            // La fusión vive en `src/lib/chat.ts` y tiene sus tests: es la única parte del
+            // chat que puede estar mal sin que se note al mirar (un mensaje perdido en el
+            // merge aparece cuando ya pasó).
+            setMessages((prev) => fusionarMensajes(delServidor, prev));
           }
           if (res.ventana) setVentana(res.ventana);
         })
@@ -2734,9 +2811,16 @@ function ChatTab({
     // Con la ventana cerrada no se manda: el mensaje rebotaría en Meta y el closer se
     // quedaría esperando (§55). El compositor ya está deshabilitado; esto es el cinturón.
     if (ventanaCerrada) return;
-    const time = new Date().toLocaleTimeString("es-AR", {
-      hour: "numeric",
+    /**
+     * El MISMO formato que devuelve el servidor (`es-PE`, 24 h, dos dígitos). Con `es-AR` y
+     * `hour: numeric` la burbuja optimista decía "3:05 p. m." al lado de vecinas que decían
+     * "15:05", y al confirmarse cambiaba de forma sola — un parpadeo que delata que lo de
+     * arriba no es lo mismo que lo de abajo.
+     */
+    const time = new Date().toLocaleTimeString("es-PE", {
+      hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
     });
     // Pintado optimista: el mensaje aparece ya. Si el envío real falla, se marca — un
     // mensaje que el contacto nunca recibió no puede quedar como si hubiera salido.
@@ -2820,7 +2904,10 @@ function ChatTab({
           </button>
         </div>
       )}
-      <div className="flex-1 p-4 bg-[#efeae2] dark:bg-[#0b141a] overflow-y-auto scrollbar-thin">
+      <div
+        ref={scrollRef}
+        className="flex-1 p-4 bg-[#efeae2] dark:bg-[#0b141a] overflow-y-auto scrollbar-thin"
+      >
         <div className="space-y-2 flex flex-col pb-4">
           <div className="text-center my-2">
             <span className="text-[11px] font-medium text-[#54656f] dark:text-[#8696a0] bg-white/60 dark:bg-[#111b21]/60 px-3 py-1 rounded-lg shadow-sm">
