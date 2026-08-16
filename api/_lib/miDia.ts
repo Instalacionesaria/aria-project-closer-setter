@@ -14,7 +14,7 @@
  *
  * Secciones:
  *   - `citasHoy`          → `closer_citas` con fecha de hoy (Lima).
- *   - `urgentes`          → contactos con `bot_pausado_fallo` en los tags cacheados; el
+ *   - `urgentes`          → contactos con algún tag de fallo del auditor en los tags cacheados; el
  *                           motivo sale de `closer_analisis_agente` (lo escribe el auditor).
  *   - `buzon`             → zona_closer + bot APAGADO (§2, default apagado) + último
  *                           entrante posterior a la última resolución. DERIVADO, sin flag.
@@ -149,7 +149,7 @@ export async function ejecutarMiDia() {
     })),
   );
 
-  /* ── Urgentes: bot_pausado_fallo en tags cacheados ───────────────────── */
+  /* ── Urgentes: los tres tags de fallo, en tags cacheados ─────────────── */
   const urgentesFilas = contactos.filter(
     // Los tres tags de fallo: el nuevo del appflow, el del leadflow y el legado.
     (c) => !c.congelado && tieneFalloDeAuditor(c.tags ?? []),

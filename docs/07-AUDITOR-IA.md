@@ -4,7 +4,7 @@ Un agente que audita a los otros agentes. Lee la conversación entre el chatbot 
 contacto, la evalúa contra una rúbrica, y produce **dos salidas que no hay que mezclar**:
 
 - **Intervención** — hay daño en curso y un humano tiene que tomar la conversación _ahora_.
-  Aplica `bot_pausado_fallo` + una nota `[IA] …`. Eso enciende la cola roja.
+  Aplica `bot_desactivado_appflow`/`_leadflow` (el del agente que falló) + una nota `[IA] …`. Eso enciende la cola roja y le dice a GHL cuál bot pausar.
 - **Hallazgos** — qué se puede corregir en el **prompt** del agente. No interrumpe a nadie:
   alimenta la lista de trabajo del técnico en Auditoría de Agentes.
 
@@ -55,13 +55,13 @@ Dos renglones de ese endpoint son alarmas tempranas:
 
 En orden, de más barato a más caro de evaluar. Cada uno evita gasto.
 
-| #   | Portón                                      | Nota                                                                           |
-| --- | ------------------------------------------- | ------------------------------------------------------------------------------ |
-| 1   | Territorio `zona_closer`                    | Este es el auditor de **chat del closer**. El del setter será su propio agente |
-| 2   | `botAtendiendo(tags)`                       | **Bloquea al 100% hoy** — ver arriba                                           |
-| 3   | No tiene ya `bot_pausado_fallo`             | Ya está en la cola; re-analizar duplicaría la nota                             |
-| 4   | **Debounce: 5 mensajes nuevos de la IA**    | `AUDITOR_UMBRAL_IA`                                                            |
-| 5   | Hay ≥1 mensaje clasificado como `agente_ia` | Los **hechos**, no los tags                                                    |
+| #   | Portón                                      | Nota                                                                                                  |
+| --- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1   | Territorio `zona_closer`                    | Este es el auditor de **chat del closer**. El del setter será su propio agente                        |
+| 2   | `botAtendiendo(tags)`                       | **Bloquea al 100% hoy** — ver arriba                                                                  |
+| 3   | No tiene ya ningún tag de fallo del auditor | Ya está en la cola; re-analizar duplicaría la nota. Se miran los tres: los dos por agente y el legado |
+| 4   | **Debounce: 5 mensajes nuevos de la IA**    | `AUDITOR_UMBRAL_IA`                                                                                   |
+| 5   | Hay ≥1 mensaje clasificado como `agente_ia` | Los **hechos**, no los tags                                                                           |
 
 **El portón 5 no es redundante con el 2.** Un tag puede mentir: quedó puesto, el workflow no
 corrió, alguien lo editó a mano. Sin una sola línea del agente en la conversación no hay nada
@@ -460,12 +460,12 @@ viejas con `fallo = false` se quedaron en `null` a propósito: el modelo de ante
 
 ### La única diferencia entre chat y voz está en el rojo
 
-|                                 | Rojo en **chat**                    | Rojo en **voz**                     |
-| ------------------------------- | ----------------------------------- | ----------------------------------- |
-| Apaga el agente                 | **Sí** — aplica `bot_pausado_fallo` | **No puede**: la llamada ya terminó |
-| Cola de Intervenciones Urgentes | **Sí**                              | No                                  |
-| Nota `[IA] …` en el contacto    | Sí                                  | Sí                                  |
-| Corrección de prompt            | **Sí**                              | **Sí**                              |
+|                                 | Rojo en **chat**                                                                | Rojo en **voz**                     |
+| ------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------- |
+| Apaga el agente                 | **Sí** — aplica `bot_desactivado_appflow`/`_leadflow` (el del agente que falló) | **No puede**: la llamada ya terminó |
+| Cola de Intervenciones Urgentes | **Sí**                                                                          | No                                  |
+| Nota `[IA] …` en el contacto    | Sí                                                                              | Sí                                  |
+| Corrección de prompt            | **Sí**                                                                          | **Sí**                              |
 
 Lo decide `elRojoApagaElBot()`. En voz no es una limitación que se resigna: aplicar el tag por una
 llamada mala **pausaría el agente de chat de ese contacto**, que es otro agente y puede estar
@@ -495,12 +495,12 @@ el acto (`api/_lib/analizadorVoz.ts`). Es el mismo motor del chat con otro medio
 
 Lo que lo hace distinto del chat, con motivo:
 
-| Chat                                          | Voz                                                          | Por qué                                                                                                 |
-| --------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| Debounce de 5 mensajes                        | **Sin debounce**: 1 análisis por llamada                     | Una llamada ya es una conversación completa                                                             |
-| Candado `closer_auditor_claim`                | **Dedupe por `call_id`**                                     | El claim es por contacto: chat y voz se pisarían                                                        |
-| El rojo aplica `bot_pausado_fallo` → Urgentes | **El rojo NO aplica tag**: nota `[IA] [llamada]` + Auditoría | La llamada ya terminó, y el tag pausaría al agente de CHAT del contacto (decisión de Fabio, 2026-08-10) |
-| `disparo: webhook`                            | `disparo: llamada`                                           | Para poder separarlos en las métricas                                                                   |
+| Chat                                                            | Voz                                                          | Por qué                                                                                                 |
+| --------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Debounce de 5 mensajes                                          | **Sin debounce**: 1 análisis por llamada                     | Una llamada ya es una conversación completa                                                             |
+| Candado `closer_auditor_claim`                                  | **Dedupe por `call_id`**                                     | El claim es por contacto: chat y voz se pisarían                                                        |
+| El rojo aplica `bot_desactivado_appflow`/`_leadflow` → Urgentes | **El rojo NO aplica tag**: nota `[IA] [llamada]` + Auditoría | La llamada ya terminó, y el tag pausaría al agente de CHAT del contacto (decisión de Fabio, 2026-08-10) |
+| `disparo: webhook`                                              | `disparo: llamada`                                           | Para poder separarlos en las métricas                                                                   |
 
 Un `origen` sin agente identificado (`voz_ia`, `sales_call`) **no se audita**: imputar fallos "al
 más parecido" es peor que no auditar. El veredicto se ve en la tarjeta del agente en Auditoría y

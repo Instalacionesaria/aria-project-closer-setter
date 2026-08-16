@@ -3,7 +3,8 @@
  *
  * Espejo exacto de `/api/closer/urgentes`, cambiando el territorio. Un contacto entra si
  * cumple LAS DOS:
- *   1. `bot_pausado_fallo` — el analizador detectó que la IA no atendió bien y pausó al bot;
+ *   1. Un tag de fallo del auditor (`bot_desactivado_leadflow`, o el legado `bot_pausado_fallo`)
+ *      — el analizador detectó que la IA no atendió bien y pausó al bot;
  *   2. `zona_setter` — está en territorio pre-agenda.
  *
  * Los dos endpoints juntos cubren el ruteo por etapa de §11 sin solaparse: los tags de

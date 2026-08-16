@@ -21,7 +21,8 @@
  *     curl -X POST .../api/closer/analizar -H "x-webhook-secret: …" \
  *       -d '{"ghlContactId":"…","dryRun":true,"forzar":true}'
  *
- * ⚠️ ESCRIBE EN GHL. Un fallo detectado aplica `bot_pausado_fallo`, que dispara el workflow
+ * ⚠️ ESCRIBE EN GHL. Un fallo detectado aplica el tag del agente que falló
+ * (`bot_desactivado_appflow` o `bot_desactivado_leadflow`, D52), que dispara el workflow
  * que apaga al agente en la conversación de una persona real. No es un simulacro — salvo con
  * `dryRun`, que es exactamente para eso.
  *
@@ -30,7 +31,11 @@
  */
 
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { analizarTerritorio, analizarYMarcar, type Territorio } from "../_lib/analizador.js";
+import {
+  analizarTerritorio,
+  analizarYMarcar,
+  type Territorio,
+} from "../_lib/analizador.js";
 import { ghl } from "../_lib/ghl/index.js";
 import { activar, resolverCredenciales } from "../_lib/credenciales.js";
 import { ORG_PRINCIPAL } from "../_lib/repo.js";
@@ -52,14 +57,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    */
   const secreto = process.env.WEBHOOK_SECRET;
   if (!secreto) {
-    console.error("[analizar] WEBHOOK_SECRET sin configurar: se rechaza todo hasta que exista.");
-    return res.status(503).json({ ok: false, error: "WEBHOOK_SECRET sin configurar en el servidor." });
+    console.error(
+      "[analizar] WEBHOOK_SECRET sin configurar: se rechaza todo hasta que exista.",
+    );
+    return res
+      .status(503)
+      .json({
+        ok: false,
+        error: "WEBHOOK_SECRET sin configurar en el servidor.",
+      });
   }
   if (req.headers["x-webhook-secret"] !== secreto) {
     return res.status(401).json({ ok: false, error: "Secreto inválido." });
   }
 
-  const cuerpo = (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
+  const cuerpo =
+    (typeof req.body === "string" ? safeJson(req.body) : req.body) ?? {};
 
   /**
    * ── Qué empresa auditar (2026-08-07) ─────────────────────────────────
@@ -76,7 +89,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
    * en una sola invocación es la clase de botón que después nadie quiere apretar. Una por
    * llamada, explícita.
    */
-  const orgPedida = String((cuerpo as Record<string, unknown>).orgId ?? "").trim() || ORG_PRINCIPAL;
+  const orgPedida =
+    String((cuerpo as Record<string, unknown>).orgId ?? "").trim() ||
+    ORG_PRINCIPAL;
 
   try {
     activar(await resolverCredenciales(orgPedida));
@@ -86,20 +101,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { ghlContactId, zona, forzar, dryRun } = cuerpo as Record<string, unknown>;
-    const opts = { forzar: forzar === true, dryRun: dryRun === true, disparo: "manual" as const };
+    const { ghlContactId, zona, forzar, dryRun } = cuerpo as Record<
+      string,
+      unknown
+    >;
+    const opts = {
+      forzar: forzar === true,
+      dryRun: dryRun === true,
+      disparo: "manual" as const,
+    };
 
     if (typeof ghlContactId === "string" && ghlContactId) {
       const resultado = await analizarYMarcar(ghlContactId, opts);
-      return res.status(200).json({ ok: true, ghlModo: ghl().modo, ghlContactId, ...opts, ...resultado });
+      return res
+        .status(200)
+        .json({
+          ok: true,
+          ghlModo: ghl().modo,
+          ghlContactId,
+          ...opts,
+          ...resultado,
+        });
     }
 
     if (zona !== undefined && zona !== "closer" && zona !== "setter") {
-      return res.status(400).json({ ok: false, error: 'zona inválida: "closer" o "setter".' });
+      return res
+        .status(400)
+        .json({ ok: false, error: 'zona inválida: "closer" o "setter".' });
     }
     const territorio: Territorio = zona === "setter" ? "setter" : "closer";
 
-    const { encontrados, revisados, omitidos, truncado, resultados } = await analizarTerritorio(territorio, opts);
+    const { encontrados, revisados, omitidos, truncado, resultados } =
+      await analizarTerritorio(territorio, opts);
     return res.status(200).json({
       ok: true,
       ghlModo: ghl().modo,
