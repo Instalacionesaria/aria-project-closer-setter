@@ -8,8 +8,19 @@
 
 import { describe, expect, it } from "vitest";
 import type { FilaLlamada } from "../../src/lib/assistable.js";
-import { CRITERIOS_CLOSER, CRITERIOS_SETTER, ETIQUETAS_OBSERVACION } from "./analizador.js";
-import { armarTranscriptVoz, hechosDeLlamada, RUBRICAS_VOZ, TERRITORIOS_VOZ, turnosValidos } from "./analizadorVoz.js";
+import {
+  CRITERIOS_CLOSER,
+  CRITERIOS_SETTER,
+  ETIQUETAS_OBSERVACION,
+} from "./analizador.js";
+import {
+  armarTranscriptVoz,
+  autorDeLaLinea,
+  hechosDeLlamada,
+  RUBRICAS_VOZ,
+  TERRITORIOS_VOZ,
+  turnosValidos,
+} from "./analizadorVoz.js";
 
 const fila = (p: Partial<FilaLlamada> = {}): FilaLlamada => ({
   call_id: "call_test",
@@ -100,7 +111,9 @@ describe("armarTranscriptVoz · lo que lee el modelo", () => {
         ],
       }),
     );
-    expect(t).toBe("AGENTE IA: Hola, llamo para confirmar tu cita.\nCONTACTO: Ah sí, ahí estaré.");
+    expect(t).toBe(
+      "AGENTE IA: Hola, llamo para confirmar tu cita.\nCONTACTO: Ah sí, ahí estaré.",
+    );
   });
 
   /**
@@ -109,7 +122,9 @@ describe("armarTranscriptVoz · lo que lee el modelo", () => {
    * honesto es `auditable: false`, no un veredicto adivinado.
    */
   it("sin turnos cae al full_transcript, con la advertencia de que no hay roles", () => {
-    const t = armarTranscriptVoz(fila({ transcripcion: "hola sí confirmo la cita gracias" }));
+    const t = armarTranscriptVoz(
+      fila({ transcripcion: "hola sí confirmo la cita gracias" }),
+    );
     expect(t).toContain("transcripción sin roles");
     expect(t).toContain("auditable=false");
     expect(t).toContain("hola sí confirmo la cita gracias");
@@ -117,6 +132,53 @@ describe("armarTranscriptVoz · lo que lee el modelo", () => {
 
   it("sin turnos ni transcripción devuelve vacío — el portón corta antes de gastar", () => {
     expect(armarTranscriptVoz(fila())).toBe("");
+  });
+});
+
+describe("autorDeLaLinea · un rol desconocido NO es el contacto", () => {
+  /**
+   * El bug (2026-08-16): el mapeo era `role === "agent" ? "AGENTE IA" : "CONTACTO"`, así que un
+   * turno de herramienta de Retell —el resultado de una consulta de disponibilidad— se le
+   * presentaba al modelo como dicho por la persona. Sobre eso el auditor puede imputarle al
+   * contacto algo que escribió una función.
+   *
+   * El repo ya lo había decidido para la ficha en `turnosDeLlamada()`, con su propio test. Acá
+   * se hacía lo contrario sobre el mismo dato.
+   */
+  it("agent y user son los dos hablantes conocidos", () => {
+    expect(autorDeLaLinea("agent")).toBe("AGENTE IA");
+    expect(autorDeLaLinea("user")).toBe("CONTACTO");
+  });
+
+  it("cualquier otro rol NUNCA se etiqueta como el contacto", () => {
+    for (const rol of ["tool", "system", "assistant", "", "desconocido"]) {
+      expect(autorDeLaLinea(rol)).not.toBe("CONTACTO");
+      expect(autorDeLaLinea(rol)).toContain("SISTEMA");
+    }
+  });
+
+  it("y el transcript que lee el modelo lo refleja", () => {
+    const t = armarTranscriptVoz(
+      fila({
+        turnos: [
+          { role: "agent", content: "Un momento, reviso la agenda." },
+          { role: "tool", content: "buscar_disponibilidad({}) -> 3 huecos" },
+          { role: "user", content: "Dale." },
+        ],
+      }),
+    );
+    expect(t).toContain("AGENTE IA: Un momento");
+    expect(t).toContain("CONTACTO: Dale.");
+    // La línea de la herramienta no puede aparecer atribuida al contacto.
+    expect(t).not.toContain("CONTACTO: buscar_disponibilidad");
+  });
+
+  /** La rúbrica tiene que declarar al tercer hablante, o el modelo lo ve como ruido sin nombre. */
+  it("la rúbrica de voz declara SISTEMA y prohibe imputarle nada", () => {
+    for (const r of [RUBRICAS_VOZ.closer, RUBRICAS_VOZ.setter]) {
+      expect(r).toContain("SISTEMA");
+      expect(r).toContain("no sostiene ningún hallazgo");
+    }
   });
 });
 
@@ -139,7 +201,10 @@ describe("hechosDeLlamada · lo temporal se mide, no se estima", () => {
   });
 
   it("lo que no vino no se inventa: sin motivo de cierre no hay línea de motivo de cierre", () => {
-    const h = hechosDeLlamada(fila({ motivo_desconexion: null, sentimiento: null }), []);
+    const h = hechosDeLlamada(
+      fila({ motivo_desconexion: null, sentimiento: null }),
+      [],
+    );
     expect(h).not.toContain("telefonía");
     expect(h).not.toContain("Sentimiento");
   });
@@ -163,7 +228,9 @@ describe("RUBRICAS_VOZ · el molde compartido con el medio de voz", () => {
 
   /** La rama sin-prompt es la que permite auditar "de forma general" cuando nadie cargó el prompt. */
   it("conservan la rama de auditar sin prompt del agente", () => {
-    expect(RUBRICAS_VOZ.closer).toContain("Si NO recibiste el prompt del agente");
+    expect(RUBRICAS_VOZ.closer).toContain(
+      "Si NO recibiste el prompt del agente",
+    );
   });
 
   it("la consecuencia de intervenir es la de voz: la llamada ya terminó", () => {
@@ -189,7 +256,9 @@ describe("la sección de resumen y observaciones · el riesgo de inflar amarillo
   });
 
   it("dice explícitamente que una observación no justifica amarillo", () => {
-    expect(RUBRICAS_VOZ.closer).toContain("UNA OBSERVACIÓN NO JUSTIFICA AMARILLO");
+    expect(RUBRICAS_VOZ.closer).toContain(
+      "UNA OBSERVACIÓN NO JUSTIFICA AMARILLO",
+    );
   });
 
   it("pide el resumen incluso cuando no se pudo auditar — el caso de los 19 segundos", () => {
@@ -208,6 +277,8 @@ describe("la sección de resumen y observaciones · el riesgo de inflar amarillo
   });
 
   it("con auditable=false la rúbrica ordena dejar las observaciones vacías", () => {
-    expect(RUBRICAS_VOZ.closer).toContain("Con auditable=false van vacías siempre");
+    expect(RUBRICAS_VOZ.closer).toContain(
+      "Con auditable=false van vacías siempre",
+    );
   });
 });
