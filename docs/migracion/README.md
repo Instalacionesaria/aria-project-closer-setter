@@ -14,17 +14,20 @@ externos. Se puede copiar a otro proyecto tal cual.
 
 ## Los documentos
 
-| #   | Documento                                  | Qué contiene                                                                                             |
-| --- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| 00  | [Visión general](00-VISION-GENERAL.md)     | El modelo de datos, las cinco reglas, las decisiones a tomar antes de empezar y el orden de construcción |
-| 01  | [Esquema de datos](01-ESQUEMA-DE-DATOS.md) | SQL completo: tablas, restricciones, disparadores, índices, seguridad a nivel de fila                    |
-| 02  | [Autenticación](02-AUTENTICACION.md)       | Contraseñas, sesiones, cookies, bloqueo por intentos, contraseñas temporales                             |
-| 03  | [Roles y permisos](03-ROLES-Y-PERMISOS.md) | El modelo **extensible**: capacidades granulares, roles como datos, el portero del servidor              |
-| 04  | [Aislamiento](04-AISLAMIENTO.md)           | Cómo separar los datos entre organizaciones sin depender de la disciplina                                |
-| 05  | [Administración](05-ADMINISTRACION.md)     | Alta de organizaciones y usuarios, el primer administrador, restablecer contraseñas                      |
-| 06  | [Credenciales](06-CREDENCIALES.md)         | Secretos por organización: cifrado, rotación, enmascarado, y el error más costoso                        |
-| 07  | [Errores a evitar](07-ERRORES-A-EVITAR.md) | Los fallos concretos que este diseño ya pagó en producción                                               |
-| 08  | [Endurecimiento](08-ENDURECIMIENTO.md)     | **Los huecos de los siete anteriores, con su solución.** Lo que la serie promete y puede no cumplir      |
+| #   | Documento                                            | Qué contiene                                                                                                 |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 00  | [Visión general](00-VISION-GENERAL.md)               | El modelo de datos, las cinco reglas, las decisiones a tomar antes de empezar y el orden de construcción     |
+| 01  | [Esquema de datos](01-ESQUEMA-DE-DATOS.md)           | SQL completo: tablas, restricciones, disparadores, índices, seguridad a nivel de fila                        |
+| 02  | [Autenticación](02-AUTENTICACION.md)                 | Contraseñas, sesiones, cookies, bloqueo por intentos, contraseñas temporales                                 |
+| 03  | [Roles y permisos](03-ROLES-Y-PERMISOS.md)           | El modelo **extensible**: capacidades granulares, roles como datos, el portero del servidor                  |
+| 04  | [Aislamiento](04-AISLAMIENTO.md)                     | Cómo separar los datos entre organizaciones sin depender de la disciplina                                    |
+| 05  | [Administración](05-ADMINISTRACION.md)               | Alta de organizaciones y usuarios, el primer administrador, restablecer contraseñas                          |
+| 06  | [Credenciales](06-CREDENCIALES.md)                   | Secretos por organización: cifrado, rotación, enmascarado, y el error más costoso                            |
+| 07  | [Errores a evitar](07-ERRORES-A-EVITAR.md)           | Los fallos concretos que este diseño ya pagó en producción                                                   |
+| 08  | [Endurecimiento](08-ENDURECIMIENTO.md)               | **Los huecos de los siete anteriores, con su solución.** Lo que la serie promete y puede no cumplir          |
+| 09  | [Escotilla y estados](09-ESCOTILLA-Y-ESTADOS.md)     | **Los dos defectos que abre el 08**: las políticas rompen el login, y los estados de sesión abren una puerta |
+| 10  | [Detección y operación](10-DETECCION-Y-OPERACION.md) | Saber que algo está pasando **ahora**: señales, incidentes, respaldos, riesgos residuales                    |
+| —   | [**Las reglas y sus pruebas**](PRUEBAS.md)           | **Cada regla con la prueba que falla si no se cumple.** La lista de trabajo, y qué se resigna si se recorta  |
 
 ---
 
@@ -41,8 +44,8 @@ de uso:
    la primera hora sin darse cuenta, y que deciden si las defensas de esta serie funcionan o solo
    parecen funcionar.
 4. Después, un documento por etapa, en el orden de **`00` § 6**.
-5. Exigí **las pruebas arquitectónicas** (descritas en `03` § 6, `04` § 7 y `08`) en la misma etapa que
-   el código que verifican, no después.
+5. Trabajá con **[`PRUEBAS.md`](PRUEBAS.md)** al lado. Es la lista de reglas con su prueba: exigí cada
+   una **en la misma etapa que el código que verifica**, nunca al final.
 
 **Si lo implementás a mano**, el orden es el mismo. El único consejo fuerte: no dejes las pruebas
 arquitectónicas para el final. Son lo único que sostiene las reglas cuando el equipo crece.
@@ -91,8 +94,10 @@ Dicho de frente, para que se decida a propósito y no se descubra a mitad de cam
 Ninguna de esas ausencias es un obstáculo para agregarlas después: el `08` § 14 dice, para cada una,
 qué haría falta y cuál es el detonante para hacerlo.
 
-**Dos que sí están, y solo en el `08`**: el segundo factor — obligatorio para el rol que ve todas las
-organizaciones, porque para ése no puede ser opcional — y la recuperación de contraseña.
+**Tres que sí están, y solo en los últimos tres documentos**: el segundo factor — obligatorio para el
+rol que ve todas las organizaciones, porque para ése no puede ser opcional —, la recuperación de
+contraseña, y la **detección**: qué vigilar para enterarse de un incidente sin que lo reporte un
+cliente.
 
 ---
 
@@ -105,6 +110,10 @@ estilo.
 Donde hay una elección legítima, está dicho que la hay, con los criterios para decidir. Donde no la
 hay, también está dicho.
 
-Y una salvedad sobre el **`08`**: ese documento **corrige a los otros siete.** Nació de una revisión
-que encontró cosas que la serie afirmaba y no sostenía. Donde el `08` contradice a un documento
-anterior, **gana el `08`** — y lo dice en cada caso, con el reemplazo completo.
+Y una salvedad sobre los tres últimos: **corrigen a los anteriores.** El `08` nació de una revisión que
+encontró cosas que la serie afirmaba y no sostenía; el `09` nació de encontrar que **el propio `08`
+rompía el login**. Donde uno contradice a otro, **gana el de número más alto** — y lo dice en cada
+caso, con el reemplazo completo.
+
+Que la serie se haya corregido dos veces no es un defecto del método: es el método. Lo único que hace
+que un diseño así sea confiable es que alguien lo haya intentado romper por escrito.

@@ -155,17 +155,20 @@ evita, y llega por un camino donde ninguna capa de datos participa.
 
 ## 5 · La serie
 
-| Documento             | Qué contiene                                                                                                                                                                                   |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `00-VISION-GENERAL`   | Este. El modelo, las reglas, las decisiones previas y el orden de construcción                                                                                                                 |
-| `01-ESQUEMA-DE-DATOS` | El SQL completo: tablas, restricciones, disparadores, índices, seguridad a nivel fila                                                                                                          |
-| `02-AUTENTICACION`    | Contraseñas, sesiones, cookies, bloqueo por intentos. El login de punta a punta                                                                                                                |
-| `03-ROLES-Y-PERMISOS` | El modelo extensible de roles y capacidades, y el portero del servidor                                                                                                                         |
-| `04-AISLAMIENTO`      | Cómo se separan los datos entre organizaciones sin confiar en la disciplina                                                                                                                    |
-| `05-ADMINISTRACION`   | Alta de organizaciones y usuarios, el primer administrador, restablecer contraseñas                                                                                                            |
-| `06-CREDENCIALES`     | Guardar y usar secretos por organización: cifrado, rotación, enmascarado                                                                                                                       |
-| `07-ERRORES-A-EVITAR` | Los fallos concretos que este diseño ya pagó en producción, y cómo evitarlos                                                                                                                   |
-| `08-ENDURECIMIENTO`   | **Los huecos de los siete anteriores**, con su solución: la segunda capa que puede ser inerte, la caché entre inquilinos, sesiones, roles con dueño, credenciales con refresco, segundo factor |
+| Documento                  | Qué contiene                                                                                                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `00-VISION-GENERAL`        | Este. El modelo, las reglas, las decisiones previas y el orden de construcción                                                                                                                 |
+| `01-ESQUEMA-DE-DATOS`      | El SQL completo: tablas, restricciones, disparadores, índices, seguridad a nivel fila                                                                                                          |
+| `02-AUTENTICACION`         | Contraseñas, sesiones, cookies, bloqueo por intentos. El login de punta a punta                                                                                                                |
+| `03-ROLES-Y-PERMISOS`      | El modelo extensible de roles y capacidades, y el portero del servidor                                                                                                                         |
+| `04-AISLAMIENTO`           | Cómo se separan los datos entre organizaciones sin confiar en la disciplina                                                                                                                    |
+| `05-ADMINISTRACION`        | Alta de organizaciones y usuarios, el primer administrador, restablecer contraseñas                                                                                                            |
+| `06-CREDENCIALES`          | Guardar y usar secretos por organización: cifrado, rotación, enmascarado                                                                                                                       |
+| `07-ERRORES-A-EVITAR`      | Los fallos concretos que este diseño ya pagó en producción, y cómo evitarlos                                                                                                                   |
+| `08-ENDURECIMIENTO`        | **Los huecos de los siete anteriores**, con su solución: la segunda capa que puede ser inerte, la caché entre inquilinos, sesiones, roles con dueño, credenciales con refresco, segundo factor |
+| `09-ESCOTILLA-Y-ESTADOS`   | **Los dos defectos que abre el `08`**: las políticas de la base rompen el login, y los estados de sesión dejan pasar operaciones. Con el SQL de las ocho tablas de identidad                   |
+| `10-DETECCION-Y-OPERACION` | Cómo enterarse de que algo está pasando **ahora**: seis señales, incidentes, respaldos, el camino no tomado, riesgos residuales                                                                |
+| `PRUEBAS`                  | **Cada regla con la prueba que la sostiene**, por etapa. Es la lista de trabajo                                                                                                                |
 
 ---
 
@@ -203,6 +206,13 @@ sostiene las reglas cuando el equipo crece o cuando el código lo escribe un asi
 **8 · Lo que hace falta antes del primer cliente externo**: segundo factor para el rol de plataforma,
 auditoría del acceso de soporte, sesiones visibles y revocables, y el procedimiento de exportación y
 borrado por organización. La lista completa, con el orden, en el `08` § 13.
+
+**9 · La detección**, que no es una etapa final sino la que permite enterarse de lo que las ocho
+anteriores no impidieron. Seis señales, todas sobre tablas que ya existen (`10`).
+
+> Y una lista aparte, para tener al lado mientras se construye: **`PRUEBAS`** tiene cada regla de toda
+> la carpeta con la prueba que falla si no se cumple, agrupada por etapa. Si hay que recortar por
+> tiempo, se recorta de ahí — y así se sabe qué se está resignando.
 
 > **Antes de escribir la primera línea, leer `07-ERRORES-A-EVITAR`.** Es la lista de lo que ya salió
 > mal en un sistema construido con este diseño. Casi todo vuelve a pasar si nadie lo dice.

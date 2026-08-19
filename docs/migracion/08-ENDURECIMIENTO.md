@@ -92,17 +92,29 @@ alter table pedidos force  row level security;   -- <-- esta línea es la que su
 
 ```sql
 create policy aislamiento_pedidos on pedidos
-  using      (org_id = current_setting('app.org_id', true)::uuid)
-  with check (org_id = current_setting('app.org_id', true)::uuid);
+  using      (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid))
+  with check (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid));
 ```
 
-Dos detalles que la hacen segura por omisión:
+Tres detalles, y el primero es el que casi nadie escribe:
 
-- el segundo argumento en `true` hace que la función devuelva **nulo** en vez de fallar cuando la
-  variable no está puesta. Y `org_id = null` es nulo, que no es verdadero: **sin organización en
-  contexto, cero filas**. Falla cerrado, que es lo que se quiere.
-- `with check` además de `using`: sin él se puede **leer** filtrado pero **escribir** una fila con el
-  `org_id` de otra organización.
+- **`nullif(btrim(…), '')` antes del casteo, no el casteo desnudo.** El segundo argumento en `true` hace
+  que la función devuelva nulo cuando la variable **nunca** se puso — pero después del primer
+  `set_config` de esa conexión, el valor de reposo del parámetro **no vuelve a nulo: queda en cadena
+  vacía**. Y `''::uuid` **lanza un error de sintaxis**, no devuelve nulo. Sin el `nullif`, la política
+  falla cerrado la primera vez y **revienta** las siguientes.
+- **`with check` además de `using`**: sin él se puede leer filtrado pero **escribir** una fila con la
+  organización de otro.
+- **La subconsulta escalar alrededor.** Sin ella la función se evalúa una vez por fila; envuelta,
+  normalmente se resuelve una sola vez por consulta. Es comportamiento del planificador, no un contrato:
+  **medilo con un plan de ejecución** antes y después, porque tiene una contrapartida real — el valor
+  pasa a ser desconocido en tiempo de plan y se pierde la estimación por estadísticas de la columna, lo
+  que en una tabla grande puede terminar en un recorrido completo.
+
+> **Falla cerrado de dos formas distintas, y conviene saberlo antes de escribir la prueba:** sin
+> organización en contexto, la consulta devuelve **cero filas** si la variable nunca se puso en esa
+> conexión, y **lanza** si se puso y se reseteó. Las dos son seguras. Una prueba que exija exactamente
+> "cero filas" pasa o falla según cuántas veces se usó la conexión antes.
 
 **Pieza 4 · La variable se pone con `set local`, dentro de una transacción.**
 
@@ -121,11 +133,33 @@ toma parámetros.
 
 **Por qué dentro de una transacción, y no una vez por conexión:** porque la conexión se reutiliza. Si
 la variable se pone con alcance de sesión, la siguiente petición —que puede ser de otra
-organización— **hereda la variable de la anterior**. Con `set local` la variable muere con la
-transacción y ese escenario no existe.
+organización— **hereda la variable de la anterior**. Con alcance de transacción la variable muere con
+ella y ese escenario no existe.
+
+> **Y el `begin` explícito no es opcional, por un motivo que muerde en silencio.** Fuera de una
+> transacción, `set local` al menos **avisa** con una advertencia de que no hizo nada. La forma
+> parametrizable —`set_config(…, true)`— **no avisa nada: tiene éxito y no hace nada.**
+>
+> El resultado es una operación que cree tener contexto y no lo tiene. Como no hay advertencia que lo
+> delate, hacen falta dos cosas: una **verificación propia en el código** (después de poner la variable,
+> leerla y confirmar que quedó) y una **prueba que corra la consulta sin abrir transacción** y exija que
+> la política la rechace.
 
 Consecuencia de diseño que hay que aceptar de frente: **toda operación que dependa del filtro de la
 base corre dentro de una transacción.** No es un detalle de implementación, es una restricción.
+
+> **Y una segunda consecuencia, que rompe el login si no se prevé.** Hay operaciones que legítimamente
+> corren **sin** organización en contexto: la primera es el login, que busca un usuario por email antes de
+> saber de qué organización es. Con estas políticas puestas, esa consulta evalúa `org_id = null`, devuelve
+> **cero filas**, y **nadie puede entrar**.
+>
+> La salida rápida y equivocada es agregarle un escape a la política —`or current_setting('app.modo_global')
+= 'on'`—, que cualquier línea de la aplicación puede encender: no es una barrera, es un comentario, y
+> desactiva todo esto de un solo golpe.
+>
+> La salida correcta es **un segundo rol de base** para el dominio de identidad (organizaciones, usuarios,
+> sesiones, roles, permisos, auditoría), con **cero permisos** sobre las tablas de negocio. Está resuelto,
+> con el SQL completo de las ocho tablas, en el documento `09`.
 
 ### El agrupador de conexiones, que es parte de esto
 
@@ -153,9 +187,13 @@ prueba "el rol de la aplicación no puede saltear las políticas":
     afirmar fila.omite == falso
     afirmar fila.super == "off"
 
-prueba "sin organización en contexto, cero filas":
-    conectar como el rol de la aplicación   # sin set_config
-    afirmar consultar("select count(*) from pedidos").count == 0
+prueba "sin organización en contexto, no se ve nada":
+    conectar como el rol de la aplicación   # sin poner la variable
+    resultado = intentar consultar("select count(*) from pedidos")
+    # Las dos son correctas: cero filas si la variable nunca se puso en esta
+    # conexión, error si se puso y se reseteó a cadena vacía. Lo que NO puede
+    # pasar es que devuelva filas.
+    afirmar resultado.lanzo o resultado.count == 0
 
 prueba "con la organización A, ninguna fila de la B":
     sembrar un pedido en A y un pedido en B    # con el rol propietario
@@ -437,6 +475,25 @@ El `coalesce` con un identificador nulo constante es lo que hace que la unicidad
 las plantillas globales: sin él, un índice sobre `(org_id, clave)` permitiría dos plantillas globales
 con la misma clave, porque en un índice único los nulos no se comparan entre sí.
 
+Tres condiciones para que eso sea correcto, y la primera es la que suele faltar:
+
+- **`clave` tiene que ser `not null`.** La regla de que los nulos no se comparan aplica a **todas** las
+  columnas del índice: con `clave` nula, la fila queda exenta igual y el centinela no sirve de nada.
+- **Hay que impedir que el centinela exista como dato**, o la colisión es real:
+
+  ```sql
+  alter table organizaciones add constraint org_no_nula
+    check (id <> '00000000-0000-0000-0000-000000000000'::uuid);
+  ```
+
+- **Un índice único sobre una expresión no puede declararse como restricción de tabla**, solo como
+  índice. Consecuencia práctica: no es referenciable por una clave foránea, y todo `on conflict` tiene
+  que repetir la expresión literal.
+
+Si tu motor lo admite, `nulls not distinct` en el índice es más limpio que el centinela. Y si querés
+evitar las dos cosas, dos índices parciales —uno con la organización, otro para las plantillas
+globales— funcionan en cualquier versión.
+
 Y el disparador que cierra la asignación cruzada:
 
 ```sql
@@ -683,7 +740,13 @@ nuevo y sensible se marca con una fila, sin tocar el login.
 
 - los **códigos de respaldo** se generan al configurarlo, se muestran una vez, se guardan hasheados y
   **se consumen** al usarse. Sin ellos, un teléfono perdido es una cuenta perdida;
-- el bloqueo por intentos aplica **también** al código;
+- el bloqueo por intentos aplica **también** al código, y agotarlo **destruye la sesión pendiente**;
+- una sesión que espera el código es una sesión **sin identidad probada**: vence en minutos, no se
+  renueva, y no figura en la lista de sesiones activas del usuario;
+- **el orden entre estados no es el obvio.** Si el segundo factor ya está configurado y falta verificarlo,
+  gana siempre. Pero si falta **configurarlo** y además hay contraseña temporal sin cambiar, gana **la
+  contraseña temporal**: la temporal la conoce quien creó la cuenta, y configurar el segundo factor
+  primero le permitiría inscribir **su** dispositivo en la cuenta de otro;
 - desactivar el segundo factor de otra persona es una acción con su propia capacidad y su propia
   auditoría, nunca un campo del formulario de edición;
 - el secreto se guarda **cifrado**, no en claro. Es una credencial como cualquier otra.

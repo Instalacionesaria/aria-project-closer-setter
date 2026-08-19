@@ -147,6 +147,28 @@ Hay operaciones que legítimamente cruzan organizaciones:
 
 Para eso hace falta un acceso sin filtro: `datosSinFiltro()`.
 
+> **Y hace falta menos de lo que parece.** Tres de esas cuatro **no** necesitan leer datos de negocio sin
+> filtro:
+>
+> - **las tareas programadas** necesitan la _lista_ de organizaciones, y después trabajar de una en una,
+>   abriendo el contexto en cada vuelta como una petición normal;
+> - **el enrutador de eventos** necesita averiguar a qué organización pertenece el evento —una consulta a
+>   una tabla de identidad— y a partir de ahí sigue el camino normal;
+> - **el alta de organización** escribe en la tabla de organizaciones, que tampoco es de negocio.
+>
+> Queda solo el **login**, que busca un usuario por email. Acotar la escotilla a eso cambia su tamaño por
+> completo.
+
+> **Advertencia importante si además pusiste el filtro en la base.** Si las tablas tienen políticas que
+> filtran por una variable de sesión, `datosSinFiltro()` **no alcanza**: el corte no está en la capa de la
+> aplicación, está en la base, y no le importa por qué función de tu código llegó la consulta. El login
+> devolvería cero filas y **nadie podría entrar**.
+>
+> La solución no es aflojar la política —un escape que cualquier línea de la aplicación pueda encender no
+> es una barrera— sino **un segundo rol de base**, con permisos solo sobre las tablas de identidad y
+> **ninguno** sobre las de negocio. Así el acceso sin filtro deja de ser "puede todo" y pasa a ser "puede
+> las tablas de identidad, declarado en una migración que alguien revisó".
+
 **Y tiene que estar autorizado archivo por archivo, en una lista que verifica una prueba:**
 
 ```

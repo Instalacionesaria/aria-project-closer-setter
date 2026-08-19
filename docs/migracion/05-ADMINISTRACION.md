@@ -152,6 +152,18 @@ Devolver el mensaje de la base tal cual es deliberado: si los mensajes de los di
 para leerse ("El administrador principal no se puede degradar"), traducirlos en el backend sería mantener
 dos textos que dicen lo mismo y que van a divergir.
 
+> **Con una excepción importante: los mensajes de las restricciones de unicidad y de clave foránea no se
+> devuelven nunca.** Y no es por estética.
+>
+> Las verificaciones de unicidad y de integridad referencial **no pasan por la seguridad a nivel de
+> fila**: se hacen sobre la tabla entera, sin filtrar por organización. Un mensaje de "ya existe una fila
+> con ese valor" es entonces un canal que **confirma la existencia de un registro de otra organización**,
+> aunque quien pregunta no pueda verlo.
+>
+> Cada restricción de ese tipo se traduce a un código propio y a un texto que no revela nada
+> (`email_duplicado`, y no el detalle de la base). Los mensajes de los **disparadores**, que uno escribió
+> a propósito para que los lea una persona, sí se devuelven.
+
 ### La escalada que hay que bloquear en dos capas
 
 **Un administrador no puede otorgar el rol de plataforma.** Ni siquiera dentro de la organización
@@ -238,6 +250,16 @@ entran, y sus tareas programadas la saltean **diciéndolo** en el resultado.
 
 Registrá al menos: inicio de sesión, intento fallido, alta y baja de usuario, cambio de roles, cambio de
 credenciales, alta de organización.
+
+**Y tres que no son obvias, porque son las que después permiten _detectar_ algo:**
+
+| Acción                  | Dónde se emite                                    | Para qué sirve                                                                                                                                            |
+| ----------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `permiso_denegado`      | En el portero, al rechazar por falta de capacidad | Un pico en una organización casi nunca es un ataque: es un rol al que le falta una capacidad, **y nadie lo va a reportar** porque la pantalla se ve vacía |
+| `credencial_ilegible`   | En la función que descifra credenciales           | Clave maestra cambiada o valor alterado, antes de que el cliente llame                                                                                    |
+| `organizacion_cambiada` | Al cambiar de organización activa                 | Es el registro de **quién de tu equipo miró los datos de qué cliente**                                                                                    |
+
+Sin esas tres, la auditoría solo cuenta lo que salió bien.
 
 Dos decisiones de diseño que conviene copiar:
 

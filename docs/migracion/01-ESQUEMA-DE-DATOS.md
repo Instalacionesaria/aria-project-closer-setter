@@ -174,6 +174,10 @@ create index usuarios_roles_por_usuario on usuarios_roles (usuario_id);
 ### Los permisos efectivos de un usuario, en una consulta
 
 ```sql
+-- Si tu motor lo soporta, esta vista se declara para ejecutarse con los permisos
+-- de QUIEN LA INVOCA. Por omisión una vista corre con los del dueño, y una vista
+-- sobre tablas de inquilino creada por el rol de las migraciones EVADE las
+-- políticas de fila y devuelve todo.
 create or replace view usuarios_permisos as
   -- `distinct` y no `group by` sin agregación: hacen lo mismo (deduplicar), pero
   -- el `group by` sin función de agregado se lee como un error en una revisión.
@@ -412,6 +416,21 @@ create index pedidos_por_org_fecha on pedidos (org_id, creado_el desc);
 
 **El orden importa**: con `(creado_el, org_id)` la base recorre todas las organizaciones antes de
 filtrar. Con `(org_id, creado_el)` va directo.
+
+### Las claves únicas llevan la organización ADENTRO
+
+`unique (codigo)` y `unique (org_id, codigo)` no son lo mismo, y la diferencia no es solo de reglas de
+negocio:
+
+- con `unique (codigo)`, **dos organizaciones no pueden usar el mismo código**, que casi nunca es lo que
+  se quiere;
+- y peor: **las verificaciones de unicidad y de integridad referencial NO pasan por la seguridad a nivel
+  de fila.** Se hacen sobre la tabla entera. Así que el mensaje "ya existe una fila con ese valor"
+  **confirma la existencia de un registro de otra organización** a alguien que no puede verlo.
+
+De ahí dos reglas: la organización va **dentro** de cada clave única, y **los mensajes de restricción no
+se devuelven al cliente** — cada uno se traduce a un código propio. (Los mensajes de los disparadores,
+escritos a propósito para que los lea una persona, sí se devuelven.)
 
 ### Las claves foráneas dentro del inquilino
 

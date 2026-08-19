@@ -156,12 +156,14 @@ funcion exigir(peticion, respuesta, capacidadesRequeridas):
         responder 401 { codigo: "sin_sesion" }
         devolver nulo
 
-    # 2 · ¿Tiene contraseña temporal sin cambiar?
-    #     ANTES de los permisos: si fuera después, cualquier operación que no pida
-    #     capacidades lo dejaría trabajar con una contraseña dictada por teléfono.
-    si contexto.debeCambiarPassword y capacidadesRequeridas != "ninguna":
-        responder 403 { codigo: "password_temporal" }
-        devolver nulo
+    # 2 · ¿La sesión está en un estado que restringe?
+    #     LISTA BLANCA DE RUTAS, y no "salvo las que no piden capacidades":
+    #     con esa variante, una operación nueva que no pida ninguna capacidad
+    #     nace ABIERTA a todos los estados restringidos, sin que nadie lo decida.
+    si contexto.estado != "activa":
+        si peticion.ruta no está en RUTAS_PERMITIDAS[contexto.estado]:
+            responder 403 { codigo: contexto.estado }
+            devolver nulo
 
     # 3 · ¿La organización está activa?
     organizacion = resolverOrganizacion(contexto.orgEfectiva)
@@ -188,13 +190,50 @@ contexto = exigir(peticion, respuesta, ["usuarios.crear"])
 si no contexto: devolver          # el portero ya respondió
 ```
 
+### Los estados de la sesión, y por qué van por lista de rutas
+
+Una sesión no está solo "válida o no". Puede estar válida y **todavía no habilitada**: contraseña
+temporal sin cambiar, segundo factor sin verificar, segundo factor sin configurar. Cada uno de esos
+estados habilita **exactamente las rutas que se nombran**, y nada más:
+
+```
+RUTAS_PERMITIDAS = {
+    "pendiente_2fo":         [ "POST /auth/2fo/verificar",
+                               "GET /auth/sesion", "DELETE /auth/sesion" ],
+    "debe_cambiar_password": [ "POST /auth/sesion",        # cambiar la contraseña
+                               "GET /auth/sesion", "DELETE /auth/sesion" ],
+    "debe_configurar_2fo":   [ "POST /auth/2fo/configurar", "POST /auth/2fo/confirmar",
+                               "GET /auth/sesion", "DELETE /auth/sesion" ],
+    "activa":                TODAS,
+}
+```
+
+Tres cosas de esas listas, y la primera es el motivo de todo:
+
+- **una operación nueva nace cerrada.** Es el cambio de fondo respecto de decidir por capacidades: antes,
+  no decidir dejaba la puerta abierta; ahora, no decidir la deja cerrada.
+- **consultar la sesión está en las cuatro.** Sin eso el frontend no puede saber en qué estado está y no
+  sabe qué pantalla mostrar. Es el error más fácil de cometer armando estas listas.
+- **cerrar sesión está en las cuatro.** De todo estado se tiene que poder salir; un estado sin salida es
+  una cuenta bloqueada que necesita a un administrador.
+
+**Y el orden entre estados no es el obvio.** Si el segundo factor ya está configurado y falta
+verificarlo, gana siempre: todavía no se probó la identidad y nada más puede pasar antes. Pero si falta
+**configurarlo** y además hay contraseña temporal, gana **la contraseña temporal** — porque la temporal
+la conoce quien creó la cuenta, y dejar configurar el segundo factor primero le permitiría a esa persona
+inscribir **su** dispositivo en la cuenta de otro.
+
+**Cada estado devuelve su propio código de respuesta**, distinto del de falta de permiso. Los dos son
+`403` y son cosas distintas: el de permiso se muestra muchas veces como "no hay datos", y si se
+confunden, el usuario nunca sabe que le falta un paso.
+
 ### Cuatro cosas de ese diseño que conviene copiar
 
 **Devuelve nulo y ya respondió**, en vez de lanzar una excepción o devolver un resultado con dos ramas.
 Eso obliga a escribir la línea de salida, y **olvidarse no abre la operación**: rompe en cuanto se usa
 el contexto. Un portero que devolviera un booleano se podría ignorar en silencio.
 
-**El orden importa y no es intercambiable.** La contraseña temporal antes de los permisos; la
+**El orden importa y no es intercambiable.** Los estados de la sesión antes de los permisos; la
 organización antes de todo lo de negocio. Cada paso asume que el anterior pasó.
 
 **La organización se resuelve una vez, en el portero**, no en cada operación. Así ninguna se puede

@@ -36,7 +36,7 @@ leo esto".
 | [db/README](docs/db/README.md)                     | Esquema y cómo correr migraciones                                                                                                                                                                           |
 | [LISTA-TAGS](docs/LISTA-TAGS.md)                   | **Los 25 tags para pasarle a GHL**: cuándo se aplica cada uno, quién lo aplica, y cuáles faltan crear. Sin número a propósito                                                                               |
 | [PAQUETE-TECNOLOGICO](docs/PAQUETE-TECNOLOGICO.md) | **Con qué está construido**: lenguajes, versiones, servicios externos, y por qué son solo 5 dependencias. Sin número a propósito                                                                            |
-| [migracion/](docs/migracion/README.md)             | **Documentación PORTABLE del sistema de acceso multiempresa** para construirlo en otro proyecto: login, roles configurables, aislamiento, credenciales. No describe este producto y no referencia este repo |
+| [migracion/](docs/migracion/README.md)             | **Documentación PORTABLE del sistema de acceso multiempresa** para construirlo en otro proyecto: login, roles configurables, aislamiento, credenciales, endurecimiento y detección. 12 documentos + `PRUEBAS.md` (cada regla con su prueba). No describe este producto y no referencia este repo |
 
 Los **literales de GHL** que el código usa de verdad están en `src/lib/ghl/contrato.ts`, cada
 uno con su fuente y su nivel de confianza. Si un documento y ese archivo se contradicen, gana
