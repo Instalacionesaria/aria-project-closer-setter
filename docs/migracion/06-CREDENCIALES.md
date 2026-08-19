@@ -40,11 +40,30 @@ create table organizaciones_credenciales (
   pagos_comercio_id        text,
 
   actualizado_el    timestamptz not null default now(),
-  actualizado_por   uuid references usuarios(id)
+  -- Foránea COMPUESTA, no simple. Con `references usuarios(id)` a secas, nada
+  -- impide que la fila de la organización A quede firmada por un usuario de la B:
+  -- el identificador existe y la base lo acepta. Requiere `unique (org_id, id)`
+  -- en la tabla de usuarios.
+  actualizado_por   uuid,
+  foreign key (org_id, actualizado_por) references usuarios (org_id, id)
 );
 
 alter table organizaciones_credenciales enable row level security;
-revoke all on organizaciones_credenciales from public, anon, authenticated;
+alter table organizaciones_credenciales force  row level security;
+revoke all on organizaciones_credenciales from public;
+
+-- Y ATENCIÓN: con la seguridad activada y SIN política ni permisos, esta tabla
+-- queda ilegible para todos y la aplicación falla al resolver credenciales. Hay
+-- que otorgarla explícitamente. Si tenés un rol dedicado para las operaciones de
+-- identidad, es el único que debería llegar acá:
+grant select, insert, update, delete on organizaciones_credenciales to <rol de identidad>;
+create policy credenciales_identidad on organizaciones_credenciales
+  for all to <rol de identidad> using (true) with check (true);
+
+-- Que el rol de los datos de negocio NO tenga acceso es deliberado: una inyección
+-- en una consulta de negocio no alcanza los secretos de ningún cliente. El precio
+-- es que la función que resuelve credenciales corre en el otro dominio — una razón
+-- más para que sea UNA SOLA función.
 ```
 
 **El sufijo `_cifrado` en el nombre de la columna es una defensa real**, no cosmética: hace que

@@ -84,9 +84,16 @@ Si alguien compone una fila con un `org_id` distinto al de su sesión —por un 
 identificador llegó en el cuerpo de la petición— **la escritura va igual a la organización que
 corresponde**.
 
-Ante la duda gana la opción que hace más difícil escribir en los datos de otro. La excepción es un nulo
-**explícito**, si tu dominio necesita filas sin dueño (por ejemplo, una bandeja de eventos entrantes que
-todavía no se pudieron atribuir).
+Ante la duda gana la opción que hace más difícil escribir en los datos de otro.
+
+**Y no hay excepción para filas sin dueño en las tablas de negocio.** Es tentador permitir un nulo
+explícito para casos como una bandeja de eventos entrantes que todavía no se pudieron atribuir, pero eso
+choca de frente con el filtro de la base: una política `org_id = <la variable>` evalúa a nulo para esas
+filas, así que **el alta se rechaza y, si entraran, quedarían invisibles para siempre**.
+
+Las filas sin dueño van en **su propia tabla**, fuera del dominio del inquilino, con su permiso y su
+política escritos a mano — igual que las tablas de identidad. Cuando el evento se atribuye, se copia a la
+tabla de negocio con su organización puesta.
 
 ---
 
@@ -145,7 +152,8 @@ Hay operaciones que legítimamente cruzan organizaciones:
 - **El enrutador de eventos entrantes**, que tiene que averiguar a qué organización pertenece un evento.
 - **El alta de una organización**, que por definición todavía no tiene contexto.
 
-Para eso hace falta un acceso sin filtro: `datosSinFiltro()`.
+Para eso hace falta un acceso sin filtro. Llamalo `conIdentidad()`, y usá **ese mismo nombre** en todo
+el proyecto: es la cadena que van a buscar las pruebas.
 
 > **Y hace falta menos de lo que parece.** Tres de esas cuatro **no** necesitan leer datos de negocio sin
 > filtro:
@@ -160,7 +168,7 @@ Para eso hace falta un acceso sin filtro: `datosSinFiltro()`.
 > completo.
 
 > **Advertencia importante si además pusiste el filtro en la base.** Si las tablas tienen políticas que
-> filtran por una variable de sesión, `datosSinFiltro()` **no alcanza**: el corte no está en la capa de la
+> filtran por una variable de sesión, ese acceso **no alcanza**: el corte no está en la capa de la
 > aplicación, está en la base, y no le importa por qué función de tu código llegó la consulta. El login
 > devolvería cero filas y **nadie podría entrar**.
 >
@@ -172,11 +180,19 @@ Para eso hace falta un acceso sin filtro: `datosSinFiltro()`.
 **Y tiene que estar autorizado archivo por archivo, en una lista que verifica una prueba:**
 
 ```
-ARCHIVOS_AUTORIZADOS = { "auth/login", "auth/sesion", "tareas/*", "admin/organizaciones" }
+# UNA sola lista y UN solo nombre de función en todo el proyecto. Si el acceso sin
+# filtro se llama `datosSinFiltro` en un documento y `conIdentidad` en otro, cada
+# prueba busca una cadena distinta y las dos pasan mientras el archivo usa la otra.
+ARCHIVOS_AUTORIZADOS = {
+    "auth/*",                  # login, sesión, segundo factor
+    "admin/organizaciones",    # el alta, que todavía no tiene contexto
+    "admin/usuarios",          # busca y crea sin contexto de inquilino
+    "tareas/lista",            # SOLO la lista de organizaciones; el resto va por bucle
+}
 
 prueba "nadie usa el acceso sin filtro sin autorización":
     para cada archivo en operaciones/:
-        si "datosSinFiltro(" en leer(archivo):
+        si "conIdentidad(" en leer(archivo):
             afirmar que archivo en ARCHIVOS_AUTORIZADOS
 ```
 
@@ -226,7 +242,10 @@ clave es pública**.
 
 ```sql
 alter table pedidos enable row level security;
-revoke all on pedidos from public, anon, authenticated;
+revoke all on pedidos from public;
+-- Y de todo rol que pueda llegar desde el navegador. Algunos proveedores crean
+-- roles con nombres fijos para eso; en un PostgreSQL puro NO EXISTEN y nombrarlos
+-- aborta la migración. Revocá de `public` y de los roles que uses de verdad.
 -- Solo el rol del servidor, cuya clave vive únicamente en el backend, conserva acceso.
 ```
 
@@ -257,11 +276,17 @@ prueba "el aislamiento no se puede saltear":
     # 2 · Toda operación abre el contexto de organización
     para cada archivo en operaciones/:
         si archivo en RUTAS_PUBLICAS: continuar
-        afirmar que leer(archivo) contiene "activarContexto(" o "conOrganizacion("
+        # Las operaciones del dominio de identidad —login, alta de usuarios y de
+        # organizaciones, la lista de organizaciones— legítimamente NUNCA abren
+        # contexto de inquilino y tampoco son públicas. Sin esta exención la
+        # prueba falla sobre código correcto, y una prueba así se termina
+        # ignorando, que es peor que no tenerla.
+        si archivo en ARCHIVOS_AUTORIZADOS: continuar
+        afirmar que leer(archivo) contiene "conOrganizacion("
 
     # 3 · La escotilla, solo donde está autorizada
     para cada archivo en operaciones/:
-        si "datosSinFiltro(" en leer(archivo):
+        si "conIdentidad(" en leer(archivo):
             afirmar que archivo en ARCHIVOS_AUTORIZADOS
 
     # 4 · Toda tabla de negocio tiene la columna del inquilino

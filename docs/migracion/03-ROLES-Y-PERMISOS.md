@@ -150,6 +150,16 @@ Una sola función, y **toda** operación empieza llamándola.
 ```
 funcion exigir(peticion, respuesta, capacidadesRequeridas):
 
+    # 0 · Dos rutas quedan FUERA del paso 1, a propósito:
+    #     · GET /auth/sesion   -> "¿hay alguien?" es una pregunta legítima sin sesión,
+    #       y responde 200 { autenticado: false }. Si respondiera 401, el arranque del
+    #       frontend entraría en bucle con el manejador que escucha ese código.
+    #     · DELETE /auth/sesion -> tiene que borrar la cookie SIEMPRE, también cuando
+    #       la sesión ya venció: es la única forma de que el navegador deje de mandarla.
+    #     Cuando SÍ hay sesión, las dos siguen pasando por el resto del portero.
+    si peticion.ruta en SIN_SESION_REQUERIDA:
+        devolver resolverSesion(peticion)        # puede ser nulo, y está bien
+
     # 1 · ¿Hay sesión válida?
     contexto = resolverSesion(peticion)
     si no contexto:
@@ -166,8 +176,10 @@ funcion exigir(peticion, respuesta, capacidadesRequeridas):
             devolver nulo
 
     # 3 · ¿La organización está activa?
+    #     Con la MISMA excepción que el paso 0: si no, alguien de una organización
+    #     desactivada no puede ni cerrar sesión ni saber qué le pasa.
     organizacion = resolverOrganizacion(contexto.orgEfectiva)
-    si no organizacion.activa:
+    si no organizacion.activa y peticion.ruta no en SIN_SESION_REQUERIDA:
         responder 403 { codigo: "organizacion_inactiva" }
         devolver nulo
 
@@ -197,15 +209,20 @@ temporal sin cambiar, segundo factor sin verificar, segundo factor sin configura
 estados habilita **exactamente las rutas que se nombran**, y nada más:
 
 ```
+# El conjunto que TODO estado habilita. Sin él no se puede salir de ningún estado
+# ni saber en cuál se está.
+COMUN = [ "GET /auth/sesion", "DELETE /auth/sesion" ]
+
 RUTAS_PERMITIDAS = {
-    "pendiente_2fo":         [ "POST /auth/2fo/verificar",
-                               "GET /auth/sesion", "DELETE /auth/sesion" ],
-    "debe_cambiar_password": [ "POST /auth/sesion",        # cambiar la contraseña
-                               "GET /auth/sesion", "DELETE /auth/sesion" ],
-    "debe_configurar_2fo":   [ "POST /auth/2fo/configurar", "POST /auth/2fo/confirmar",
-                               "GET /auth/sesion", "DELETE /auth/sesion" ],
+    "pendiente_2fo":         COMUN + [ "POST /auth/2fo/verificar" ],
+    "debe_cambiar_password": COMUN + [ "POST /auth/sesion" ],     # cambiar la contraseña
+    "debe_configurar_2fo":   COMUN + [ "POST /auth/2fo/configurar",
+                                       "POST /auth/2fo/confirmar" ],
     "activa":                TODAS,
 }
+
+# Y las dos rutas del paso 0, que además funcionan sin sesión:
+SIN_SESION_REQUERIDA = [ "GET /auth/sesion", "DELETE /auth/sesion" ]
 ```
 
 Tres cosas de esas listas, y la primera es el motivo de todo:
@@ -280,7 +297,13 @@ prueba "toda operación pasa por el portero":
         codigo = leer(archivo) sin comentarios
         si archivo en RUTAS_PUBLICAS: continuar
         afirmar que codigo contiene "exigir("
-        afirmar que codigo contiene "activarContexto("
+        # Las operaciones del dominio de IDENTIDAD —login, alta de usuarios y de
+        # organizaciones, la lista de organizaciones para las tareas programadas—
+        # no abren contexto de inquilino y tampoco son públicas: van en su propia
+        # lista. Sin esa exención, esta prueba falla sobre operaciones correctas,
+        # y una prueba que falla sobre lo correcto se termina ignorando.
+        si archivo en OPERACIONES_DE_IDENTIDAD: continuar
+        afirmar que codigo contiene "conOrganizacion("
 ```
 
 Es análisis estático escrito como prueba. Parece rudimentario y es lo más valioso del sistema:

@@ -146,6 +146,21 @@ Filtrarla después, en el lenguaje, haría que el reloj del proceso decidiera si
 valiendo. Con varios procesos —o con contenedores cuyos relojes derivan— eso es un problema
 intermitente. En la consulta decide el reloj de la base, que es uno solo.
 
+### La sesión a medio autenticar tiene su propio régimen
+
+Una sesión en `pendiente_2fo` es **una fila de sesión que existe sin haber probado la identidad
+completa**. No puede tener el régimen de una sesión normal:
+
+| Regla                                                              | Por qué                                                                   |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| Nace con **5 minutos**, en los dos vencimientos                    | Con los días de una sesión normal, es una sesión a medias viva una semana |
+| **La renovación deslizante se saltea** si el estado no es `activa` | Si no, la primera petición de verificación la vuelve eterna               |
+| El código falla N veces → **se destruye**                          | Si no, es un código de seis dígitos con intentos infinitos                |
+| **No figura** en la lista de sesiones activas del usuario          | Todavía no es una sesión de nadie                                         |
+
+Los otros dos estados restringidos —contraseña temporal y segundo factor por configurar— **sí** llevan
+el vencimiento normal: ahí la identidad ya está probada, lo que falta es un trámite.
+
 ### La renovación deslizante, y qué hacer si falla
 
 Renovar en cada petición sería una escritura por petición contra la tabla más consultada del sistema,
@@ -251,8 +266,29 @@ POST /auth/login   { email, password }
 4. **¿Bloqueado?** Si `bloqueado_hasta` es futuro → `429` diciendo cuántos minutos faltan.
 5. **Se verifica la contraseña** contra el hash guardado, en tiempo constante.
 6. **Si falla** → se suma el fallo, se audita, y se responde `401` con **el mismo mensaje siempre**.
-7. **Si entra** → contador a cero, se sella la fecha de último acceso, se crea la sesión, se pone la
-   cookie, se audita, y se responde `200` con los datos mínimos del usuario y sus permisos.
+7. **Si entra** → contador a cero, se sella la fecha de último acceso, se crea la sesión **con su
+   estado**, se pone la cookie, se audita, y se responde `200` con los datos mínimos del usuario, sus
+   permisos y el estado.
+
+**El estado inicial, con las cuatro ramas en este orden.** El orden no es intercambiable y la última
+línea es la que casi siempre falta:
+
+```
+si el usuario tiene segundo factor CONFIRMADO:
+    estado = "pendiente_2fo"          # todavía no probó quién es: gana sobre todo lo demás
+sino si el usuario debe cambiar la contraseña:
+    estado = "debe_cambiar_password"  # ANTES de configurar el segundo factor: ver abajo
+sino si alguno de sus roles exige segundo factor:
+    estado = "debe_configurar_2fo"
+sino:
+    estado = "activa"
+```
+
+**Por qué cambiar la contraseña va antes de configurar el segundo factor**, que es lo contrario de lo
+que sugiere la intuición: la contraseña temporal **la conoce quien creó la cuenta**. Si se permitiera
+configurar el segundo factor primero, esa persona podría inscribir **su** dispositivo en la cuenta de
+otro. En cambio, cuando el segundo factor **ya está configurado**, verificarlo va primero que todo,
+porque hasta ese momento no se probó ninguna identidad.
 
 ### El mensaje de error es siempre el mismo
 
@@ -298,12 +334,57 @@ parámetros** que los hashes reales, o vuelve a costar distinto.
 
 Un solo recurso, ruteado por método:
 
-| Método                | Qué hace                                                                         |
-| --------------------- | -------------------------------------------------------------------------------- |
-| `GET /auth/sesion`    | Quién soy: usuario, permisos, organización activa, si debo cambiar la contraseña |
-| `DELETE /auth/sesion` | Cerrar sesión                                                                    |
-| `POST /auth/sesion`   | Cambiar la contraseña                                                            |
-| `PATCH /auth/sesion`  | El rol de plataforma cambia de organización activa                               |
+| Método                | Qué hace                                                                      |
+| --------------------- | ----------------------------------------------------------------------------- |
+| `POST /auth/login`    | Entrar                                                                        |
+| `GET /auth/sesion`    | Quién soy: usuario, permisos, organización activa **y el estado** (ver abajo) |
+| `DELETE /auth/sesion` | Cerrar sesión                                                                 |
+| `POST /auth/sesion`   | Cambiar la contraseña                                                         |
+| `PATCH /auth/sesion`  | El rol de plataforma cambia de organización activa                            |
+
+Y si se implementa el segundo factor, tres rutas más. **Conviene nombrarlas acá aunque no se
+implementen todavía**, porque las listas que definen qué puede hacer una sesión a medio autenticar las
+nombran, y una ruta que solo existe como cadena de texto en una lista es una ruta que nadie escribió:
+
+| Método                      | Qué hace                                          |
+| --------------------------- | ------------------------------------------------- |
+| `POST /auth/2fo/configurar` | Empieza el alta: devuelve el secreto para el alta |
+| `POST /auth/2fo/confirmar`  | Confirma el alta con el primer código válido      |
+| `POST /auth/2fo/verificar`  | Verifica el código en cada inicio de sesión       |
+
+### La sesión tiene un estado, y el `GET` lo devuelve
+
+Una sesión no está solo "válida o no". Puede ser válida y **todavía no habilitada**. Son cuatro valores,
+guardados **en la fila de la sesión** —no en la del usuario— porque dos sesiones de la misma persona
+pueden estar en estados distintos: una con el segundo factor verificado y otra sin verificar:
+
+| Estado                  | Qué significa                                                 |
+| ----------------------- | ------------------------------------------------------------- |
+| `activa`                | Habilitada para todo lo que sus permisos permitan             |
+| `pendiente_2fo`         | Contraseña verificada; **falta el código** del segundo factor |
+| `debe_cambiar_password` | Entró con una contraseña temporal y no la cambió              |
+| `debe_configurar_2fo`   | Su rol exige segundo factor y todavía no lo configuró         |
+
+**El `GET` devuelve el estado**, y no solo un booleano de contraseña temporal. Es el motivo por el que
+esta ruta está disponible en todos los estados: **es la única forma que tiene el frontend de saber qué
+pantalla mostrar.** Sin el estado en la respuesta, el cliente solo lo descubre chocando contra un `403`.
+
+```json
+{ "ok": true, "autenticado": true, "estado": "pendiente_2fo", "usuario": { … } }
+```
+
+**Quién cambia el estado, y cuándo** — porque si esto no está escrito, no lo hace nadie:
+
+| Transición                                            | Quién la hace                                    |
+| ----------------------------------------------------- | ------------------------------------------------ |
+| Se crea la sesión → el estado inicial                 | El login, con las cuatro ramas del paso 7        |
+| `pendiente_2fo` → el siguiente estado que corresponda | `POST /auth/2fo/verificar`, al validar el código |
+| `debe_cambiar_password` → el siguiente                | `POST /auth/sesion`, al cambiar la contraseña    |
+| `debe_configurar_2fo` → `activa`                      | `POST /auth/2fo/confirmar`                       |
+
+**"El siguiente que corresponda" y no "activa"** a propósito: quien entra con contraseña temporal **y**
+un rol que exige segundo factor pasa por dos estados, no por uno. Cada transición recalcula el estado
+con las mismas cuatro ramas del login, en vez de asumir que ya no queda nada pendiente.
 
 ### `GET` sin sesión devuelve `200`, no `401`
 

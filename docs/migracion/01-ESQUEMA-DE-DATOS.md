@@ -144,13 +144,23 @@ create table permisos (
 
 create table roles (
   id           uuid primary key default gen_random_uuid(),
-  clave        text not null unique,      -- 'administrador', 'operador'
+  -- La restricción va CON NOMBRE. Si más adelante hay que reemplazarla por una
+  -- unicidad por organización (para roles privados de cada cliente), hay que
+  -- poder soltarla: `alter table roles drop constraint roles_clave_unica`. Con
+  -- un `unique` anónimo el nombre lo elige el motor y el `drop` de la migración
+  -- siguiente no encuentra nada, no falla, y la unicidad global sobrevive en
+  -- silencio.
+  clave        text not null constraint roles_clave_unica unique,
   nombre       text not null,             -- para mostrar
   descripcion  text,
   -- Un rol de sistema no se puede borrar ni renombrar desde la interfaz.
   es_sistema   boolean not null default false,
   -- Solo puede existir en la organización principal (rol de plataforma).
   solo_principal boolean not null default false,
+  -- Si este rol exige segundo factor de autenticación. Va en el ROL y no en el
+  -- código: un rol nuevo y sensible se marca con una fila, sin tocar el login.
+  -- Todo rol con `solo_principal` debería tenerla encendida.
+  exige_segundo_factor boolean not null default false,
   creado_el    timestamptz not null default now()
 );
 
@@ -178,7 +188,7 @@ create index usuarios_roles_por_usuario on usuarios_roles (usuario_id);
 -- de QUIEN LA INVOCA. Por omisión una vista corre con los del dueño, y una vista
 -- sobre tablas de inquilino creada por el rol de las migraciones EVADE las
 -- políticas de fila y devuelve todo.
-create or replace view usuarios_permisos as
+create or replace view usuarios_permisos with (security_invoker = true) as
   -- `distinct` y no `group by` sin agregación: hacen lo mismo (deduplicar), pero
   -- el `group by` sin función de agregado se lee como un error en una revisión.
   select distinct ur.usuario_id, rp.permiso
@@ -228,6 +238,14 @@ create table sesiones (
   token_hash      text not null unique,
   -- Solo para el rol de plataforma: sobre qué organización está trabajando.
   org_activa      uuid references organizaciones(id) on delete set null,
+  -- El estado de la sesión. Se guarda POR SESIÓN y no por usuario: dos sesiones
+  -- de la misma persona, una con el segundo factor verificado y otra sin
+  -- verificar, son estados distintos y no se pueden derivar de la fila de
+  -- `usuarios`. El portero solo deja pasar rutas nombradas mientras no sea
+  -- 'activa'.
+  estado          text not null default 'activa'
+    check (estado in ('activa', 'pendiente_2fo',
+                      'debe_cambiar_password', 'debe_configurar_2fo')),
   -- Vencimiento deslizante: se extiende al usar la sesión.
   expira_el       timestamptz not null,
   -- Techo DURO: la sesión muere a los 30 días de creada aunque se use todos los días.
@@ -349,6 +367,36 @@ create trigger usuarios_roles_plataforma_acotado
   for each row execute function rol_de_plataforma_acotado();
 ```
 
+### Y al fundador no se le puede quitar el rol por la puerta de atrás
+
+El disparador que protege al administrador fundador mira la tabla de **usuarios**: impide borrarlo,
+desactivarlo y cambiarle el correo. Pero **su rol no vive ahí**, vive en la tabla de asignaciones — y un
+`delete` sobre esa tabla lo deja sin permisos sin tocar ni una fila protegida.
+
+Es la misma pérdida de acceso que los otros disparadores evitan, por una puerta que ninguno cubre,
+porque los dos que hay sobre las asignaciones son `before insert or update` y **ninguno mira el borrado**:
+
+```sql
+create or replace function proteger_rol_del_fundador() returns trigger as $$
+declare
+  v_es_fundador    boolean;
+  v_solo_principal boolean;
+begin
+  select es_admin_principal into v_es_fundador    from usuarios where id = old.usuario_id;
+  select solo_principal     into v_solo_principal from roles    where id = old.rol_id;
+
+  if v_es_fundador and v_solo_principal then
+    raise exception 'No se le puede quitar el rol de plataforma al administrador fundador.';
+  end if;
+  return old;
+end;
+$$ language plpgsql;
+
+create trigger usuarios_roles_fundador
+  before delete on usuarios_roles
+  for each row execute function proteger_rol_del_fundador();
+```
+
 ### Tablas de registro: solo insertar
 
 Si alguna tabla es la fuente de un número que alguien va a mirar (dinero, cantidades, auditoría), hacela
@@ -360,11 +408,11 @@ begin
   raise exception 'La tabla % es de solo inserción (intento de %).', tg_table_name, tg_op;
 end;
 $$ language plpgsql;
-
-create trigger auditoria_solo_insercion
-  before update or delete on auditoria_accesos
-  for each row execute function evitar_mutacion();
 ```
+
+> **El disparador que la usa va después de crear la tabla**, al final de la § 7. Acá está solo la
+> función. Si se copia todo este documento en orden, un `create trigger … on auditoria_accesos` en esta
+> sección aborta: la tabla se crea recién en la siguiente.
 
 ---
 
@@ -388,6 +436,12 @@ create index auditoria_por_fecha on auditoria_accesos (creado_el desc);
 create index auditoria_por_org   on auditoria_accesos (org_id, creado_el desc);
 -- Si el freno por IP se cuenta sobre esta tabla, necesita SU PROPIO índice:
 create index auditoria_por_ip_accion on auditoria_accesos (ip, accion, creado_el desc);
+
+-- Y acá va el disparador de inmutabilidad, con la función ya definida en la § 6.
+-- Después de la tabla, no antes.
+create trigger auditoria_solo_insercion
+  before update or delete on auditoria_accesos
+  for each row execute function evitar_mutacion();
 ```
 
 > **El tercer índice es la trampa.** Es habitual contar los intentos fallidos por IP sobre esta tabla
@@ -493,6 +547,13 @@ El catálogo mínimo para arrancar. Los nombres son de ejemplo: poné los de tu 
 insert into permisos (clave, descripcion) values
   ('organizaciones.crear',    'Dar de alta organizaciones'),
   ('organizaciones.editar',   'Editar cualquier organización'),
+  -- Necesaria para el cambio de organización activa del rol de plataforma:
+  -- ese endpoint tiene que exigir una capacidad explícita, no "ninguna".
+  ('organizaciones.listar',   'Ver y cambiar entre todas las organizaciones'),
+  -- Necesaria si los administradores de cada cliente van a crear roles propios.
+  -- Si no lo van a hacer, esta fila no va: el catálogo no lleva capacidades que
+  -- nadie ejerce.
+  ('roles.administrar',       'Crear y editar roles de su organización'),
   ('usuarios.ver',            'Ver los usuarios de su organización'),
   ('usuarios.crear',          'Crear usuarios en su organización'),
   ('usuarios.editar',         'Editar usuarios de su organización'),

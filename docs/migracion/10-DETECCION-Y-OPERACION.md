@@ -50,8 +50,23 @@ funcion baseDeDatos():
 ```
 
 > **El aviso no puede pasar por la capa que está fallando.** Si el registro de este evento se escribe con
-> la misma capa que acaba de lanzar, no se escribe nunca. Va por la conexión de identidad, o
-> directamente al registro del servidor.
+> la misma capa que acaba de lanzar, no se escribe nunca. Va por la conexión de identidad, o por un camino
+> que no toque la base.
+
+**Y "avisar" tiene que significar algo concreto, o esta sección no sirve de nada.** Escribir en el
+registro del servidor **no cuenta**: es exactamente el error 500 en un archivo que nadie lee que
+estábamos tratando de convertir en detección.
+
+Cuatro cosas que hay que decidir y escribir, una sola vez:
+
+| Qué                   | Y por qué no se puede dejar sin decidir                                                                                                        |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **El medio**          | Uno que interrumpa: mensaje al teléfono, canal de chat del equipo, correo con regla de prioridad. No un panel que hay que abrir                |
+| **A quién**           | Una persona nombrada y **un suplente**. "Al equipo" es a nadie a las tres de la mañana                                                         |
+| **Deduplicación**     | Una operación rota en bucle dispara **miles** de avisos y entierra al resto. Un aviso por firma del problema y por hora, con el conteo adentro |
+| **Si el canal falla** | El aviso que no llega no existe. De ahí el resumen que se manda siempre (§ 2): también prueba que el canal vive                                |
+
+Sin esas cuatro, `avisar()` es una función con un nombre tranquilizador.
 
 ### Señales 2 a 5 · Tres acciones nuevas en la auditoría
 
@@ -162,8 +177,23 @@ qué ventana de tiempo; (4) recién entonces arreglar.
 
 **A quién se avisa y en qué plazo.** A los clientes afectados, con qué pasó, qué datos, qué se hizo y
 qué tienen que hacer ellos. Y a la autoridad que corresponda, si la normativa de tu jurisdicción lo
-exige — los plazos suelen ser cortos y contarse desde que **te enteraste**, que es la razón por la que la
-sección 1 de este documento existe.
+exige.
+
+**El plazo es el elemento que menos se puede improvisar, y es el que se suele dejar sin escribir.** Dos
+razones: los plazos legales se cuentan **desde que te enteraste**, no desde que ocurrió —que es la razón
+por la que existe la sección 1 de este documento—, y son cortos: en varias jurisdicciones se miden en
+horas, no en días.
+
+Así que el procedimiento lleva **números**, aunque sean tuyos y no de una ley:
+
+| Momento                                   | Plazo                                                                         |
+| ----------------------------------------- | ----------------------------------------------------------------------------- |
+| De la señal a que alguien la esté mirando | Minutos                                                                       |
+| De ahí a la decisión "¿es un incidente?"  | Horas, con un nombre a cargo                                                  |
+| Al cliente afectado                       | El que te comprometas por contrato, escrito                                   |
+| A la autoridad                            | **El de tu jurisdicción, averiguado y escrito acá** — no "el que corresponda" |
+
+Averiguarlo es una tarde. Averiguarlo el día del incidente no se puede.
 
 ---
 
@@ -173,6 +203,15 @@ sección 1 de este documento existe.
 
 Restaurar una copia, en un entorno aparte, y **verificar que la aplicación arranca contra ella**. Con
 una periodicidad escrita.
+
+**Pero "arranca" no es el criterio**, y es un error fácil: la aplicación puede arrancar perfectamente
+contra un respaldo **inservible**. El criterio tiene tres partes, y la segunda es específica de este
+diseño:
+
+1. la aplicación arranca y se puede iniciar sesión;
+2. **se puede descifrar al menos una credencial de cada organización** — ver el párrafo siguiente, porque
+   esto es justamente lo que suele fallar;
+3. las cuentas de filas de las tablas principales coinciden con las del origen.
 
 Y hay un detalle propio de este diseño que conviene descubrir en el ensayo y no en el desastre: **al
 restaurar en otro entorno, la clave maestra es otra y ninguna credencial cifrada se puede leer.** Es el
@@ -200,7 +239,19 @@ Es la medida más barata de todo el conjunto y la que más defectos va a encontr
 > Todos se ven perfectos. El filtro que falta devuelve lo correcto porque hay un solo dueño posible.
 
 Dos organizaciones con datos distintos, y un usuario en cada una, convierten "parece que anda" en
-"anda". Y son las mismas dos que sirven para la sonda de la sección 1.
+"anda".
+
+**Y no son las mismas dos que usa la sonda de la § 1.** Conviene no confundirlas porque tienen dueños y
+riesgos distintos:
+
+| Cuáles                         | Dónde viven    | Para qué                                                    |
+| ------------------------------ | -------------- | ----------------------------------------------------------- |
+| Las dos de desarrollo          | Desarrollo     | Que los defectos de aislamiento se manifiesten al programar |
+| Las dos de control de la sonda | **Producción** | Que la sonda tenga contra qué comparar cada hora            |
+
+Las de producción llevan **datos sintéticos y de nadie**, existen solo para eso, y conviene que estén
+marcadas para que ninguna métrica ni informe de negocio las cuente. Las de desarrollo se crean con el
+mismo sembrado que las migraciones, y por eso salen gratis.
 
 ### Cuando alguien del equipo se va
 
@@ -208,8 +259,20 @@ Una lista corta, porque se hace con prisa y se olvida la mitad:
 
 1. Cerrar **todas** sus sesiones, no solo desactivar la cuenta.
 2. Quitarle los roles.
-3. Revisar si tuvo acceso al panel del hosting o a las variables de entorno. **Si lo tuvo, tuvo la clave
-   maestra**, y corresponde rotarla — con el procedimiento que ya debería estar escrito.
+3. Revisar si tuvo acceso al panel del hosting o a las variables de entorno. **Si lo tuvo, tuvo TODOS los
+   secretos**, no solo uno. El inventario completo, para no rotar la mitad:
+
+   | Secreto                             | Rotarlo implica                        |
+   | ----------------------------------- | -------------------------------------- |
+   | La clave maestra de cifrado         | Volver a cifrar todas las credenciales |
+   | La contraseña del rol del inquilino | Redesplegar                            |
+   | La contraseña del rol de identidad  | Redesplegar                            |
+   | La contraseña del rol que migra     | Actualizar la integración continua     |
+   | El secreto de arranque              | Una variable                           |
+
+   Y además: quitarle el acceso al panel del hosting, al repositorio, a la integración continua y a
+   cualquier gestor de contraseñas compartido. La cuenta de la aplicación es la parte fácil.
+
 4. Revisar si tuvo acceso a las credenciales de los clientes por otra vía (un gestor de contraseñas
    compartido, un canal de chat).
 

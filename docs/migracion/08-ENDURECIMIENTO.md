@@ -36,9 +36,17 @@ repetir. Donde corrige algo de un documento anterior, lo dice y da el reemplazo 
 | **10** | El segundo factor figuraba como "no incluido"                                                                       | Opcional                                              | Para el rol que ve **todas** las organizaciones, no puede ser opcional                    |
 | **11** | Falta el resto: recuperación, sesiones visibles, exportación, límites de tasa, registros, migraciones, zona horaria | Varios "no incluye"                                   | Con clientes externos, varios dejan de ser opcionales                                     |
 
-Y dos correcciones menores que ya conviene aplicar en el esquema: la vista de permisos con
+Y tres correcciones menores que ya conviene aplicar en el esquema: la vista de permisos con
 `select distinct` en vez de `group by` sin agregación (hacen lo mismo; el `group by` se lee como un
-error), y el `revoke` escrito con nombres de roles que solo existen en algunos proveedores.
+error), el `revoke` escrito con nombres de roles que **solo existen en algunos proveedores** —en un
+PostgreSQL puro no hay `anon` ni `authenticated` y la migración aborta: se revoca de `public` y de los
+roles que uses—, y la cláusula `to` en toda política.
+
+> **Sobre los huecos 5 y el de la cookie:** si venís de leer el esquema y la autenticación de esta
+> carpeta, los vas a encontrar **ya aplicados ahí** — la columna de vencimiento absoluto está en el
+> `create table` y el prefijo de la cookie está en la tabla de atributos. Se listan acá porque es donde
+> se explica **por qué** hacen falta, y porque si estás implementando esto sobre un sistema que ya
+> existe, casi seguro te faltan los dos.
 
 ---
 
@@ -72,13 +80,28 @@ suponen que hay dos capas — **y hay una**.
 -- El propietario de las tablas es otro rol (el de las migraciones).
 create role aplicacion login password '<secreto>' noinherit nobypassrls;
 
-grant usage on schema public to aplicacion;
-grant select, insert, update, delete on all tables in schema public to aplicacion;
-alter default privileges in schema public
+grant usage on schema negocio to aplicacion;
+grant select, insert, update, delete on all tables in schema negocio to aplicacion;
+-- Nombrando el rol que crea las tablas: la regla NO se hereda.
+alter default privileges for role migrador in schema negocio
   grant select, insert, update, delete on tables to aplicacion;
 
 -- Y nada más: sin create, sin drop, sin alter. Las migraciones corren con el otro rol.
 ```
+
+> **Dos advertencias sobre este bloque, y las dos importan más de lo que parecen.**
+>
+> **El esquema tiene que separar los datos de inquilino de los de identidad.** Si las tablas de sesiones,
+> roles y auditoría vivieran en el mismo esquema que las de negocio, las dos líneas globales de arriba
+> —`on all tables` y la regla por omisión— le darían a este rol **modificación y borrado sobre la
+> identidad**: el hash de las contraseñas a su alcance y la auditoría "inmutable" borrable. Y
+> `revoke … from public` no lo compensa: eso revoca del pseudo-rol público, no del rol al que se acaba de
+> otorgar.
+>
+> **Y un rol no alcanza: hacen falta dos.** Este cubre el dominio del inquilino. El login busca al usuario
+> por email **antes** de saber su organización, y con estas políticas puestas esa consulta devuelve cero
+> filas: **nadie puede entrar.** Hace falta un segundo rol para el dominio de identidad, con cero permisos
+> sobre las tablas de negocio. Está resuelto, con el SQL de las diez tablas, en el documento `09`.
 
 **Pieza 2 · Forzar las políticas incluso para el propietario.** Es el cinturón además del tirante: si
 un día alguien se conecta por error con el rol de las migraciones, las políticas siguen aplicando.
@@ -92,9 +115,14 @@ alter table pedidos force  row level security;   -- <-- esta línea es la que su
 
 ```sql
 create policy aislamiento_pedidos on pedidos
+  for all to aplicacion       -- <-- SIN esto, la política queda dirigida al pseudo-rol
   using      (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid))
   with check (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid));
 ```
+
+**La cláusula `to` no es opcional.** Una política sin ella se aplica a **todos** los roles, incluido el
+que después va a necesitar una excepción para el login. Dirigirla al rol desde el principio es lo que
+permite tener dos dominios sin tocar esta política nunca más.
 
 Tres detalles, y el primero es el que casi nadie escribe:
 
@@ -196,7 +224,12 @@ prueba "sin organización en contexto, no se ve nada":
     afirmar resultado.lanzo o resultado.count == 0
 
 prueba "con la organización A, ninguna fila de la B":
-    sembrar un pedido en A y un pedido en B    # con el rol propietario
+    # El sembrado NO lo puede hacer el rol propietario: `force row level security`
+    # existe justamente para que no quede exento, y para el propietario no hay
+    # política aplicable, así que el alta se rechaza. Se siembra por el mismo
+    # mecanismo que usa la aplicación:
+    conOrganizacion(A, () => insertar pedido)
+    conOrganizacion(B, () => insertar pedido)
     conOrganizacion(A):
         filas = consultar("select org_id from pedidos")
     afirmar filas.todas(f => f.org_id == A)
@@ -226,12 +259,12 @@ hora— y la más cara de revertir.
 
 ### La solución
 
-| Forma de hablar con la base                                    | Permite inyectar el filtro | Qué hacer                                                      |
-| -------------------------------------------------------------- | -------------------------- | -------------------------------------------------------------- |
-| Constructor de consultas encadenable                           | **Sí**                     | Es la opción recomendada. La capa envuelve el constructor      |
-| Cliente de un proveedor con API encadenable, desde el servidor | **Sí**                     | Igual de bueno, con la condición del § 4 sobre claves públicas |
-| Cartografiador objeto-relacional con criterios encadenables    | Parcial                    | Funciona si expone un punto de intercepción global             |
-| Controlador crudo con SQL en cadenas o plantillas              | **No**                     | Ver abajo: hay que cambiar de mecanismo, no seguir igual       |
+| Forma de hablar con la base                                    | Permite inyectar el filtro        | Qué hacer                                                    |
+| -------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------ |
+| Constructor de consultas encadenable                           | **Sí**                            | Es la opción recomendada. La capa envuelve el constructor    |
+| Cliente de un proveedor con API encadenable, desde el servidor | **Sí, si sostiene transacciones** | Ver la advertencia de abajo: varios de éstos hablan por HTTP |
+| Cartografiador objeto-relacional con criterios encadenables    | Parcial                           | Funciona si expone un punto de intercepción global           |
+| Controlador crudo con SQL en cadenas o plantillas              | **No**                            | Ver abajo: hay que cambiar de mecanismo, no seguir igual     |
 
 **Si se termina en SQL crudo** —y es una decisión legítima— el aislamiento se reconstruye con tres
 piezas distintas, y las tres son obligatorias:
@@ -248,6 +281,15 @@ piezas distintas, y las tres son obligatorias:
 > El criterio para decidir, dicho sin vueltas: perder la capacidad de inyectar el filtro para ahorrar
 > una dependencia es un mal negocio en un sistema donde el costo de un error es "el cliente A vio los
 > datos del cliente B".
+
+> **Y una segunda pregunta que hay que hacerle al controlador, antes de elegirlo: ¿sostiene una
+> transacción interactiva?**
+>
+> Todo el § 1 depende de abrir una transacción, poner una variable y trabajar dentro. Varios
+> controladores pensados para ejecución sin servidor hablan por HTTP y **solo aceptan consultas sueltas o
+> lotes cerrados**: con ésos, el filtro de la base **no se puede implementar**, por más encadenable que
+> sea su interfaz. Es una pregunta de cinco minutos que hay que hacerse en la primera hora, porque
+> descubrirlo con el código escrito obliga a cambiar de controlador.
 
 ### Y una consecuencia si el lenguaje no tiene tipos
 
@@ -361,8 +403,13 @@ para siempre mientras el ladrón lo siga usando.
 **La solución es una columna y una condición:**
 
 ```sql
+-- Si estás creando el esquema desde cero, esta columna va DENTRO del `create table`
+-- de sesiones y este `alter` no hace falta. Va con `if not exists` porque el error
+-- más tonto de esta sección es aplicarlo sobre un esquema que ya la trae y abortar
+-- la migración entera por una columna duplicada.
 alter table sesiones
-  add column expira_absoluto timestamptz not null default now() + interval '30 days';
+  add column if not exists expira_absoluto timestamptz not null
+    default now() + interval '30 days';
 ```
 
 ```sql
@@ -422,10 +469,14 @@ el final de la lista— y no el primer elemento de la cadena.
 Y probarlo:
 
 ```
-prueba "una cabecera falsificada no evade el freno":
-    para i en 1..10:
-        intentarLogin(mal, cabeceras: { "X-Forwarded-For": "1.2.3." + i })
-    afirmar que el intento 11 responde "demasiados intentos"
+prueba "una cabecera falsificada no evade el freno por origen":
+    # Ojo con el umbral: si el freno por CUENTA salta antes que el por ORIGEN,
+    # la prueba pasa por el motivo equivocado y no verifica nada de lo que dice.
+    # Se usan cuentas DISTINTAS para que solo pueda saltar el freno por origen.
+    para i en 1..(TOPE_POR_ORIGEN + 1):
+        intentarLogin(email: "inexistente" + i + "@ejemplo.com", password: "mal",
+                      cabeceras: { "X-Forwarded-For": "1.2.3." + i })
+    afirmar que el último responde el código del freno por origen
 ```
 
 Cinco minutos de prueba deciden si el freno existe o es decorativo.
@@ -442,6 +493,10 @@ DELETE /auth/sesiones            -> cierra todas menos la actual
 ```
 
 **El token no se devuelve nunca**, ni un fragmento. La lista usa el identificador de la fila.
+
+**Y la lista solo muestra las sesiones habilitadas.** Una sesión que espera el código del segundo factor
+todavía no es una sesión de nadie: aparecer ahí solo confunde, y peor, se podría cerrar la sesión desde
+la que se está intentando entrar.
 
 Es lo primero que mira alguien evaluando si un proveedor se toma la seguridad en serio, y resuelve por
 sí sola el caso "me parece que alguien entró a mi cuenta".
@@ -720,21 +775,46 @@ revoke all on usuarios_segundo_factor from public;
 ```
 … contraseña verificada …
 
-si el usuario tiene segundo factor confirmado:
-    sesion = crearSesion(usuario, estado: "pendiente_2fo")
-    responder 200 { requiere_segundo_factor: verdadero }
-    # y el portero RECHAZA toda operación con una sesión en ese estado,
-    # salvo la de verificar el código. Eso es lo que hace que el paso no se pueda saltear.
-sino si el rol del usuario exige segundo factor:      # ver abajo
-    sesion = crearSesion(usuario, estado: "debe_configurar_2fo")
-    responder 200 { debe_configurar_segundo_factor: verdadero }
+# CUATRO ramas, en este orden. La segunda es la que se olvida, y sin ella el
+# encierro por contraseña temporal deja de existir sin que nada falle.
+si el usuario tiene segundo factor CONFIRMADO:
+    estado = "pendiente_2fo"           # no probó quién es: gana sobre todo lo demás
+sino si el usuario debe cambiar la contraseña:
+    estado = "debe_cambiar_password"   # ANTES de configurar el segundo factor
+sino si alguno de sus roles exige segundo factor:
+    estado = "debe_configurar_2fo"
 sino:
-    sesion = crearSesion(usuario, estado: "activa")
+    estado = "activa"
+
+sesion = crearSesion(usuario, estado)
+responder 200 { estado }
+
+# Y el portero solo deja pasar las rutas NOMBRADAS para ese estado — entre ellas
+# consultar la sesión y cerrarla, que tienen que estar en los cuatro. Eso es lo
+# que hace que el paso no se pueda saltear ni deje a nadie encerrado.
 ```
 
 **La obligatoriedad se declara en el rol, no en el código:** una bandera `exige_segundo_factor` en la
 tabla de roles, encendida para todo rol de plataforma. Así queda dentro del modelo extensible: un rol
 nuevo y sensible se marca con una fila, sin tocar el login.
+
+**Y las dos columnas que todo esto necesita**, que son fáciles de dar por sentadas y no existen hasta que
+alguien las escribe:
+
+```sql
+-- Dónde vive el estado. POR SESIÓN, no por usuario: dos sesiones de la misma
+-- persona, una verificada y otra no, son estados distintos y no se derivan de
+-- la fila del usuario.
+alter table sesiones add column if not exists estado text not null default 'activa'
+  check (estado in ('activa', 'pendiente_2fo',
+                    'debe_cambiar_password', 'debe_configurar_2fo'));
+
+-- Dónde vive la obligatoriedad.
+alter table roles add column if not exists exige_segundo_factor boolean not null default false;
+```
+
+Sin la primera columna, todo el mecanismo de estados **es inimplementable** — y falla en la dirección
+peligrosa: si el estado no se persiste, el encierro por contraseña temporal desaparece y nada falla.
 
 **Detalles que suelen faltar:**
 
@@ -771,6 +851,10 @@ restablecimiento. Ingeniería social, sin tecnología.
 2. **Recuperación por correo con token de un solo uso.** Si se implementa: token aleatorio largo, se
    guarda **hasheado**, vence en 30 minutos, se consume al usarse, **cierra todas las sesiones** del
    usuario, y la respuesta es **la misma** exista o no la cuenta — si no, es un enumerador de emails.
+
+   Y la tabla que los guarda **no tiene columna de organización** —se consulta antes de saber quién es
+   nadie—, así que pertenece al **dominio de identidad**: va con su permiso y su política escritos a mano,
+   y sin acceso alguno para el rol del inquilino. Es la regla para toda tabla nueva de esa clase.
 
 ### 11.2 · Los registros son un lugar donde acaban las contraseñas
 
@@ -870,8 +954,9 @@ No todo esto va antes del primer endpoint. Lo que sí:
 
 **Bloqueante, antes del primer endpoint que lea datos de un inquilino:**
 
-4. El rol de base dedicado, `force row level security`, las políticas y `set local` en transacción, con
-   **las tres pruebas del § 1**.
+4. **Los dos** roles de base dedicados —el del inquilino y el de identidad, en esquemas separados—,
+   `force row level security`, las políticas con su cláusula `to`, y `set local` en transacción, con las
+   tres pruebas del § 1 y las de la escotilla.
 5. El agrupador de conexiones en modo transacción.
 6. Las reglas de caché del **§ 3**, con su prueba.
 
@@ -894,7 +979,9 @@ No todo esto va antes del primer endpoint. Lo que sí:
 14. Segundo factor obligatorio para el rol de plataforma (§ 10).
 15. Auditoría del acceso de soporte, y poder mostrársela al cliente (§ 8).
 16. Recuperación de contraseña delegada al administrador del cliente (§ 11.1).
-17. Sesiones visibles y revocables (§ 5.5).
+17. Sesiones visibles y revocables (§ 5.5). _Es el único de esta lista que puede esperar sin
+    consecuencias si hay que recortar: no protege nada que las otras no protejan, y se agrega después sin
+    tocar nada._
 18. El procedimiento de exportación y borrado escrito (§ 12.1).
 
 ---
@@ -915,8 +1002,13 @@ ni en los documentos anteriores:
   visibilidad por registro **configurables por el cliente**, y para eso existen motores de
   autorización dedicados.
 - **Un esquema o una base por cliente.** Aislamiento más fuerte y demostrable, a cambio de multiplicar
-  cada migración por la cantidad de clientes. Con pocas decenas de clientes es sobreingeniería; si un
-  cliente grande lo exige por contrato, es una conversación distinta.
+  cada migración por la cantidad de clientes y de volver incómodo cualquier informe que cruce clientes.
+  **El criterio no es la cantidad de clientes sino su perfil**: el enfoque compartido gana con **muchos
+  clientes de valor bajo o medio**; la separación física gana con **pocos clientes de valor alto**, sobre
+  todo si alguno va a preguntar por escrito cómo se separan sus datos. Y el punto de reevaluación es
+  concreto: **el primer cliente que exija separación física por contrato.** Como toda tabla lleva la
+  columna de organización, extraer un inquilino a su propia base más adelante es copiar las filas donde
+  esa columna vale X: es trabajo, no una reescritura.
 - **Gestión de secretos con un servicio dedicado.** Con la clave maestra en una variable de entorno, la
   respuesta honesta a "¿quién puede descifrar nuestras credenciales?" es "cualquiera con acceso al
   panel del hosting", y eso incluye a quien se sume al equipo mañana. El detonante para migrar a un

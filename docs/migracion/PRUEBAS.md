@@ -56,6 +56,21 @@ Este orden no es una preferencia: cada uno apoya al siguiente.
 El **7** es el más barato de la lista y el que más defectos va a encontrar. No es una prueba: es una
 condición del entorno de desarrollo.
 
+**Y el mapeo, sin el cual esta lista no se puede ejecutar.** "Recortá de acá y sabé qué estás
+resignando" solo funciona si cada innegociable se puede localizar entre las filas de más abajo. Sin este
+mapeo, un innegociable puede quedarse sin una sola fila y nadie lo nota:
+
+| Innegociable | Sus filas están en                                                 |
+| ------------ | ------------------------------------------------------------------ |
+| **1**        | Etapa 0, fila 1                                                    |
+| **2**        | Etapa 0, fila 2                                                    |
+| **3**        | Etapa 1 (catálogo) y Etapa 2 (las seis de aislamiento y escotilla) |
+| **4**        | Etapa 7, filas 1 a 3                                               |
+| **5**        | Etapa 6, fila 1                                                    |
+| **6**        | Etapa 2 (abre el contexto) y Etapa 3 (llama al portero)            |
+| **7**        | Etapa 0, fila 3 — y no es una prueba sino el entorno               |
+| **8**        | Etapa 4, las dos últimas filas                                     |
+
 ---
 
 ## Etapa 0 · Antes del esquema
@@ -70,15 +85,16 @@ condición del entorno de desarrollo.
 
 ## Etapa 1 · El esquema y sus invariantes
 
-| ⛔  | Regla                                                                 | La prueba                                                               | Tipo     |
-| --- | --------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------- |
-|     | El administrador fundador no se borra, no se desactiva, no se degrada | Las tres operaciones **fallan contra la base**, no contra el backend    | Base     |
-|     | La organización principal no se desactiva                             | La operación falla contra la base                                       | Base     |
-|     | El rol de plataforma solo existe en la organización principal         | Asignarlo a un usuario de un cliente falla contra la base               | Base     |
-|     | Un rol privado de una organización no se asigna a usuario de otra     | La inserción cruzada falla contra la base                               | Base     |
-|     | La auditoría es inmutable                                             | `update` y `delete` fallan, **y el rol no tiene el permiso**            | Base     |
-|     | Las referencias dentro del inquilino no cruzan organizaciones         | Insertar una fila que referencia un registro de otra organización falla | Base     |
-| ⛔  | Toda tabla tiene seguridad de fila activada, forzada y con política   | Consulta al catálogo: **cero tablas** sin las tres cosas                | Catálogo |
+| ⛔  | Regla                                                                 | La prueba                                                                                                                  | Tipo     |
+| --- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------- |
+|     | El administrador fundador no se borra, no se desactiva, no se degrada | Las tres operaciones **fallan contra la base**, no contra el backend                                                       | Base     |
+|     | La organización principal no se desactiva                             | La operación falla contra la base                                                                                          | Base     |
+|     | El rol de plataforma solo existe en la organización principal         | Asignarlo a un usuario de un cliente falla contra la base                                                                  | Base     |
+|     | Un rol privado de una organización no se asigna a usuario de otra     | La inserción cruzada falla contra la base                                                                                  | Base     |
+|     | La auditoría es inmutable                                             | `update` y `delete` fallan, **y el rol no tiene el permiso**                                                               | Base     |
+|     | Las referencias dentro del inquilino no cruzan organizaciones         | Insertar una fila que referencia un registro de otra organización falla                                                    | Base     |
+| ⛔  | Toda tabla tiene seguridad de fila activada, forzada y con política   | Consulta al catálogo: **cero tablas** sin las tres cosas                                                                   | Catálogo |
+| ⛔  | Y además, permisos: la tabla es **accesible** para el rol que la usa  | `has_table_privilege` por tabla. Una tabla con política perfecta y sin permiso pasa la fila anterior y rompe en producción | Catálogo |
 
 La última es la más valiosa del documento entero: es la que agarra la tabla que alguien va a crear
 dentro de seis meses sin acordarse de nada de esto.
@@ -87,17 +103,17 @@ dentro de seis meses sin acordarse de nada de esto.
 
 ## Etapa 2 · El aislamiento
 
-| ⛔  | Regla                                                       | La prueba                                                                        | Tipo     |
-| --- | ----------------------------------------------------------- | -------------------------------------------------------------------------------- | -------- |
-| ⛔  | Ninguna consulta corre sin organización activa              | Una consulta sin contexto **lanza**                                              | Código   |
-| ⛔  | Toda operación abre el contexto de su organización          | Recorre los archivos de operaciones y verifica que cada una lo abre              | Código   |
-|     | Un solo lugar crea el cliente de base                       | Ningún archivo fuera de la capa de datos importa el controlador                  | Código   |
-| ⛔  | Los roles de la aplicación no pueden saltear las políticas  | `bypassrls` es falso y no son superusuarios                                      | Catálogo |
-| ⛔  | Sin organización en contexto, cero filas de negocio         | Consulta sin la variable puesta devuelve 0                                       | Base     |
-| ⛔  | Con la organización A no se ve ni una fila de la B          | Dos organizaciones sembradas, consulta desde A                                   | Base     |
-| ⛔  | La escotilla no llega a las tablas de negocio               | Con el rol de identidad, consultar negocio **lanza permiso denegado** (no vacío) | Base     |
-| ⛔  | El dominio del inquilino no llega a las tablas de identidad | Con el rol del inquilino, consultar sesiones **lanza**                           | Base     |
-|     | Solo los archivos autorizados usan el acceso sin filtro     | Lista explícita, y un archivo nuevo rompe la suite                               | Código   |
+| ⛔  | Regla                                                       | La prueba                                                                                                                             | Tipo     |
+| --- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| ⛔  | Ninguna consulta corre sin organización activa              | Una consulta sin contexto **lanza**                                                                                                   | Código   |
+| ⛔  | Toda operación abre el contexto de su organización          | Recorre los archivos de operaciones y verifica que cada una lo abre                                                                   | Código   |
+|     | Un solo lugar crea el cliente de base                       | Ningún archivo fuera de la capa de datos importa el controlador                                                                       | Código   |
+| ⛔  | Los roles de la aplicación no pueden saltear las políticas  | `bypassrls` es falso y no son superusuarios                                                                                           | Catálogo |
+| ⛔  | Sin organización en contexto, no se ve nada de negocio      | La consulta **lanza o devuelve 0**. Exigir exactamente 0 hace una prueba que pasa o falla según el estado del agrupador de conexiones | Base     |
+| ⛔  | Con la organización A no se ve ni una fila de la B          | Dos organizaciones sembradas, consulta desde A                                                                                        | Base     |
+| ⛔  | La escotilla no llega a las tablas de negocio               | Con el rol de identidad, consultar negocio **lanza permiso denegado** (no vacío)                                                      | Base     |
+| ⛔  | El dominio del inquilino no llega a las tablas de identidad | Con el rol del inquilino, consultar sesiones **lanza**                                                                                | Base     |
+|     | Solo los archivos autorizados usan el acceso sin filtro     | Lista explícita, y un archivo nuevo rompe la suite                                                                                    | Código   |
 
 ---
 
@@ -116,19 +132,22 @@ dentro de seis meses sin acordarse de nada de esto.
 
 ## Etapa 4 · Contraseñas y sesiones
 
-| ⛔  | Regla                                                     | La prueba                                                                      | Tipo   |
-| --- | --------------------------------------------------------- | ------------------------------------------------------------------------------ | ------ |
-|     | El mensaje único va con el tiempo único                   | El login con email inexistente y con contraseña incorrecta **tardan lo mismo** | Código |
-|     | El freno por intentos no se evade                         | Una cabecera de origen falsificada **no** evade el freno                       | Código |
-|     | La búsqueda usa la misma expresión que el índice único    | Un usuario guardado con mayúsculas puede entrar                                | Base   |
-|     | La sesión tiene techo absoluto                            | Una sesión creada hace más del techo no entra, aunque se haya usado a diario   | Base   |
-|     | La cookie lleva el prefijo y los atributos                | La respuesta del login trae el nombre y los cuatro atributos                   | Código |
-|     | El cambio de contraseña **no** exige capacidades          | Es la única salida del estado de contraseña temporal                           | Código |
-| ⛔  | Ninguna ruta de autenticación registra cuerpos            | Ningún archivo de esas rutas pasa el cuerpo a la función de registro           | Código |
-|     | Ninguna ruta está en dos listas de estado de sesión       | Las listas no se cruzan                                                        | Código |
-|     | De todo estado se puede salir y preguntar quién soy       | Cerrar sesión y consultar la sesión están en las cuatro listas                 | Código |
-| ⛔  | Un endpoint nuevo nace cerrado a los estados restringidos | Recorre las rutas: las que no están en ninguna lista responden rechazo         | Código |
-|     | La sesión a medio autenticar no llega a nada real         | Con una sesión pendiente, todas las rutas fuera de su lista rechazan           | Código |
+| ⛔  | Regla                                                                       | La prueba                                                                                                                                                                 | Tipo     |
+| --- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+|     | El mensaje único va con el tiempo único                                     | El login con email inexistente y con contraseña incorrecta **tardan lo mismo**                                                                                            | Código   |
+|     | El freno por intentos no se evade                                           | Una cabecera de origen falsificada **no** evade el freno                                                                                                                  | Código   |
+|     | La búsqueda usa la misma expresión que el índice único                      | Un usuario guardado con mayúsculas puede entrar                                                                                                                           | Base     |
+|     | La sesión tiene techo absoluto                                              | Una sesión creada hace más del techo no entra, aunque se haya usado a diario                                                                                              | Base     |
+|     | La cookie lleva el prefijo y los atributos                                  | La respuesta del login trae el nombre y los cuatro atributos                                                                                                              | Código   |
+|     | El cambio de contraseña **no** exige capacidades                            | Es la única salida del estado de contraseña temporal                                                                                                                      | Código   |
+| ⛔  | Ninguna ruta de autenticación registra cuerpos                              | Ningún archivo de esas rutas pasa el cuerpo a la función de registro                                                                                                      | Código   |
+|     | Ninguna ruta específica de un estado está en dos listas                     | Comparando **sin** el conjunto común (consultar y cerrar sesión, que están a propósito en las cuatro)                                                                     | Código   |
+|     | De todo estado se puede salir y preguntar quién soy                         | Cerrar sesión y consultar la sesión están en las cuatro listas                                                                                                            | Código   |
+| ⛔  | Un endpoint nuevo nace cerrado a los estados restringidos                   | Recorre las rutas **que llaman al portero**: las que no están en ninguna lista responden rechazo. Sin acotarlo, la prueba falla sobre el login y la comprobación de salud | Código   |
+|     | La sesión a medio autenticar no llega a nada real                           | Con una sesión pendiente, todas las rutas fuera de su lista rechazan                                                                                                      | Código   |
+| ⛔  | Todo rol de plataforma exige segundo factor                                 | Consulta a la tabla de roles: **cero filas** con `solo_principal` y la bandera apagada; y asignar un rol así sin la bandera falla                                         | Catálogo |
+| ⛔  | Un usuario con un rol que exige segundo factor no obtiene sesión habilitada | El login devuelve un estado restringido, no `activa`, y el portero corta                                                                                                  | Código   |
+|     | El estado de la sesión existe como dato                                     | La columna está en el esquema con su restricción de valores. Sin ella todo el mecanismo es decorativo                                                                     | Catálogo |
 
 ---
 
@@ -170,21 +189,36 @@ dentro de seis meses sin acordarse de nada de esto.
 
 ---
 
+## Etapa 7b · La cadena de dependencias
+
+Corta y fácil de olvidar, porque no se parece a las demás: una dependencia con un guion de instalación
+malicioso corre en el servidor de construcción, **donde están todas las variables de entorno**.
+
+| ⛔  | Regla                                         | La prueba                                                                       | Tipo         |
+| --- | --------------------------------------------- | ------------------------------------------------------------------------------- | ------------ |
+|     | Las versiones son exactas, sin rangos         | Revisar el manifiesto; un rango es un cambio que nadie aprobó                   | Código       |
+|     | El archivo de bloqueo está versionado         | Un cambio en ese archivo sin cambio en el manifiesto **bloquea la integración** | Código       |
+|     | Los guiones de instalación están desactivados | Con una lista corta de excepciones justificadas                                 | Construcción |
+
+---
+
 ## Etapa 8 · Producción
 
 Estas no son pruebas del proyecto: son pruebas **del sistema andando**. Son las únicas que detectan un
 fallo mientras está pasando.
 
-| ⛔  | Regla                                                | La prueba                                                            | Tipo       |
-| --- | ---------------------------------------------------- | -------------------------------------------------------------------- | ---------- |
-| ⛔  | El aislamiento se sostiene ahora, no solo en pruebas | Sonda cada hora: dos organizaciones de control, ninguna ve a la otra | Producción |
-| ⛔  | Una operación sin contexto avisa, no solo falla      | La excepción del aislamiento emite un aviso inmediato                | Producción |
-|     | Las credenciales ilegibles se detectan               | Consulta diaria sobre la auditoría                                   | Producción |
-|     | Los rechazos por permiso se vigilan                  | Resumen semanal por organización y capacidad                         | Producción |
-|     | Los intentos fallidos se vigilan                     | Consulta horaria, contando **emails distintos** por origen           | Producción |
-|     | El acceso de soporte queda registrado                | Todo cambio de organización activa queda en la auditoría             | Producción |
-|     | El respaldo se puede restaurar                       | Restauración ensayada, con la aplicación arrancando contra la copia  | Producción |
-|     | El aviso funciona                                    | El resumen **se manda siempre**, también cuando todo está en cero    | Producción |
+| ⛔  | Regla                                                | La prueba                                                                                                                                                                                                    | Tipo       |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
+| ⛔  | El aislamiento se sostiene ahora, no solo en pruebas | Sonda cada hora: dos organizaciones de control, ninguna ve a la otra                                                                                                                                         | Producción |
+| ⛔  | Una operación sin contexto avisa, no solo falla      | La excepción del aislamiento emite un aviso inmediato                                                                                                                                                        | Producción |
+|     | Las credenciales ilegibles se detectan               | Consulta diaria sobre la auditoría                                                                                                                                                                           | Producción |
+|     | Los rechazos por permiso se vigilan                  | Resumen semanal por organización y capacidad                                                                                                                                                                 | Producción |
+|     | Los intentos fallidos se vigilan                     | Consulta horaria, contando **emails distintos** por origen                                                                                                                                                   | Producción |
+|     | El acceso de soporte queda registrado                | Todo cambio de organización activa queda en la auditoría                                                                                                                                                     | Producción |
+|     | El respaldo se puede restaurar                       | Restauración ensayada, con la aplicación arrancando contra la copia                                                                                                                                          | Producción |
+|     | El aviso funciona                                    | El resumen **se manda siempre**, también cuando todo está en cero                                                                                                                                            | Producción |
+| ⛔  | Las tres acciones de auditoría se **emiten**         | Provocar cada una y verificar que aparece la fila. Sin esto, un cero en la vigilancia es indistinguible de "nadie cableó el punto de emisión", y tres de las seis señales quedan apagadas sin que nada falle | Código     |
+|     | El aviso de aislamiento llega de verdad              | Provocar la excepción en un entorno de ensayo y confirmar que el mensaje **llega al medio elegido**. Escribir en el registro del servidor no cuenta                                                          | Producción |
 
 ---
 
