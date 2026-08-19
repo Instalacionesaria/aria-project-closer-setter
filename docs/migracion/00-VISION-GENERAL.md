@@ -133,20 +133,39 @@ describe las dos variantes y cuándo conviene cada una.
 Si cada cliente conecta sus propias integraciones, hacen falta credenciales cifradas por organización
 (documento `06`). Si todas usan las mismas credenciales del proveedor, no.
 
+### Y tres más, que se toman sin darse cuenta
+
+Estas no son sobre el modelo: son sobre el stack. Se deciden eligiendo bibliotecas en la primera hora,
+y las tres condicionan si las defensas de esta serie funcionan o solo **parecen** funcionar. Están
+desarrolladas en el documento `08`, que conviene leer junto con este.
+
+**¿El código habla con la base por un constructor encadenable o con SQL en cadenas de texto?** Con SQL
+crudo, la capa que inyecta el filtro por organización **no se puede construir**, y el aislamiento pasa
+a depender de la disciplina humana. Es la decisión más cara de revertir de toda la serie.
+
+**¿Con qué rol de base se conecta la aplicación?** Si se conecta como propietaria de las tablas o con
+un rol privilegiado, la seguridad a nivel de fila **no se le aplica**: la segunda capa existe en el
+esquema y no protege de nada.
+
+**¿Tu framework cachea respuestas?** Las cachés de renderizado y las de la red de distribución no
+saben nada de organizaciones. Una respuesta de un cliente servida a otro es la falla que todo esto
+evita, y llega por un camino donde ninguna capa de datos participa.
+
 ---
 
 ## 5 · La serie
 
-| Documento             | Qué contiene                                                                          |
-| --------------------- | ------------------------------------------------------------------------------------- |
-| `00-VISION-GENERAL`   | Este. El modelo, las reglas, las decisiones previas y el orden de construcción        |
-| `01-ESQUEMA-DE-DATOS` | El SQL completo: tablas, restricciones, disparadores, índices, seguridad a nivel fila |
-| `02-AUTENTICACION`    | Contraseñas, sesiones, cookies, bloqueo por intentos. El login de punta a punta       |
-| `03-ROLES-Y-PERMISOS` | El modelo extensible de roles y capacidades, y el portero del servidor                |
-| `04-AISLAMIENTO`      | Cómo se separan los datos entre organizaciones sin confiar en la disciplina           |
-| `05-ADMINISTRACION`   | Alta de organizaciones y usuarios, el primer administrador, restablecer contraseñas   |
-| `06-CREDENCIALES`     | Guardar y usar secretos por organización: cifrado, rotación, enmascarado              |
-| `07-ERRORES-A-EVITAR` | Los fallos concretos que este diseño ya pagó en producción, y cómo evitarlos          |
+| Documento             | Qué contiene                                                                                                                                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `00-VISION-GENERAL`   | Este. El modelo, las reglas, las decisiones previas y el orden de construcción                                                                                                                 |
+| `01-ESQUEMA-DE-DATOS` | El SQL completo: tablas, restricciones, disparadores, índices, seguridad a nivel fila                                                                                                          |
+| `02-AUTENTICACION`    | Contraseñas, sesiones, cookies, bloqueo por intentos. El login de punta a punta                                                                                                                |
+| `03-ROLES-Y-PERMISOS` | El modelo extensible de roles y capacidades, y el portero del servidor                                                                                                                         |
+| `04-AISLAMIENTO`      | Cómo se separan los datos entre organizaciones sin confiar en la disciplina                                                                                                                    |
+| `05-ADMINISTRACION`   | Alta de organizaciones y usuarios, el primer administrador, restablecer contraseñas                                                                                                            |
+| `06-CREDENCIALES`     | Guardar y usar secretos por organización: cifrado, rotación, enmascarado                                                                                                                       |
+| `07-ERRORES-A-EVITAR` | Los fallos concretos que este diseño ya pagó en producción, y cómo evitarlos                                                                                                                   |
+| `08-ENDURECIMIENTO`   | **Los huecos de los siete anteriores**, con su solución: la segunda capa que puede ser inerte, la caché entre inquilinos, sesiones, roles con dueño, credenciales con refresco, segundo factor |
 
 ---
 
@@ -154,12 +173,19 @@ Si cada cliente conecta sus propias integraciones, hacen falta credenciales cifr
 
 En este orden, y las razones no son estéticas.
 
+**0 · La infraestructura de pruebas y las migraciones.** Corredor de pruebas, integración continua que
+lo ejecute en cada cambio, y herramienta de migraciones versionadas. _Criterio para cerrar la etapa:
+una prueba que falla a propósito bloquea la integración._ Las pruebas que leen el código fuente
+sostienen todo lo que viene después; si no tienen dónde correr, no existen. Y sin migraciones
+versionadas, las invariantes de la base **divergen entre entornos**: el disparador está en producción
+y no en pruebas, y la prueba que debía fallar pasa.
+
 **1 · El esquema con sus invariantes** (`01`). Primero la base, con sus restricciones y disparadores.
 Es el piso sobre el que todo lo demás puede equivocarse sin hacer daño.
 
-**2 · El contexto de organización y la capa de aislamiento** (`04`). **Antes** del primer endpoint. Si
-se hace después, hay que volver a pasar por todos — y el que se olvide no va a fallar, va a leer los
-datos de otro cliente.
+**2 · El contexto de organización y la capa de aislamiento** (`04`), **con el rol de base dedicado y las
+políticas del `08` § 1**. **Antes** del primer endpoint. Si se hace después, hay que volver a pasar por
+todos — y el que se olvide no va a fallar, va a leer los datos de otro cliente.
 
 **3 · El catálogo de permisos y el portero** (`03`). Antes de escribir la primera operación, para que
 nazca con su verificación.
@@ -173,6 +199,10 @@ nazca con su verificación.
 **7 · La prueba arquitectónica** que recorre el código y verifica que ninguna operación se saltee el
 portero ni el aislamiento. Descrita en `03` § 6 y `04` § 7. **Escribirla temprano**: es lo único que
 sostiene las reglas cuando el equipo crece o cuando el código lo escribe un asistente.
+
+**8 · Lo que hace falta antes del primer cliente externo**: segundo factor para el rol de plataforma,
+auditoría del acceso de soporte, sesiones visibles y revocables, y el procedimiento de exportación y
+borrado por organización. La lista completa, con el orden, en el `08` § 13.
 
 > **Antes de escribir la primera línea, leer `07-ERRORES-A-EVITAR`.** Es la lista de lo que ya salió
 > mal en un sistema construido con este diseño. Casi todo vuelve a pasar si nadie lo dice.

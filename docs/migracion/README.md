@@ -24,6 +24,7 @@ externos. Se puede copiar a otro proyecto tal cual.
 | 05  | [Administración](05-ADMINISTRACION.md)     | Alta de organizaciones y usuarios, el primer administrador, restablecer contraseñas                      |
 | 06  | [Credenciales](06-CREDENCIALES.md)         | Secretos por organización: cifrado, rotación, enmascarado, y el error más costoso                        |
 | 07  | [Errores a evitar](07-ERRORES-A-EVITAR.md) | Los fallos concretos que este diseño ya pagó en producción                                               |
+| 08  | [Endurecimiento](08-ENDURECIMIENTO.md)     | **Los huecos de los siete anteriores, con su solución.** Lo que la serie promete y puede no cumplir      |
 
 ---
 
@@ -36,9 +37,12 @@ de uso:
    por escrito, antes de tocar nada.
 2. Pedile que lea **`07`** antes de escribir la primera línea. Es la lista de lo que ya salió mal; casi
    todo vuelve a pasar si nadie lo dice.
-3. Después, un documento por etapa, en el orden de **`00` § 6**.
-4. Exigí **las pruebas arquitectónicas** (descritas en `03` § 6 y `04` § 7) en la misma etapa que el
-   código que verifican, no después.
+3. Pedile que lea **`08` § 1, 2 y 3** antes de elegir bibliotecas. Son tres decisiones que se toman en
+   la primera hora sin darse cuenta, y que deciden si las defensas de esta serie funcionan o solo
+   parecen funcionar.
+4. Después, un documento por etapa, en el orden de **`00` § 6**.
+5. Exigí **las pruebas arquitectónicas** (descritas en `03` § 6, `04` § 7 y `08`) en la misma etapa que
+   el código que verifican, no después.
 
 **Si lo implementás a mano**, el orden es el mismo. El único consejo fuerte: no dejes las pruebas
 arquitectónicas para el final. Son lo único que sostiene las reglas cuando el equipo crece.
@@ -78,15 +82,17 @@ Para que se pueda evaluar si encaja con tu caso:
 
 Dicho de frente, para que se decida a propósito y no se descubra a mitad de camino:
 
-- Segundo factor de autenticación
 - Inicio de sesión con proveedores externos (OAuth, SSO)
-- Recuperación de contraseña por email (la restablece un administrador)
 - Facturación ni planes por organización
 - Límite de sesiones simultáneas
 - Permisos por registro individual (el modelo es por capacidad, no por fila)
+- Un esquema o una base de datos por cliente
 
-Ninguna de esas ausencias es un obstáculo para agregarlas después; varias están mencionadas en los
-documentos con el lugar natural donde encajan.
+Ninguna de esas ausencias es un obstáculo para agregarlas después: el `08` § 14 dice, para cada una,
+qué haría falta y cuál es el detonante para hacerlo.
+
+**Dos que sí están, y solo en el `08`**: el segundo factor — obligatorio para el rol que ve todas las
+organizaciones, porque para ése no puede ser opcional — y la recuperación de contraseña.
 
 ---
 
@@ -98,3 +104,7 @@ estilo.
 
 Donde hay una elección legítima, está dicho que la hay, con los criterios para decidir. Donde no la
 hay, también está dicho.
+
+Y una salvedad sobre el **`08`**: ese documento **corrige a los otros siete.** Nació de una revisión
+que encontró cosas que la serie afirmaba y no sostenía. Donde el `08` contradice a un documento
+anterior, **gana el `08`** — y lo dice en cada caso, con el reemplazo completo.

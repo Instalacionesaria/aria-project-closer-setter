@@ -175,10 +175,11 @@ create index usuarios_roles_por_usuario on usuarios_roles (usuario_id);
 
 ```sql
 create or replace view usuarios_permisos as
-  select ur.usuario_id, rp.permiso
+  -- `distinct` y no `group by` sin agregación: hacen lo mismo (deduplicar), pero
+  -- el `group by` sin función de agregado se lee como un error en una revisión.
+  select distinct ur.usuario_id, rp.permiso
     from usuarios_roles ur
-    join roles_permisos rp on rp.rol_id = ur.rol_id
-   group by ur.usuario_id, rp.permiso;
+    join roles_permisos rp on rp.rol_id = ur.rol_id;
 ```
 
 La unión de los permisos de todos sus roles. **Solo suma, nunca resta**: no hay permisos negativos.
@@ -223,7 +224,12 @@ create table sesiones (
   token_hash      text not null unique,
   -- Solo para el rol de plataforma: sobre qué organización está trabajando.
   org_activa      uuid references organizaciones(id) on delete set null,
+  -- Vencimiento deslizante: se extiende al usar la sesión.
   expira_el       timestamptz not null,
+  -- Techo DURO: la sesión muere a los 30 días de creada aunque se use todos los días.
+  -- Sin esto, una sesión usada a diario nunca vence, y un token robado vive para siempre
+  -- mientras el ladrón lo siga usando.
+  expira_absoluto timestamptz not null default now() + interval '30 days',
   ip              text,
   user_agent      text,
   creada_el       timestamptz not null default now()
@@ -438,10 +444,18 @@ hacen— **hay que asumir que esa clave es pública**. Cualquiera la lee del có
 
 ```sql
 alter table usuarios enable row level security;
-revoke all on usuarios from public, anon, authenticated;
--- Repetir para TODAS las tablas. Solo el rol de servidor, que vive únicamente
--- en el backend, mantiene el acceso.
+revoke all on usuarios from public;
+-- Y de todo rol que pueda llegar desde el navegador. Los nombres dependen del
+-- proveedor: algunos crean roles como `anon` y `authenticated`; en un Postgres
+-- puro no existen y hay que revocar del rol que uses para el acceso público.
+-- Repetir para TODAS las tablas.
 ```
+
+> **Esto NO alcanza por sí solo, y es el malentendido más caro de este esquema.** Si la aplicación se
+> conecta con el rol **propietario** de las tablas, o con un rol que tenga el atributo de omisión, las
+> políticas de seguridad a nivel de fila **no se le aplican**: la protección existe en el esquema y no
+> protege de nada. Hace falta un rol dedicado y políticas que filtren por una variable de sesión. Está
+> resuelto en el documento `08`, que es de lectura obligatoria antes de confiar en esta sección.
 
 Es la **segunda capa**, y las dos hacen falta: la capa de la aplicación que inyecta el filtro por
 organización protege de los errores del propio código; esto protege de que alguien saltee el código

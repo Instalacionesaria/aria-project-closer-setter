@@ -132,8 +132,15 @@ compraría nada y se pagaría en **cada petición**.
 ### La expiración se compara en la consulta
 
 ```sql
-select … from sesiones where token_hash = $1 and expira_el > now()
+select … from sesiones
+ where token_hash = $1
+   and expira_el > now()          -- el deslizante, que se renueva al usar
+   and expira_absoluto > now()    -- el techo duro: ver abajo
 ```
+
+**Los dos vencimientos, y el segundo es imprescindible.** El deslizante se extiende cada vez que la
+sesión se usa; sin un techo absoluto, **una sesión usada a diario nunca vence** y un token robado vive
+para siempre mientras el ladrón lo siga usando. 30 días de techo, verificado en la misma consulta.
 
 Filtrarla después, en el lenguaje, haría que el reloj del proceso decidiera si una sesión vencida sigue
 valiendo. Con varios procesos —o con contenedores cuyos relojes derivan— eso es un problema
@@ -152,8 +159,12 @@ la cookie y la base nunca quedan diciendo fechas distintas.
 ### La cookie
 
 ```
-sesion=<token>; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=<fecha>
+__Host-sesion=<token>; Path=/; HttpOnly; Secure; SameSite=Lax; Expires=<fecha>
 ```
+
+**El prefijo `__Host-` no es decorativo**: el navegador **rechaza** la cookie si no lleva `Secure`, si
+no tiene `Path=/`, o si declara `Domain`. Convierte tres disciplinas en una garantía del navegador, y
+además impide que un subdominio comprometido escriba nuestra cookie.
 
 | Atributo       | Por qué                                                                       |
 | -------------- | ----------------------------------------------------------------------------- |
