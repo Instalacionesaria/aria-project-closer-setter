@@ -54,6 +54,11 @@ Empezá acá. Buscá tu pregunta en la tabla y andá al documento.
 | ¿Dónde pego el prompt del agente de GHL?                                    | En **Ajustes › Credenciales**. Ver [07-AUDITOR-IA](07-AUDITOR-IA.md)                          |
 | ¿Con qué está hecho esto? ¿Qué versión de React/Postgres/Tailwind usa?      | [PAQUETE-TECNOLOGICO](PAQUETE-TECNOLOGICO.md)                                                 |
 | ¿Por qué no usamos shadcn/ui, Redux o un ORM?                               | [PAQUETE-TECNOLOGICO](PAQUETE-TECNOLOGICO.md)                                                 |
+| ¿Cómo funciona el login? ¿Cómo se hashean las contraseñas?                  | [RECONSTRUIR-01-ACCESO](RECONSTRUIR-01-ACCESO.md)                                             |
+| ¿Qué puede hacer cada rol? ¿Qué endpoint pide qué?                          | [RECONSTRUIR-02-ROLES](RECONSTRUIR-02-ROLES.md)                                               |
+| ¿Cómo se aíslan los datos entre empresas?                                   | [RECONSTRUIR-03-MULTIEMPRESA](RECONSTRUIR-03-MULTIEMPRESA.md)                                 |
+| ¿Cómo nace una empresa o un usuario? ¿Y el primer admin?                    | [RECONSTRUIR-04-ADMINISTRACION](RECONSTRUIR-04-ADMINISTRACION.md)                             |
+| ¿Qué se rompió antes y cómo evito repetirlo?                                | [RECONSTRUIR-05-TRAMPAS](RECONSTRUIR-05-TRAMPAS.md)                                           |
 | ¿Cómo despliego? ¿Cómo trabajo en este repo?                                | [../CLAUDE.md](../CLAUDE.md)                                                                  |
 
 ## Los documentos, en orden de lectura
