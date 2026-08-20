@@ -206,13 +206,21 @@ Restaurar una copia, en un entorno aparte, y **verificar que la aplicación arra
 una periodicidad escrita.
 
 **Pero "arranca" no es el criterio**, y es un error fácil: la aplicación puede arrancar perfectamente
-contra un respaldo **inservible**. El criterio tiene tres partes, y la segunda es específica de este
-diseño:
+contra un respaldo **inservible**. El criterio tiene **cinco** partes, y la primera y la tercera son
+específicas de este diseño:
 
-1. la aplicación arranca y se puede iniciar sesión;
-2. **se puede descifrar al menos una credencial de cada organización** — ver el párrafo siguiente, porque
+1. **los roles existen antes de restaurar.** Un volcado de una base **no incluye los roles ni sus
+   contraseñas**: son objetos del clúster, no de la base. Restaurar en un servidor limpio produce una base
+   cuyas políticas **nombran roles que no existen** — y según el motor, eso hace fallar la restauración o
+   deja las tablas inaccesibles para todo el mundo, con un diagnóstico confuso porque en el origen "todo
+   estaba bien". El respaldo lleva un volcado de roles **aparte**, y el simulacro lo restaura **primero**;
+2. la aplicación arranca y se puede iniciar sesión;
+3. **se puede descifrar al menos una credencial de cada organización** — ver el párrafo siguiente, porque
    esto es justamente lo que suele fallar;
-3. las cuentas de filas de las tablas principales coinciden con las del origen.
+4. las cuentas de filas de las tablas principales coinciden con las del origen;
+5. **las pruebas de aislamiento pasan contra la copia restaurada.** Es el criterio más informativo de los
+   cinco: si el aislamiento se sostiene sobre la restauración, la restauración sirve. Si arrancó pero no
+   está protegida, es **peor** que no haber restaurado — porque nadie lo va a volver a mirar.
 
 Y hay un detalle propio de este diseño que conviene descubrir en el ensayo y no en el desastre: **al
 restaurar en otro entorno, la clave maestra es otra y ninguna credencial cifrada se puede leer.** Es el

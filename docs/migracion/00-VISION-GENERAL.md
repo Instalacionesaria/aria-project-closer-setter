@@ -183,6 +183,11 @@ sostienen todo lo que viene después; si no tienen dónde correr, no existen. Y 
 versionadas, las invariantes de la base **divergen entre entornos**: el disparador está en producción
 y no en pruebas, y la prueba que debía fallar pasa.
 
+> **Y tratá esta etapa como una etapa, no como el preámbulo de la siguiente.** Levantar en integración
+> continua una base con sus esquemas, sus roles, dos organizaciones sembradas y las migraciones aplicadas
+> desde cero son **varios días de trabajo poco vistoso**, y todo lo demás depende de que exista. Es lo
+> primero que se subestima y lo primero que se posterga.
+
 **1 · El esquema con sus invariantes** (`01`). Primero la base, con sus restricciones y disparadores.
 Es el piso sobre el que todo lo demás puede equivocarse sin hacer daño.
 

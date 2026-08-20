@@ -60,20 +60,26 @@ condición del entorno de desarrollo.
 resignando" solo funciona si cada innegociable se puede localizar entre las filas de más abajo. Sin este
 mapeo, un innegociable puede quedarse sin una sola fila y nadie lo nota:
 
-| Innegociable | Sus filas están en                                                 |
-| ------------ | ------------------------------------------------------------------ |
-| **1**        | Etapa 0, fila 1                                                    |
-| **2**        | Etapa 0, fila 2                                                    |
-| **3**        | Etapa 1 (catálogo) y Etapa 2 (las seis de aislamiento y escotilla) |
-| **4**        | Etapa 7, filas 1 a 3                                               |
-| **5**        | Etapa 6, fila 1                                                    |
-| **6**        | Etapa 2 (abre el contexto) y Etapa 3 (llama al portero)            |
-| **7**        | Etapa 0, fila 3 — y no es una prueba sino el entorno               |
-| **8**        | Etapa 4, las dos últimas filas                                     |
+| Innegociable | Sus filas están en                                                                                                                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1**        | Etapa 0, fila 1                                                                                                                                                                                               |
+| **2**        | Etapa 0, fila 2                                                                                                                                                                                               |
+| **3**        | Etapa 1 (catálogo) y Etapa 2 (las seis de aislamiento y escotilla)                                                                                                                                            |
+| **4**        | Etapa 7, filas 1 a 3                                                                                                                                                                                          |
+| **5**        | Etapa 6, fila 1                                                                                                                                                                                               |
+| **6**        | Etapa 2 (abre el contexto) y Etapa 3 (llama al portero)                                                                                                                                                       |
+| **7**        | Etapa 0, fila 3 — y no es una prueba sino el entorno                                                                                                                                                          |
+| **8**        | Etapa 4: «Todo rol de plataforma exige segundo factor» y «Un usuario con un rol que exige segundo factor no obtiene sesión habilitada» — **no** la última fila de la etapa, que es sobre la columna de estado |
 
 ---
 
 ## Etapa 0 · Antes del esquema
+
+> **Tres filas, y son el 80 % del riesgo de calendario.** Levantar en integración continua una base con
+> tres esquemas, tres roles, dos organizaciones sembradas y las migraciones aplicadas desde cero son
+> **varios días de trabajo poco vistoso**, y todo lo demás depende de que exista. Es lo primero que se
+> subestima y lo primero que se posterga. Tratá esta etapa como una etapa con su propio plan, no como el
+> preámbulo de la siguiente.
 
 | ⛔  | Regla                                                             | La prueba                                                       | Tipo   |
 | --- | ----------------------------------------------------------------- | --------------------------------------------------------------- | ------ |
@@ -85,16 +91,18 @@ mapeo, un innegociable puede quedarse sin una sola fila y nadie lo nota:
 
 ## Etapa 1 · El esquema y sus invariantes
 
-| ⛔  | Regla                                                                 | La prueba                                                                                                                  | Tipo     |
-| --- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------- |
-|     | El administrador fundador no se borra, no se desactiva, no se degrada | Las tres operaciones **fallan contra la base**, no contra el backend                                                       | Base     |
-|     | La organización principal no se desactiva                             | La operación falla contra la base                                                                                          | Base     |
-|     | El rol de plataforma solo existe en la organización principal         | Asignarlo a un usuario de un cliente falla contra la base                                                                  | Base     |
-|     | Un rol privado de una organización no se asigna a usuario de otra     | La inserción cruzada falla contra la base                                                                                  | Base     |
-|     | La auditoría es inmutable                                             | `update` y `delete` fallan, **y el rol no tiene el permiso**                                                               | Base     |
-|     | Las referencias dentro del inquilino no cruzan organizaciones         | Insertar una fila que referencia un registro de otra organización falla                                                    | Base     |
-| ⛔  | Toda tabla tiene seguridad de fila activada, forzada y con política   | Consulta al catálogo: **cero tablas** sin las tres cosas                                                                   | Catálogo |
-| ⛔  | Y además, permisos: la tabla es **accesible** para el rol que la usa  | `has_table_privilege` por tabla. Una tabla con política perfecta y sin permiso pasa la fila anterior y rompe en producción | Catálogo |
+| ⛔  | Regla                                                                                                      | La prueba                                                                                                                      | Tipo     |
+| --- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------- |
+|     | El administrador fundador no se borra, no se desactiva, no se degrada                                      | Las tres operaciones **fallan contra la base**, no contra el backend                                                           | Base     |
+|     | La organización principal no se desactiva                                                                  | La operación falla contra la base                                                                                              | Base     |
+|     | El rol de plataforma solo existe en la organización principal                                              | Asignarlo a un usuario de un cliente falla contra la base                                                                      | Base     |
+|     | Un rol privado de una organización no se asigna a usuario de otra                                          | La inserción cruzada falla contra la base                                                                                      | Base     |
+|     | La auditoría es inmutable                                                                                  | `update` y `delete` fallan, **y el rol no tiene el permiso**                                                                   | Base     |
+|     | Las referencias dentro del inquilino no cruzan organizaciones                                              | Insertar una fila que referencia un registro de otra organización falla                                                        | Base     |
+| ⛔  | Toda tabla tiene seguridad de fila activada, forzada y con política                                        | Consulta al catálogo: **cero tablas** sin las tres cosas                                                                       | Catálogo |
+| ⛔  | Y además, permisos: la tabla es **accesible** para el rol que la usa                                       | `has_table_privilege` por tabla. Una tabla con política perfecta y sin permiso pasa la fila anterior y rompe en producción     | Catálogo |
+| ⛔  | Ninguna tabla quedó **sin forzar**                                                                         | Una tabla con seguridad y política pero sin forzar deja que su dueño la evada, y el catálogo la muestra igual que una correcta | Catálogo |
+|     | El esquema de catálogos solo tiene lo declarado, y **ninguna** de sus tablas lleva columna de organización | Es el único camino por el que una tabla de negocio puede nacer sin aislamiento y sin que nada falle                            | Catálogo |
 
 La última es la más valiosa del documento entero: es la que agarra la tabla que alguien va a crear
 dentro de seis meses sin acordarse de nada de esto.
@@ -113,6 +121,8 @@ dentro de seis meses sin acordarse de nada de esto.
 | ⛔  | Con la organización A no se ve ni una fila de la B          | Dos organizaciones sembradas, consulta desde A                                                                                                                                                                                                               | Base     |
 | ⛔  | La escotilla no llega a las tablas de negocio               | Con el rol de identidad, consultar negocio **lanza permiso denegado** (no vacío)                                                                                                                                                                             | Base     |
 | ⛔  | El dominio del inquilino no llega a las tablas de identidad | Con el rol del inquilino, consultar sesiones **lanza**                                                                                                                                                                                                       | Base     |
+|     | Ninguna operación cruza los dos dominios sin decirlo        | Los archivos que mencionan **los dos** accesos se revisan a mano: entre dos dominios no hay atomicidad, y la mitad que falla no puede reportar éxito                                                                                                         | Código   |
+|     | Los rellenos de datos tocan filas de verdad                 | Con las políticas puestas, el rol que migra no ve nada: un `update` de relleno informa **cero filas sin error**. Contar antes y después                                                                                                                      | Base     |
 |     | Solo los archivos autorizados usan el acceso sin filtro     | Lista explícita, y un archivo nuevo rompe la suite                                                                                                                                                                                                           | Código   |
 
 ---
@@ -153,15 +163,16 @@ dentro de seis meses sin acordarse de nada de esto.
 
 ## Etapa 5 · Administración
 
-| ⛔  | Regla                                                       | La prueba                                                       | Tipo   |
-| --- | ----------------------------------------------------------- | --------------------------------------------------------------- | ------ |
-|     | Nadie se borra, desactiva ni degrada a sí mismo             | La operación sobre el propio identificador se rechaza           | Código |
-|     | No se puede dejar una organización sin administrador activo | Desactivar al último administrador se rechaza                   | Código |
-|     | Un administrador no puede otorgar el rol de plataforma      | Rechazo en el endpoint **y** en la base                         | Base   |
-|     | Restablecer una contraseña cierra las sesiones              | Después del restablecimiento, las sesiones del usuario no valen | Base   |
-|     | La contraseña temporal nunca queda registrada               | No aparece en la auditoría ni en ningún registro                | Código |
-|     | El generador de temporales no tiene sesgo                   | Distribución de caracteres sobre muchas muestras                | Código |
-|     | Una organización nueva no hereda credenciales               | Nace sin ninguna, no opera, y la respuesta lo dice              | Base   |
+| ⛔  | Regla                                                         | La prueba                                                                                                                                                                                             | Tipo   |
+| --- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| ⛔  | Un administrador no opera sobre usuarios de otra organización | Para crear, editar, desactivar, restablecer y asignar rol con el identificador de un usuario ajeno: responde **404**, nunca 200 — y 404 y no 403, porque un 403 confirma que ese identificador existe | Código |
+|     | Nadie se borra, desactiva ni degrada a sí mismo               | La operación sobre el propio identificador se rechaza                                                                                                                                                 | Código |
+|     | No se puede dejar una organización sin administrador activo   | Desactivar al último administrador se rechaza                                                                                                                                                         | Código |
+|     | Un administrador no puede otorgar el rol de plataforma        | Rechazo en el endpoint **y** en la base                                                                                                                                                               | Base   |
+|     | Restablecer una contraseña cierra las sesiones                | Después del restablecimiento, las sesiones del usuario no valen                                                                                                                                       | Base   |
+|     | La contraseña temporal nunca queda registrada                 | No aparece en la auditoría ni en ningún registro                                                                                                                                                      | Código |
+|     | El generador de temporales no tiene sesgo                     | Distribución de caracteres sobre muchas muestras                                                                                                                                                      | Código |
+|     | Una organización nueva no hereda credenciales                 | Nace sin ninguna, no opera, y la respuesta lo dice                                                                                                                                                    | Base   |
 
 ---
 
@@ -207,18 +218,18 @@ malicioso corre en el servidor de construcción, **donde están todas las variab
 Estas no son pruebas del proyecto: son pruebas **del sistema andando**. Son las únicas que detectan un
 fallo mientras está pasando.
 
-| ⛔  | Regla                                                | La prueba                                                                                                                                                                                                    | Tipo       |
-| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------- |
-| ⛔  | El aislamiento se sostiene ahora, no solo en pruebas | Sonda cada hora: dos organizaciones de control, ninguna ve a la otra                                                                                                                                         | Producción |
-| ⛔  | Una operación sin contexto avisa, no solo falla      | La excepción del aislamiento emite un aviso inmediato                                                                                                                                                        | Producción |
-|     | Las credenciales ilegibles se detectan               | Consulta diaria sobre la auditoría                                                                                                                                                                           | Producción |
-|     | Los rechazos por permiso se vigilan                  | Resumen semanal por organización y capacidad                                                                                                                                                                 | Producción |
-|     | Los intentos fallidos se vigilan                     | Consulta horaria, contando **emails distintos** por origen                                                                                                                                                   | Producción |
-|     | El acceso de soporte queda registrado                | Todo cambio de organización activa queda en la auditoría                                                                                                                                                     | Producción |
-|     | El respaldo se puede restaurar                       | Restauración ensayada, con la aplicación arrancando contra la copia                                                                                                                                          | Producción |
-|     | El aviso funciona                                    | El resumen **se manda siempre**, también cuando todo está en cero                                                                                                                                            | Producción |
-| ⛔  | Las tres acciones de auditoría se **emiten**         | Provocar cada una y verificar que aparece la fila. Sin esto, un cero en la vigilancia es indistinguible de "nadie cableó el punto de emisión", y tres de las seis señales quedan apagadas sin que nada falle | Código     |
-|     | El aviso de aislamiento llega de verdad              | Provocar la excepción en un entorno de ensayo y confirmar que el mensaje **llega al medio elegido**. Escribir en el registro del servidor no cuenta                                                          | Producción |
+| ⛔  | Regla                                                | La prueba                                                                                                                                                                                                           | Tipo       |
+| --- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| ⛔  | El aislamiento se sostiene ahora, no solo en pruebas | Sonda cada hora: dos organizaciones de control, ninguna ve a la otra                                                                                                                                                | Producción |
+| ⛔  | Una operación sin contexto avisa, no solo falla      | La excepción del aislamiento emite un aviso inmediato                                                                                                                                                               | Producción |
+|     | Las credenciales ilegibles se detectan               | Consulta diaria sobre la auditoría                                                                                                                                                                                  | Producción |
+|     | Los rechazos por permiso se vigilan                  | Resumen semanal por organización y capacidad                                                                                                                                                                        | Producción |
+|     | Los intentos fallidos se vigilan                     | Consulta horaria, contando **emails distintos** por origen                                                                                                                                                          | Producción |
+|     | El acceso de soporte queda registrado                | Todo cambio de organización activa queda en la auditoría                                                                                                                                                            | Producción |
+|     | El respaldo se puede restaurar                       | Restauración ensayada: **los roles primero** (no viajan en el volcado de la base), la aplicación arranca, se descifra una credencial, coinciden los conteos, **y las pruebas de aislamiento pasan contra la copia** | Producción |
+|     | El aviso funciona                                    | El resumen **se manda siempre**, también cuando todo está en cero                                                                                                                                                   | Producción |
+| ⛔  | Las tres acciones de auditoría se **emiten**         | Provocar cada una y verificar que aparece la fila. Sin esto, un cero en la vigilancia es indistinguible de "nadie cableó el punto de emisión", y tres de las seis señales quedan apagadas sin que nada falle        | Código     |
+|     | El aviso de aislamiento llega de verdad              | Provocar la excepción en un entorno de ensayo y confirmar que el mensaje **llega al medio elegido**. Escribir en el registro del servidor no cuenta                                                                 | Producción |
 
 ---
 

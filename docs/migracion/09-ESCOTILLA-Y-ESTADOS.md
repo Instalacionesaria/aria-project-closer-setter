@@ -302,10 +302,18 @@ revoke all on identidad.usuarios from public;
 -- a su alcance. Las políticas filtran FILAS; los permisos filtran COLUMNAS. Son
 -- dos ejes distintos y hacen falta los dos.
 grant select (id, org_id, nombre, email, activo) on identidad.usuarios to app_inquilino;
+-- Y la ESCRITURA de lo que no toca credenciales, también por columna. Sin esto,
+-- editar y desactivar usuarios corren por el dominio de identidad —sin filtro de
+-- base— y el único control es un condicional del backend. Ver la nota de abajo.
+grant update (nombre, activo) on identidad.usuarios to app_inquilino;
 grant select, insert, update on identidad.usuarios to app_identidad;
 
 create policy usuarios_del_inquilino on identidad.usuarios for select to app_inquilino
   using (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid));
+
+create policy usuarios_edita_inquilino on identidad.usuarios for update to app_inquilino
+  using      (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid))
+  with check (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid));
 
 create policy usuarios_identidad on identidad.usuarios for all to app_identidad
   using (true) with check (true);
@@ -449,6 +457,36 @@ clientes.** Cifradas — la clave maestra vive en el entorno de la aplicación, 
 acceso a la base por sí solo no da texto claro. Pero es una razón más para que ese rol tenga la superficie
 más chica posible.
 
+> **La administración de usuarios es más grande de lo que parece, y hay que mirarla entera.** Con solo
+> lectura para el inquilino, **toda** la administración de usuarios de un cliente —alta, edición,
+> desactivación, restablecimiento de contraseña, asignación de roles— corría por el dominio de identidad,
+> sin filtro de base. El escenario concreto: el administrador del cliente A llama a la operación de
+> edición con el identificador de un usuario del cliente B, y **la base no lo detiene**. Es la escalada
+> entre inquilinos por la puerta que quedó abierta al cerrar la otra.
+>
+> Con los permisos y la política de arriba, **editar y desactivar recuperan la red de la base.** Quedan en
+> el dominio de identidad solo las tres operaciones que tocan credenciales: el alta (genera el hash de la
+> temporal), el restablecimiento y la asignación de roles.
+>
+> **Y para esas tres, la prueba que les corresponde**, porque son el único lugar del sistema donde el
+> aislamiento depende del código:
+>
+> ```
+> prueba "un administrador no opera sobre usuarios de otra organización":
+>     para cada operación en [crear, editar, desactivar, restablecer, asignarRol]:
+>         sesión  = administrador del cliente A
+>         objetivo = usuario del cliente B
+>         afirmar que la operación responde 404, nunca 200
+> ```
+>
+> **404 y no 403**: un 403 confirma que ese identificador existe en algún lado. Para quien pregunta, un
+> usuario de otra organización **no existe**.
+
+> **Con permisos por columna, `select *` deja de funcionar.** Cualquier consulta con `select *` sobre esta
+> tabla desde el dominio del inquilino falla con permiso denegado. Falla fuerte, que está bien — pero
+> muchos constructores de consultas emiten `select *` por omisión, así que la convención es explícita:
+> **desde el dominio del inquilino, las columnas se nombran siempre.**
+
 **Y la vista de permisos efectivos**, si la usás: va en `identidad`, se declara para ejecutarse con los
 permisos de quien la invoca, y **solo el rol de identidad puede usarla** — porque quien la invoca necesita
 permiso sobre las tres tablas que la vista lee, y el inquilino no lo tiene sobre dos de ellas. Está bien
@@ -479,6 +517,52 @@ abrir el contexto del inquilino.
 > conexión sin filtro, así que **tiene que filtrar por organización en el código**, va en la lista de
 > archivos autorizados, y necesita su propia prueba. Es la única parte de este diseño donde el aislamiento
 > depende del código y no de la base — y por eso está escrito acá, en vez de descubrirse.
+
+### Las migraciones de datos, que con las políticas puestas no tocan nada
+
+Es la consecuencia menos evidente de todo este diseño, y **va a morder la primera vez que haya que
+rellenar una columna nueva en una tabla que ya tiene datos** — que en cualquier producto es cuestión de
+meses.
+
+Forzar las políticas hace que el propietario de la tabla **también** quede sujeto a ellas. Es lo que se
+quiere. Pero todas las políticas de arriba están dirigidas a los dos roles de la aplicación: **ninguna
+nombra al rol que migra.** Entonces:
+
+| En una migración de datos          | Qué pasa                                      |
+| ---------------------------------- | --------------------------------------------- |
+| `select` para verificar un relleno | Cero filas. Parece que no hay nada que migrar |
+| `update` para rellenar una columna | **Cero filas modificadas, sin error**         |
+| `delete` de limpieza               | **Cero filas, sin error**                     |
+| `insert` de datos de referencia    | Falla por política — el único que avisa       |
+
+Una migración de datos que "corre bien" y no toca nada. Queda marcada como aplicada, el despliegue sigue,
+y la columna nueva queda vacía en producción. Nadie se entera hasta que una pantalla muestra nulos.
+
+**La recomendación: los rellenos se escriben por bucle de organizaciones**, con la variable puesta, igual
+que una tarea programada. Es más lento de escribir y es lo único coherente con el resto del diseño:
+
+```
+funcion rellenarColumnaNueva():
+    organizaciones = conIdentidad(() => "select id from organizaciones")
+    para cada org en organizaciones:
+        conOrganizacion(org.id, () => "update pedidos set … where … is null")
+```
+
+**La alternativa, si el volumen no lo permite:** una política de mantenimiento para el rol que migra.
+
+```sql
+create policy mantenimiento on negocio.pedidos
+  for all to migrador using (true) with check (true);
+```
+
+Se agrega a la función de más abajo, así que sale gratis por tabla. El costo es que forzar las políticas
+deja de proteger contra el uso accidental de ese rol — se recupera **en parte** si ese rol existe solo en
+la integración continua y su contraseña **no está** en el entorno de la aplicación. Y si se toma este
+camino, la política nombra al rol que migra **y a nadie más**, con una prueba de catálogo que lo verifique.
+
+**Lo que no hay que hacer** es quitar el forzado durante la migración y reponerlo al final: una migración
+que falle a la mitad deja la tabla sin forzar, y el catálogo la muestra como "encendida y con política" —
+el estado en el que el dueño la evade. Es el peor de los tres porque no se ve.
 
 ### Lo que ninguna política cubre
 
@@ -612,7 +696,7 @@ la propiedad que hace que todo esto sirva.
 
 ## 4 · Las pruebas que sostienen esta sección
 
-Seis. Sin ellas, todo lo anterior es una intención.
+Siete, y las siete son cortas. Sin ellas, todo lo anterior es una intención.
 
 ```
 prueba "los roles de la aplicación no pueden saltear las políticas":
@@ -673,7 +757,7 @@ prueba "ninguna tabla quedó sin política":
         afirmar has_table_privilege('app_inquilino', tabla, 'SELECT, INSERT, UPDATE, DELETE')
 ```
 
-La última es la más valiosa de las seis: **es la única que agarra la tabla que alguien va a crear el
+La de catálogo es la más valiosa de las siete: **es la única que agarra la tabla que alguien va a crear el
 mes que viene.** Corre contra el catálogo, no contra el código, así que no se puede engañar con un
 comentario ni se queda vieja.
 
@@ -692,6 +776,23 @@ Los tres estados que conviene distinguir al leer el resultado, porque significan
 | Seguridad **apagada** sin políticas      | Acceso total para quien tenga el permiso                              |
 | Seguridad **encendida** sin política     | Nadie ve nada: **rompe la aplicación, no la abre**                    |
 | Encendida y con política, **sin forzar** | El dueño de la tabla la evade                                         |
+
+Y una más, que cierra el único camino por el que una tabla de negocio puede nacer **sin aislamiento y
+sin que nada falle**. La prueba de arriba excluye el esquema de catálogos **por esquema**, que es la
+decisión correcta y crea el efecto secundario: cualquier tabla que termine ahí queda fuera de todo el
+régimen. Y no hace falta mala fe — alcanza una migración escrita con la ruta de búsqueda mal puesta:
+
+```
+prueba "el esquema de catálogos solo tiene lo que se declaró":
+    TABLAS_COMUNES = { "paises", "monedas", "tipos_evento" }    # la lista, a mano
+    afirmar que las tablas del esquema comun == TABLAS_COMUNES
+
+    # Y la comprobación que importa de verdad:
+    para cada tabla del esquema comun:
+        afirmar que NO tiene columna org_id
+    # Una tabla con columna de organización ahí es una tabla de negocio sin
+    # aislamiento, en el esquema equivocado. Es el error concreto que esto impide.
+```
 
 Y una del lado del código, que sigue haciendo falta:
 
@@ -888,6 +989,45 @@ de suponer:
 
 ---
 
+### Dos dominios son dos transacciones: no hay atomicidad entre ellos
+
+La separación en dos conexiones tiene una consecuencia que conviene decir antes de que aparezca: **una
+operación que escribe en los dos dominios no puede ser atómica.** Son dos transacciones distintas; una
+puede confirmar y la otra fallar.
+
+Y si la segunda mitad falla, la respuesta —a menos que alguien lo haya pensado— va a decir que todo salió
+bien, porque la primera mitad funcionó. Es exactamente **un éxito reportado que no ocurrió**.
+
+Tres reglas, en orden de preferencia:
+
+1. **Diseñar para que ninguna operación escriba en los dos dominios.** Se sostiene casi siempre y hay que
+   intentarlo primero: el alta de organización escribe solo identidad, y su configuración de negocio se
+   crea perezosamente en el primer uso.
+2. **Donde sea inevitable, el orden se declara**: primero la escritura que se puede repetir sin daño,
+   después la que no. Y la respuesta **dice qué parte se hizo** — nunca un éxito liso.
+3. **Ninguna operación asume atomicidad entre dominios.** Quien escriba una que cruce los dos tiene que
+   decir, en el propio código, qué pasa si la segunda mitad falla.
+
+Y una prueba barata que los encuentra todos: **buscar los archivos que mencionan el acceso de identidad
+y además el del inquilino.** Cada archivo en esa intersección es un caso a revisar a mano.
+
+### Y no se pueden implementar con cambio de rol
+
+El atajo tentador es conectarse una vez y cambiar de rol para cambiar de dominio. **No funciona, por dos
+razones independientes:**
+
+- **La ruta de búsqueda por rol se aplica al iniciar sesión, no al cambiar de rol.** Cambiando de rol
+  dentro de la sesión, la ruta sigue siendo la del rol de la conexión: la mitad de las consultas no
+  encuentra las tablas y la otra mitad resuelve a las equivocadas.
+- **El cambio de rol es reversible desde la misma sesión.** Volver al rol original recupera sus
+  privilegios, así que la frontera entre dominios pasaría a depender de que ninguna línea del código lo
+  haga — que es exactamente la clase de barrera que este diseño rechaza.
+
+**Dos cadenas de conexión, dos agrupadores, dos contraseñas.** Sin excepción. El atajo es tentador y su
+síntoma inicial es que todo anda.
+
+---
+
 ## 7 · Lista de verificación
 
 1. Tres roles: el que migra, el del inquilino, el de identidad. Ninguno superusuario, ninguno con
@@ -909,3 +1049,13 @@ de suponer:
     cambiar la contraseña temporal.
 13. La sesión pendiente: 5 minutos, sin renovación, destruida al fallar el código.
 14. Un código de respuesta distinto por estado, separado de `sin_permiso`.
+15. **Los rellenos de datos por bucle de organizaciones**, o una política de mantenimiento que nombre al
+    rol que migra y a nadie más. Con las políticas puestas y sin esto, una migración de datos informa
+    éxito y no toca una fila.
+16. Editar y desactivar usuarios **desde el dominio del inquilino**, con su política. Y para las tres
+    operaciones que quedan en identidad —alta, restablecimiento y roles—, la prueba de la operación
+    cruzada entre organizaciones, que responde 404 y no 403.
+17. **Dos cadenas de conexión.** Nunca un cambio de rol como frontera entre dominios.
+18. Ninguna operación asume atomicidad entre los dos dominios, y las que cruzan lo dicen en el código.
+19. La prueba de que el esquema de catálogos **solo** tiene las tablas declaradas, y ninguna con columna
+    de organización.

@@ -238,7 +238,16 @@ que justificarse por escrito: **una tabla en esa lista es una tabla sin aislamie
 
 ---
 
-## 6 · La segunda capa: la base de datos
+## 6 · La otra capa: la base de datos
+
+> **Y una aclaración de peso, porque cambia dónde se pone el esfuerzo.** Este documento presenta la capa
+> que inyecta el filtro como _el_ mecanismo, y las políticas de la base como _la segunda_. Si activás las
+> políticas como se describe más abajo —con rol dedicado, forzadas y dirigidas al rol—, **la que sostiene
+> el aislamiento de verdad es la base**, y la inyección pasa a aportar sobre todo en las **escrituras**,
+> poniendo la organización correcta en cada fila sin que nadie la escriba a mano.
+>
+> Las dos siguen valiendo. Pero si hay que recortar, se recorta de la capa de aplicación, nunca de la
+> base: un condicional olvidado en la capa lo cubre la política, y una política ausente no la cubre nada.
 
 Si tu proveedor expone una API pública con una clave que viaja al navegador, **hay que asumir que esa
 clave es pública**.
@@ -272,7 +281,11 @@ porque alguien va a necesitar una excepción y nadie la va a ver.
 ```
 prueba "el aislamiento no se puede saltear":
 
-    # 1 · Un solo lugar crea el cliente sin filtro
+    # 1 · EXACTAMENTE DOS lugares crean un cliente de base, y son éstos:
+    #     la capa del inquilino y la de identidad. Escrita como "un solo lugar",
+    #     esta prueba falla sobre código correcto la primera vez que exista el
+    #     segundo dominio — y una prueba que falla sobre lo correcto se ignora,
+    #     que es como mueren las pruebas arquitectónicas.
     archivosQueCrean = buscar("crearCliente(") en todo el código
     afirmar que archivosQueCrean == ["datos/capa"]
 

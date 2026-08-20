@@ -150,19 +150,36 @@ Una sola función, y **toda** operación empieza llamándola.
 ```
 funcion exigir(peticion, respuesta, capacidadesRequeridas):
 
-    # 0 · Dos rutas quedan FUERA del paso 1, a propósito:
+    # 0 · Dos rutas quedan fuera del paso 1, y NO se resuelven acá:
+    #     tienen su propia función, `sesionOpcional()`, con su propio contrato.
+    #     Mezclarlas en esta función obliga a devolver dos formas distintas —el
+    #     contexto, o un objeto con un campo que hay que recordar mirar— y en un
+    #     lenguaje sin tipos eso es una fuente de defectos silenciosos: quien
+    #     escriba `si no contexto: devolver` sobre la forma nueva NUNCA corta,
+    #     porque un objeto siempre es verdadero.
+    #
+    #     Dos funciones con contratos claros valen más que una con un campo
+    #     opcional. Las dos rutas son:
     #     · GET /auth/sesion   -> "¿hay alguien?" es una pregunta legítima sin sesión,
     #       y responde 200 { autenticado: false }. Si respondiera 401, el arranque del
     #       frontend entraría en bucle con el manejador que escucha ese código.
     #     · DELETE /auth/sesion -> tiene que borrar la cookie SIEMPRE, también cuando
     #       la sesión ya venció: es la única forma de que el navegador deje de mandarla.
     #     Cuando SÍ hay sesión, las dos siguen pasando por el resto del portero.
+    #     · GET /auth/sesion   -> "¿hay alguien?" es una pregunta legítima sin
+    #       sesión, y responde 200 { autenticado: false }. Si respondiera 401, el
+    #       arranque del frontend entraría en bucle con el manejador que escucha
+    #       ese código.
+    #     · DELETE /auth/sesion -> tiene que borrar la cookie SIEMPRE, también
+    #       cuando la sesión ya venció: es la única forma de que el navegador
+    #       deje de mandarla.
     si peticion.ruta en SIN_SESION_REQUERIDA:
-        # OJO con el protocolo: el resto de esta función devuelve nulo para decir
-        # "ya respondí, cortá". Acá el nulo significa otra cosa —"no hay sesión y
-        # está bien"—, así que NO se puede devolver nulo pelado: quien llame no
-        # podría distinguir los dos casos y cortaría cuando debía seguir.
-        devolver { sesion: resolverSesion(peticion), yaRespondio: falso }
+        error "Esta ruta usa sesionOpcional(), no el portero"
+
+    # Y la función aparte, con su contrato propio: devuelve la sesión O NULO, y
+    # nunca responde por su cuenta. Quien la llama decide qué hacer con el nulo.
+    funcion sesionOpcional(peticion):
+        devolver resolverSesion(peticion)      # nulo = no hay, y está bien
 
     # 1 · ¿Hay sesión válida?
     contexto = resolverSesion(peticion)
