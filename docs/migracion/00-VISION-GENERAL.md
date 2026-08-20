@@ -166,7 +166,7 @@ evita, y llega por un camino donde ninguna capa de datos participa.
 | `06-CREDENCIALES`          | Guardar y usar secretos por organización: cifrado, rotación, enmascarado                                                                                                                       |
 | `07-ERRORES-A-EVITAR`      | Los fallos concretos que este diseño ya pagó en producción, y cómo evitarlos                                                                                                                   |
 | `08-ENDURECIMIENTO`        | **Los huecos de los siete anteriores**, con su solución: la segunda capa que puede ser inerte, la caché entre inquilinos, sesiones, roles con dueño, credenciales con refresco, segundo factor |
-| `09-ESCOTILLA-Y-ESTADOS`   | **Los dos defectos que abre el `08`**: las políticas de la base rompen el login, y los estados de sesión dejan pasar operaciones. Con el SQL de las ocho tablas de identidad                   |
+| `09-ESCOTILLA-Y-ESTADOS`   | **Los dos defectos que abre el `08`**: las políticas de la base rompen el login, y los estados de sesión dejan pasar operaciones. Con el SQL de las diez tablas de identidad                   |
 | `10-DETECCION-Y-OPERACION` | Cómo enterarse de que algo está pasando **ahora**: seis señales, incidentes, respaldos, el camino no tomado, riesgos residuales                                                                |
 | `PRUEBAS`                  | **Cada regla con la prueba que la sostiene**, por etapa. Es la lista de trabajo                                                                                                                |
 

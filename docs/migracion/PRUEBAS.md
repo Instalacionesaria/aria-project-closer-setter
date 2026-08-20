@@ -103,30 +103,30 @@ dentro de seis meses sin acordarse de nada de esto.
 
 ## Etapa 2 · El aislamiento
 
-| ⛔  | Regla                                                       | La prueba                                                                                                                             | Tipo     |
-| --- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| ⛔  | Ninguna consulta corre sin organización activa              | Una consulta sin contexto **lanza**                                                                                                   | Código   |
-| ⛔  | Toda operación abre el contexto de su organización          | Recorre los archivos de operaciones y verifica que cada una lo abre                                                                   | Código   |
-|     | Un solo lugar crea el cliente de base                       | Ningún archivo fuera de la capa de datos importa el controlador                                                                       | Código   |
-| ⛔  | Los roles de la aplicación no pueden saltear las políticas  | `bypassrls` es falso y no son superusuarios                                                                                           | Catálogo |
-| ⛔  | Sin organización en contexto, no se ve nada de negocio      | La consulta **lanza o devuelve 0**. Exigir exactamente 0 hace una prueba que pasa o falla según el estado del agrupador de conexiones | Base     |
-| ⛔  | Con la organización A no se ve ni una fila de la B          | Dos organizaciones sembradas, consulta desde A                                                                                        | Base     |
-| ⛔  | La escotilla no llega a las tablas de negocio               | Con el rol de identidad, consultar negocio **lanza permiso denegado** (no vacío)                                                      | Base     |
-| ⛔  | El dominio del inquilino no llega a las tablas de identidad | Con el rol del inquilino, consultar sesiones **lanza**                                                                                | Base     |
-|     | Solo los archivos autorizados usan el acceso sin filtro     | Lista explícita, y un archivo nuevo rompe la suite                                                                                    | Código   |
+| ⛔  | Regla                                                       | La prueba                                                                                                                                                                                                                                                    | Tipo     |
+| --- | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| ⛔  | Ninguna consulta corre sin organización activa              | Una consulta sin contexto **lanza**                                                                                                                                                                                                                          | Código   |
+| ⛔  | Toda operación abre el contexto de su organización          | Recorre los archivos de operaciones y verifica que cada una lo abre — **salvo las rutas públicas y las operaciones del dominio de identidad**, que van en una lista explícita. Sin esa exención la prueba falla sobre código correcto y se termina ignorando | Código   |
+|     | Un solo lugar crea el cliente de base                       | Ningún archivo fuera de la capa de datos importa el controlador                                                                                                                                                                                              | Código   |
+| ⛔  | Los roles de la aplicación no pueden saltear las políticas  | `bypassrls` es falso y no son superusuarios                                                                                                                                                                                                                  | Catálogo |
+| ⛔  | Sin organización en contexto, no se ve nada de negocio      | La consulta **lanza o devuelve 0**. Exigir exactamente 0 hace una prueba que pasa o falla según el estado del agrupador de conexiones                                                                                                                        | Base     |
+| ⛔  | Con la organización A no se ve ni una fila de la B          | Dos organizaciones sembradas, consulta desde A                                                                                                                                                                                                               | Base     |
+| ⛔  | La escotilla no llega a las tablas de negocio               | Con el rol de identidad, consultar negocio **lanza permiso denegado** (no vacío)                                                                                                                                                                             | Base     |
+| ⛔  | El dominio del inquilino no llega a las tablas de identidad | Con el rol del inquilino, consultar sesiones **lanza**                                                                                                                                                                                                       | Base     |
+|     | Solo los archivos autorizados usan el acceso sin filtro     | Lista explícita, y un archivo nuevo rompe la suite                                                                                                                                                                                                           | Código   |
 
 ---
 
 ## Etapa 3 · Permisos y el portero
 
-| ⛔  | Regla                                                                        | La prueba                                                                             | Tipo   |
-| --- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------ |
-| ⛔  | Toda operación llama al portero                                              | Recorre los archivos de operaciones **y las funciones que el framework expone solas** | Código |
-|     | El permiso se pregunta por capacidad, nunca por nombre de rol                | Ninguna comparación con un nombre de rol en el código                                 | Código |
-|     | Todo rol asignable tiene al menos una pantalla                               | Cruce entre roles asignables y secciones de menú                                      | Código |
-|     | Las operaciones de una misma pantalla piden el mismo conjunto de capacidades | Agrupadas por pantalla, los conjuntos coinciden                                       | Código |
-|     | Un rechazo por permiso no se muestra como "no hay datos"                     | El cliente HTTP distingue el rechazo del vacío legítimo                               | Código |
-|     | Toda petición que modifica verifica el origen                                | Una petición con origen ajeno se rechaza                                              | Código |
+| ⛔  | Regla                                                                        | La prueba                                                                                                                                | Tipo   |
+| --- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| ⛔  | Toda operación llama al portero                                              | Recorre los archivos de operaciones **y las funciones que el framework expone solas**, salvo las rutas públicas (login, salud, arranque) | Código |
+|     | El permiso se pregunta por capacidad, nunca por nombre de rol                | Ninguna comparación con un nombre de rol en el código                                                                                    | Código |
+|     | Todo rol asignable tiene al menos una pantalla                               | Cruce entre roles asignables y secciones de menú                                                                                         | Código |
+|     | Las operaciones de una misma pantalla piden el mismo conjunto de capacidades | Agrupadas por pantalla, los conjuntos coinciden                                                                                          | Código |
+|     | Un rechazo por permiso no se muestra como "no hay datos"                     | El cliente HTTP distingue el rechazo del vacío legítimo                                                                                  | Código |
+|     | Toda petición que modifica verifica el origen                                | Una petición con origen ajeno se rechaza                                                                                                 | Código |
 
 ---
 

@@ -26,6 +26,10 @@ concretas.
 Una tabla de configuración por organización, con los secretos cifrados:
 
 ```sql
+-- Prerrequisito de la foránea compuesta de abajo: la tabla referenciada necesita
+-- una clave única sobre el PAR. Si ya la tenés de otra referencia, no la repitas.
+alter table usuarios add constraint usuarios_org_id_unico unique (org_id, id);
+
 create table organizaciones_credenciales (
   org_id            uuid primary key references organizaciones(id) on delete cascade,
 

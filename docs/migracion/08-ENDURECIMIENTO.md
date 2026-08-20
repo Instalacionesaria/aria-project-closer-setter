@@ -78,13 +78,13 @@ suponen que hay dos capas — **y hay una**.
 
 ```sql
 -- El propietario de las tablas es otro rol (el de las migraciones).
-create role aplicacion login password '<secreto>' noinherit nobypassrls;
+create role app_inquilino login password '<secreto>' noinherit nobypassrls;
 
-grant usage on schema negocio to aplicacion;
-grant select, insert, update, delete on all tables in schema negocio to aplicacion;
+grant usage on schema negocio to app_inquilino;
+grant select, insert, update, delete on all tables in schema negocio to app_inquilino;
 -- Nombrando el rol que crea las tablas: la regla NO se hereda.
 alter default privileges for role migrador in schema negocio
-  grant select, insert, update, delete on tables to aplicacion;
+  grant select, insert, update, delete on tables to app_inquilino;
 
 -- Y nada más: sin create, sin drop, sin alter. Las migraciones corren con el otro rol.
 ```
@@ -115,7 +115,7 @@ alter table pedidos force  row level security;   -- <-- esta línea es la que su
 
 ```sql
 create policy aislamiento_pedidos on pedidos
-  for all to aplicacion       -- <-- SIN esto, la política queda dirigida al pseudo-rol
+  for all to app_inquilino    -- <-- SIN esto, la política queda dirigida al pseudo-rol
   using      (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid))
   with check (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid));
 ```
@@ -185,9 +185,10 @@ base corre dentro de una transacción.** No es un detalle de implementación, es
 = 'on'`—, que cualquier línea de la aplicación puede encender: no es una barrera, es un comentario, y
 > desactiva todo esto de un solo golpe.
 >
-> La salida correcta es **un segundo rol de base** para el dominio de identidad (organizaciones, usuarios,
-> sesiones, roles, permisos, auditoría), con **cero permisos** sobre las tablas de negocio. Está resuelto,
-> con el SQL completo de las ocho tablas, en el documento `09`.
+> La salida correcta es **un segundo rol de base** para el dominio de identidad —organizaciones, usuarios,
+> sesiones, permisos, roles, roles_permisos, usuarios_roles, auditoría, segundo factor y credenciales
+> cifradas: **diez** tablas— con **cero permisos** sobre las de negocio. Está resuelto, con el SQL completo
+> de las diez, en el documento `09`.
 
 ### El agrupador de conexiones, que es parte de esto
 
@@ -516,12 +517,25 @@ A a un usuario de la B.** La clave foránea se satisface, el identificador exist
 
 ### La solución
 
+> **Si armaste el esquema con el resto de esta carpeta, esto ya está hecho**: la columna y el índice
+> vienen en el `create table`. Este bloque es para agregarlo a un sistema que ya existe, y por eso todas
+> las sentencias son repetibles.
+
 ```sql
 -- nulo = plantilla global, definida por la plataforma.
 -- con valor = rol privado de esa organización.
-alter table roles add column org_id uuid references organizaciones(id) on delete cascade;
+alter table roles add column if not exists org_id uuid
+  references organizaciones(id) on delete cascade;
 
-drop index if exists roles_clave_unica;
+-- La unicidad anterior es una RESTRICCIÓN, no un índice suelto: hay que soltarla
+-- como restricción. Un `drop index` sobre el índice que respalda una restricción
+-- da error, y con `if exists` sobre un nombre que no existe no falla, no hace nada
+-- y la unicidad global sobrevive en silencio — con lo cual dos organizaciones
+-- nunca pueden tener un rol con la misma clave, que es justo lo que se venía a
+-- habilitar. Si no sabés cómo se llama:
+--   select conname from pg_constraint where conrelid = 'roles'::regclass and contype = 'u';
+alter table roles drop constraint if exists roles_clave_unica;
+drop index  if exists roles_clave_unica;   -- por si en tu esquema nació como índice
 create unique index roles_clave_unica
   on roles (coalesce(org_id, '00000000-0000-0000-0000-000000000000'::uuid), clave);
 ```
@@ -644,6 +658,9 @@ PATCH /auth/sesion   { org_activa }     requiere: organizaciones.listar
 2. Verificar que la organización destino EXISTE y está ACTIVA.
 3. Escribir la organización activa en la sesión.
 4. AUDITAR: quién, cuándo, desde qué organización, a qué organización, desde qué origen.
+   **La fila se guarda con la organización VISITADA**, y la de origen va en el detalle. Al revés, el
+   administrador de ese cliente no puede ver los accesos a sus propios datos — que es justamente para lo
+   que sirve este registro.
 5. Limitar la tasa de esta operación como cualquier otra sensible.
 ```
 
@@ -768,6 +785,14 @@ create table usuarios_segundo_factor (
 alter table usuarios_segundo_factor enable row level security;
 alter table usuarios_segundo_factor force  row level security;
 revoke all on usuarios_segundo_factor from public;
+
+-- Y el permiso Y la política, o la tabla queda ilegible para todos y el login no
+-- puede ni averiguar si esta persona tiene segundo factor. Con la seguridad
+-- activada y sin política aplicable, la consulta devuelve cero filas SIN ERROR:
+-- el login concluiría que nadie tiene segundo factor configurado.
+grant select, insert, update, delete on usuarios_segundo_factor to app_identidad;
+create policy segundo_factor_identidad on usuarios_segundo_factor
+  for all to app_identidad using (true) with check (true);
 ```
 
 **Dónde encaja en el login**, entre verificar la contraseña y entregar la sesión utilizable:
@@ -798,8 +823,8 @@ responder 200 { estado }
 tabla de roles, encendida para todo rol de plataforma. Así queda dentro del modelo extensible: un rol
 nuevo y sensible se marca con una fila, sin tocar el login.
 
-**Y las dos columnas que todo esto necesita**, que son fáciles de dar por sentadas y no existen hasta que
-alguien las escribe:
+**Y las dos columnas donde todo esto vive.** Si armaste el esquema con el resto de esta carpeta, ya están
+en los `create table`; si estás endureciendo un sistema que ya existe, casi seguro te faltan las dos:
 
 ```sql
 -- Dónde vive el estado. POR SESIÓN, no por usuario: dos sesiones de la misma

@@ -41,7 +41,7 @@ hay una operación en producción que se olvidó el contexto, y es exactamente e
 estática buscaba impedir — pero que se escapó.
 
 ```
-funcion baseDeDatos():
+funcion datos():          # la misma función de la capa de aislamiento
     org = contextoActual()
     si no org:
         avisar("aislamiento_sin_contexto", { operacion: rutaActual(), traza: trazaActual() })
@@ -131,7 +131,8 @@ funcion sondaDeAislamiento():
     conOrganizacion(CONTROL_A, () => {
         filas = "select org_id from <tabla de control>"
         si filas contiene algo distinto de CONTROL_A:
-            alarma_grave("FUGA ENTRE ORGANIZACIONES", filas)
+            # El MISMO canal que la señal 1, con las cuatro decisiones ya tomadas.
+            avisar("fuga_entre_organizaciones", { filas, gravedad: "maxima" })
     })
     conOrganizacion(CONTROL_B, () => { … lo mismo al revés … })
 ```
@@ -188,8 +189,8 @@ Así que el procedimiento lleva **números**, aunque sean tuyos y no de una ley:
 
 | Momento                                   | Plazo                                                                         |
 | ----------------------------------------- | ----------------------------------------------------------------------------- |
-| De la señal a que alguien la esté mirando | Minutos                                                                       |
-| De ahí a la decisión "¿es un incidente?"  | Horas, con un nombre a cargo                                                  |
+| De la señal a que alguien la esté mirando | **15 minutos**                                                                |
+| De ahí a la decisión "¿es un incidente?"  | **4 horas**, con un nombre a cargo                                            |
 | Al cliente afectado                       | El que te comprometas por contrato, escrito                                   |
 | A la autoridad                            | **El de tu jurisdicción, averiguado y escrito acá** — no "el que corresponda" |
 

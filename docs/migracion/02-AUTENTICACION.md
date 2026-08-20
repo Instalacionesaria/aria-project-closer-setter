@@ -463,7 +463,9 @@ teléfono o se copian a mano.
 
 Dicho de frente, para que se decida y no se descubra por accidente:
 
-- **Sin segundo factor.** Si lo necesitás, el lugar natural es entre los pasos 5 y 7 del login, con la
+- **El segundo factor SÍ está contemplado** —los estados de la sesión y las rutas de la § 5 lo son— y
+  para todo rol que vea varias organizaciones **no es opcional**. Lo que este documento no trae es la
+  implementación del algoritmo de códigos. El lugar donde encaja es entre los pasos 5 y 7 del login, con la
   sesión creada en estado "pendiente de segundo factor".
 - **Sin recuperación por email.** La contraseña la restablece un administrador y entrega una temporal.
   Agregar recuperación por correo exige una tabla de tokens de un solo uso, con vencimiento corto.

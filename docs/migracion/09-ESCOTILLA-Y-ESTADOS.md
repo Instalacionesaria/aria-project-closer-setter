@@ -172,8 +172,18 @@ create role app_identidad login password '<secreto 3>' noinherit nobypassrls;
 grant usage on schema negocio, comun to app_inquilino;
 grant usage on schema identidad     to app_identidad;
 grant usage on schema comun         to app_identidad;
--- El inquilino necesita nombrar DOS tablas de identidad (ver más abajo), y solo dos.
+-- El inquilino necesita nombrar CUATRO tablas de identidad —organizaciones,
+-- usuarios, roles y la auditoría— y solo esas cuatro. `usage` sobre el esquema no
+-- da acceso a ninguna tabla: solo permite nombrarlas.
 grant usage on schema identidad     to app_inquilino;
+
+-- La RUTA DE BÚSQUEDA por rol. Con esto, el código de la aplicación escribe
+-- `pedidos` y no `negocio.pedidos`, y cada rol resuelve al esquema que le
+-- corresponde. Sin esto, o se califica cada nombre en cada consulta, o la mitad
+-- de las consultas no resuelve y la otra mitad resuelve a la tabla equivocada.
+alter role app_inquilino set search_path = negocio, identidad, comun;
+alter role app_identidad set search_path = identidad, comun;
+alter role migrador      set search_path = identidad, negocio, comun;
 
 -- La regla por omisión, SOLO sobre negocio, y nombrando el rol que crea las tablas.
 alter default privileges for role migrador in schema negocio
@@ -226,6 +236,24 @@ va a revisar. Ninguno de los tres es superusuario.
 > ```
 >
 > Nunca `in schema identidad`, y nunca sobre el esquema donde viven las dos cosas juntas.
+
+### Los catálogos comunes: una regla y se olvida
+
+Prometer "solo lectura para los dos roles" no alcanza: con la seguridad activada y sin política, esas
+tablas quedan ilegibles y el síntoma es una lista vacía sin error. Una regla por omisión propia y listo:
+
+```sql
+alter default privileges for role migrador in schema comun
+  grant select on tables to app_inquilino, app_identidad;
+
+-- Y por tabla, o al final de la migración para todas:
+grant select on all tables in schema comun to app_inquilino, app_identidad;
+```
+
+**Estas tablas NO llevan seguridad a nivel de fila**, y es deliberado: no tienen dueño, nadie escribe
+salvo una migración, y leer todo es correcto. Es la única excepción de la carpeta, y por eso viven en su
+propio esquema — para que la prueba de catálogo pueda exceptuarlas **por esquema** en vez de por una lista
+de nombres que alguien tiene que mantener.
 
 ### Las diez tablas de identidad, una por una
 
@@ -372,6 +400,9 @@ create policy auditoria_escribe_inquilino on identidad.auditoria_accesos
 -- tendría que correr por identidad — sin filtro y con el código como única
 -- barrera. Las filas de organización nula quedan solo para identidad, que es
 -- exactamente lo que se quiere.
+-- Para que esto sirva de verdad: la fila del acceso de soporte se guarda con la
+-- organización VISITADA, y la de origen va en el detalle. Al revés, el
+-- administrador de ese cliente no puede ver los accesos a sus propios datos.
 create policy auditoria_lee_inquilino on identidad.auditoria_accesos
   for select to app_inquilino
   using (org_id = (select nullif(btrim(current_setting('app.org_id', true)), '')::uuid));
@@ -417,6 +448,15 @@ Y el contrapeso honesto: **el rol de identidad puede leer las credenciales cifra
 clientes.** Cifradas — la clave maestra vive en el entorno de la aplicación, no en la base, así que el
 acceso a la base por sí solo no da texto claro. Pero es una razón más para que ese rol tenga la superficie
 más chica posible.
+
+**Y la vista de permisos efectivos**, si la usás: va en `identidad`, se declara para ejecutarse con los
+permisos de quien la invoca, y **solo el rol de identidad puede usarla** — porque quien la invoca necesita
+permiso sobre las tres tablas que la vista lee, y el inquilino no lo tiene sobre dos de ellas. Está bien
+así: los permisos efectivos se resuelven en el portero, que corre por identidad.
+
+```sql
+grant select on identidad.usuarios_permisos to app_identidad;
+```
 
 > **Regla para lo que venga después:** toda tabla nueva **sin** columna de organización —tokens de
 > recuperación de contraseña, invitaciones, claves de API— es del dominio de identidad, y se agrega a esta
@@ -614,8 +654,11 @@ prueba "ninguna tabla quedó sin política":
                     exists (select 1 from pg_policy p where p.polrelid = c.oid) as con_politica
                from pg_class c
                join pg_namespace n on n.oid = c.relnamespace
-              where n.nspname = 'public'
+              where n.nspname in ('identidad', 'negocio')   -- NO 'comun': ver abajo
                 and c.relkind in ('r', 'p')"      -- tablas Y tablas particionadas
+    # Que la consulta no vuelva vacía: un filtro por un esquema equivocado hace que
+    # esta prueba pase SIEMPRE, y una prueba que pasa en vacío es peor que ninguna.
+    afirmar filas.largo > 0
     para cada f en filas:
         afirmar f.habilitada y f.forzada y f.con_politica    # nombrando la tabla que falla
 
@@ -790,7 +833,9 @@ prueba "un endpoint nuevo nace cerrado":
 
 prueba "la sesión pendiente no llega a nada real":
     sesion = crearSesion(estado: "pendiente_2fo")
-    para cada ruta del proyecto fuera de ESTADOS["pendiente_2fo"]:
+    # Acotada a las rutas que PASAN por el portero, igual que la de arriba: el
+    # login y la comprobación de salud no lo llaman y responden otra cosa.
+    para cada ruta que llame al portero y esté fuera de RUTAS_PERMITIDAS["pendiente_2fo"]:
         afirmar que responde 403 con el código pendiente_2fo
 ```
 
@@ -853,7 +898,7 @@ de suponer:
 4. Las **diez** tablas de identidad, cada una con su permiso y su política escritos a mano. Ninguna con la
    genérica. Y toda tabla nueva sin columna de organización se agrega a esa lista a mano.
 5. El rol de identidad **sin ningún permiso** sobre tablas de negocio. Falla fuerte, no vacío.
-6. El rol del inquilino **sin ningún permiso** sobre `sesiones`, `permisos`, `roles`, `roles_permisos` ni
+6. El rol del inquilino **sin ningún permiso** sobre `sesiones`, `permisos`, `roles_permisos` ni
    `usuarios_roles`.
 7. Una función que aplique el aislamiento a una tabla nueva, y una línea por tabla.
 8. `nullif(…, '')` antes de castear la variable, y la subconsulta escalar alrededor.

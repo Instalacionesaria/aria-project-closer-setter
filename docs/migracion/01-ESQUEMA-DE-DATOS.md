@@ -6,6 +6,32 @@ Este documento es autosuficiente: no depende de los otros de la carpeta.
 
 ---
 
+## 0 · Tres esquemas, y en cuál se aplica cada bloque
+
+Antes de la primera tabla. La separación no es organizativa: es lo que permite dar permisos sobre todas
+las tablas de negocio de una sola vez **sin** dárselos sobre las de identidad.
+
+```sql
+create schema identidad;   -- quién sos: las 10 tablas de este documento
+create schema negocio;     -- los datos de los inquilinos: toda tabla lleva org_id
+create schema comun;       -- catálogos de referencia compartidos, de solo lectura
+
+-- TODO el DDL de este documento, salvo la § 8, crea tablas de identidad:
+set search_path = identidad;
+```
+
+Los nombres van **sin calificar** de acá en adelante, con la ruta de búsqueda puesta. Es como se
+escribe una migración de verdad, y evita repetir el prefijo cuarenta veces. El ejemplo de la § 8 va en
+`negocio`, y lo dice ahí.
+
+> **Por qué tres y no uno.** Toda migración necesita que las tablas nuevas queden accesibles para la
+> aplicación, y las dos formas de conseguirlo son globales por esquema: la regla de permisos por omisión
+> y el `grant … on all tables in schema …`. Con las tablas de identidad en el mismo esquema que las de
+> negocio, esas dos líneas le dan al rol de la aplicación **modificación y borrado sobre las sesiones,
+> los roles y la auditoría**. Separadas, el problema no existe.
+
+---
+
 ## 1 · Convenciones
 
 - **Nombres en singular para la entidad, plural para la tabla**: `organizaciones`, `usuarios`.
@@ -144,13 +170,12 @@ create table permisos (
 
 create table roles (
   id           uuid primary key default gen_random_uuid(),
-  -- La restricción va CON NOMBRE. Si más adelante hay que reemplazarla por una
-  -- unicidad por organización (para roles privados de cada cliente), hay que
-  -- poder soltarla: `alter table roles drop constraint roles_clave_unica`. Con
-  -- un `unique` anónimo el nombre lo elige el motor y el `drop` de la migración
-  -- siguiente no encuentra nada, no falla, y la unicidad global sobrevive en
-  -- silencio.
-  clave        text not null constraint roles_clave_unica unique,
+  clave        text not null,             -- 'administrador', 'operador'
+  -- Nulo = plantilla global de la plataforma. Con valor = rol PRIVADO de esa
+  -- organización. Créala vacía desde el primer día aunque al principio definas
+  -- todos los roles vos: agregarla sin datos cuesta cero, y agregarla con
+  -- asignaciones repartidas entre clientes cuesta una migración de datos.
+  org_id       uuid references organizaciones(id) on delete cascade,
   nombre       text not null,             -- para mostrar
   descripcion  text,
   -- Un rol de sistema no se puede borrar ni renombrar desde la interfaz.
@@ -163,6 +188,23 @@ create table roles (
   exige_segundo_factor boolean not null default false,
   creado_el    timestamptz not null default now()
 );
+
+-- La unicidad NO puede ser `clave unique` a secas: dos organizaciones tienen que
+-- poder tener un rol con la misma clave. El centinela es lo que hace que la regla
+-- valga también para las plantillas globales, porque en un índice único los nulos
+-- no se comparan entre sí.
+create unique index roles_clave_unica
+  on roles (coalesce(org_id, '00000000-0000-0000-0000-000000000000'::uuid), clave);
+
+-- Y el centinela no puede existir como dato, o la colisión es real:
+alter table organizaciones add constraint org_no_nula
+  check (id <> '00000000-0000-0000-0000-000000000000'::uuid);
+
+-- Todo rol de plataforma exige segundo factor. Es una invariante, no una
+-- convención: ese rol ve los datos de TODAS las organizaciones, y una contraseña
+-- filtrada sin segundo factor es una brecha de todos los clientes a la vez.
+alter table roles add constraint roles_plataforma_exige_2fo
+  check (not solo_principal or exige_segundo_factor);
 
 create table roles_permisos (
   rol_id       uuid not null references roles(id) on delete cascade,
@@ -184,10 +226,13 @@ create index usuarios_roles_por_usuario on usuarios_roles (usuario_id);
 ### Los permisos efectivos de un usuario, en una consulta
 
 ```sql
--- Si tu motor lo soporta, esta vista se declara para ejecutarse con los permisos
--- de QUIEN LA INVOCA. Por omisión una vista corre con los del dueño, y una vista
--- sobre tablas de inquilino creada por el rol de las migraciones EVADE las
--- políticas de fila y devuelve todo.
+-- Se declara para ejecutarse con los permisos de QUIEN LA INVOCA. Por omisión una
+-- vista corre con los del dueño, y una vista sobre tablas protegidas creada por el
+-- rol de las migraciones EVADE las políticas de fila y devuelve todo.
+--
+-- Consecuencia de esa misma decisión: solo la puede usar un rol que tenga permiso
+-- sobre las tres tablas de abajo. En el modelo de dos dominios, ése es el rol de
+-- identidad — que es donde se resuelven los permisos efectivos, así que está bien.
 create or replace view usuarios_permisos with (security_invoker = true) as
   -- `distinct` y no `group by` sin agregación: hacen lo mismo (deduplicar), pero
   -- el `group by` sin función de agregado se lee como un error en una revisión.
@@ -420,7 +465,11 @@ $$ language plpgsql;
 
 ```sql
 create table auditoria_accesos (
-  id           bigserial primary key,
+  -- Columna de identidad y no `bigserial`: con `bigserial`, insertar exige además
+  -- permiso de USO sobre la secuencia, y olvidarlo hace que TODO registro de
+  -- auditoría falle con "permiso denegado para la secuencia" — incluido el del
+  -- intento de acceso fallido, que es el que más falta cuando algo pasa.
+  id           bigint generated always as identity primary key,
   -- Nullable a propósito: un intento con un email inexistente no tiene usuario,
   -- y ése es justo el evento que hay que poder investigar.
   usuario_id   uuid,
@@ -564,9 +613,11 @@ insert into permisos (clave, descripcion) values
   ('configuracion.editar',    'Editar la configuración de su organización'),
   ('auditoria.ver',           'Ver el registro de accesos');
 
-insert into roles (clave, nombre, es_sistema, solo_principal) values
-  ('superadministrador', 'Superadministrador', true, true),
-  ('administrador',      'Administrador',      true, false);
+insert into roles (clave, nombre, es_sistema, solo_principal, exige_segundo_factor) values
+  -- El rol de plataforma nace exigiendo segundo factor. La restricción de la § 6
+  -- no lo deja nacer de otra forma.
+  ('superadministrador', 'Superadministrador', true, true,  true),
+  ('administrador',      'Administrador',      true, false, false);
 
 -- El superadministrador recibe todo.
 insert into roles_permisos (rol_id, permiso)

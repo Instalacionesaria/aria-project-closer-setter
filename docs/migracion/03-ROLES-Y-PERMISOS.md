@@ -158,7 +158,11 @@ funcion exigir(peticion, respuesta, capacidadesRequeridas):
     #       la sesión ya venció: es la única forma de que el navegador deje de mandarla.
     #     Cuando SÍ hay sesión, las dos siguen pasando por el resto del portero.
     si peticion.ruta en SIN_SESION_REQUERIDA:
-        devolver resolverSesion(peticion)        # puede ser nulo, y está bien
+        # OJO con el protocolo: el resto de esta función devuelve nulo para decir
+        # "ya respondí, cortá". Acá el nulo significa otra cosa —"no hay sesión y
+        # está bien"—, así que NO se puede devolver nulo pelado: quien llame no
+        # podría distinguir los dos casos y cortaría cuando debía seguir.
+        devolver { sesion: resolverSesion(peticion), yaRespondio: falso }
 
     # 1 · ¿Hay sesión válida?
     contexto = resolverSesion(peticion)
@@ -302,7 +306,7 @@ prueba "toda operación pasa por el portero":
         # no abren contexto de inquilino y tampoco son públicas: van en su propia
         # lista. Sin esa exención, esta prueba falla sobre operaciones correctas,
         # y una prueba que falla sobre lo correcto se termina ignorando.
-        si archivo en OPERACIONES_DE_IDENTIDAD: continuar
+        si archivo en ARCHIVOS_AUTORIZADOS: continuar     # la MISMA lista, un solo nombre
         afirmar que codigo contiene "conOrganizacion("
 ```
 

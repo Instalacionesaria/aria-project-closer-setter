@@ -180,9 +180,12 @@ el proyecto: es la cadena que van a buscar las pruebas.
 **Y tiene que estar autorizado archivo por archivo, en una lista que verifica una prueba:**
 
 ```
-# UNA sola lista y UN solo nombre de función en todo el proyecto. Si el acceso sin
-# filtro se llama `datosSinFiltro` en un documento y `conIdentidad` en otro, cada
-# prueba busca una cadena distinta y las dos pasan mientras el archivo usa la otra.
+# UNA sola lista, UN solo nombre, y en UN solo lugar del código. Esta lista la usan
+# TRES pruebas distintas —la del portero, la del contexto y la del acceso sin
+# filtro—: si cada una tiene su propia copia, divergen y las tres pasan mientras el
+# archivo nuevo se escapa por la que no lo mira. Lo mismo con el nombre de la
+# función: `datosSinFiltro` en un documento y `conIdentidad` en otro son dos
+# cadenas distintas para buscar, y ninguna prueba encuentra las dos.
 ARCHIVOS_AUTORIZADOS = {
     "auth/*",                  # login, sesión, segundo factor
     "admin/organizaciones",    # el alta, que todavía no tiene contexto
