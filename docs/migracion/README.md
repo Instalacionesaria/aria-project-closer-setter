@@ -34,6 +34,7 @@ externos. Se puede copiar a otro proyecto tal cual.
 | Documento                                       | Qué contiene                                                                                                      |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | [closer-setter-excc-1](closer-setter-excc-1.md) | **Las dos pantallas del producto**: Closer y Setter — qué muestra cada tab, qué endpoint conectar, y en qué orden |
+| [LISTA-TAGS](LISTA-TAGS.md)                     | **El inventario de literales del CRM**: 28 tags y 22 custom fields, con quién escribe cada uno y quién lo lee     |
 
 La diferencia importa: los documentos numerados y `PRUEBAS` describen **cómo se construye la base** y
 sirven para cualquier producto. Ese último describe **qué se construye arriba**, y solo sirve para este.

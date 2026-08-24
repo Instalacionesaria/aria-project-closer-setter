@@ -2,7 +2,7 @@
 
 **Con qué está construido esto, y por qué con tan poco.**
 
-Este documento no lleva número, igual que `LISTA-TAGS`: los numerados explican cómo funciona el
+Este documento no lleva número, igual que `migracion/LISTA-TAGS`: los numerados explican cómo funciona el
 producto, y éste describe la caja de herramientas. Todas las versiones salen del
 `package-lock.json` y de la base de producción, no del `package.json` —que declara rangos— ni de
 la memoria de nadie.
