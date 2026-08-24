@@ -29,6 +29,16 @@ externos. Se puede copiar a otro proyecto tal cual.
 | 10  | [Detección y operación](10-DETECCION-Y-OPERACION.md) | Saber que algo está pasando **ahora**: señales, incidentes, respaldos, riesgos residuales                    |
 | —   | [**Las reglas y sus pruebas**](PRUEBAS.md)           | **Cada regla con la prueba que falla si no se cumple.** La lista de trabajo, y qué se resigna si se recorta  |
 
+### Y uno que NO es portable
+
+| Documento                                       | Qué contiene                                                                                                      |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| [closer-setter-excc-1](closer-setter-excc-1.md) | **Las dos pantallas del producto**: Closer y Setter — qué muestra cada tab, qué endpoint conectar, y en qué orden |
+
+La diferencia importa: los documentos numerados y `PRUEBAS` describen **cómo se construye la base** y
+sirven para cualquier producto. Ese último describe **qué se construye arriba**, y solo sirve para este.
+Si el destino es otro producto, ese archivo se descarta.
+
 ---
 
 ## Cómo usar esta documentación
