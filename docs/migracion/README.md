@@ -31,12 +31,12 @@ externos. Se puede copiar a otro proyecto tal cual.
 
 ### Y uno que NO es portable
 
-| Documento                                       | Qué contiene                                                                                                                                                                  |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [closer-setter-excc-1](closer-setter-excc-1.md) | **Las dos pantallas del producto**: Closer y Setter — qué muestra cada tab, qué endpoint conectar, y en qué orden                                                             |
-| [LISTA-TAGS](LISTA-TAGS.md)                     | **El inventario de literales del CRM**: 28 tags y 22 custom fields, con quién escribe cada uno y quién lo lee                                                                 |
-| [closer/](closer/)                              | **Las cuatro pantallas del Closer en detalle**: qué va y qué no va en cada cola de Mi Día, las reglas del Pipeline, los botones de la Agenda, y cómo se mantiene todo en vivo |
-| [contactos/](contactos/)                        | **Todo lo que involucra al contacto**: cómo entra desde el CRM y con qué etiquetas, qué pasa al hacerle click, el chat, los cinco tabs de la ficha, y su polling              |
+| Documento                                       | Qué contiene                                                                                                                                                                                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [closer-setter-excc-1](closer-setter-excc-1.md) | **Las dos pantallas del producto**: Closer y Setter — qué muestra cada tab, qué endpoint conectar, y en qué orden                                                                                                                    |
+| [LISTA-TAGS](LISTA-TAGS.md)                     | **El inventario de literales del CRM**: 28 tags y 22 custom fields, con quién escribe cada uno y quién lo lee                                                                                                                        |
+| [closer/](closer/README.md)                     | **El módulo Closer completo, para replicarlo**: las cinco colas de Mi Día, las reglas del Pipeline, la Agenda, Avanzar, la fila y sus seis íconos, las etiquetas, y —sobre todo— **el polling y la ingesta con sus números exactos** |
+| [contactos/](contactos/)                        | **Todo lo que involucra al contacto**: cómo entra desde el CRM y con qué etiquetas, qué pasa al hacerle click, el chat, los cinco tabs de la ficha, y su polling                                                                     |
 
 La diferencia importa: los documentos numerados y `PRUEBAS` describen **cómo se construye la base** y
 sirven para cualquier producto. Ese último describe **qué se construye arriba**, y solo sirve para este.

@@ -45,7 +45,35 @@ cada una más lenta que la anterior.
 
 ---
 
-## 2 · Los cuatro relojes
+## 2 · Los números, todos juntos
+
+**Ésta es la tabla que hay que replicar igual.** Cada valor tiene un motivo, y cambiarlo tiene una
+consecuencia medible.
+
+| Constante                             | Valor      | Qué pasa si se toca                                                   |
+| ------------------------------------- | ---------- | --------------------------------------------------------------------- |
+| **Reloj principal** (ingesta + colas) | **10 s**   | Más rápido **no cuesta más llamadas** — lo limita el candado, no esto |
+| Reloj del chat                        | **5 s**    | Solo con la ficha abierta en ese tab                                  |
+| Reloj del tablero                     | **60 s**   | Son métricas del mes: más rápido redibuja lo mismo                    |
+| **Ventana del candado del servidor**  | **10 s**   | **ESTE es el límite real de llamadas al CRM**                         |
+| Presupuesto de la ingesta             | **4 s**    | Deadline cooperativo, no una carrera                                  |
+| Techo del endpoint                    | **15 s**   | Red de seguridad de la plataforma, no la perilla                      |
+| Conversaciones por página             | **50**     | Lo que se pide por llamada                                            |
+| Tope de páginas por ciclo             | **4**      | Máximo **200** conversaciones por ciclo                               |
+| Tope de la pasada de cierre           | **2**      | Conversaciones con salientes sin resolver, por ciclo                  |
+| Ventana de deduplicación              | **10 min** | Para reconocer el mismo mensaje llegado por dos vías                  |
+
+> **La fila que hay que entender antes que ninguna:** el reloj del navegador y el límite de llamadas al
+> CRM son **dos números distintos**. El primero decide cuántas veces se **pregunta**; el segundo, cuántas
+> veces se **gasta**. Confundirlos lleva a bajar la frecuencia de la pantalla creyendo que se ahorra, y a
+> empeorar la experiencia sin ahorrar nada.
+
+El detalle de qué hace el servidor con cada uno de esos números está en el documento
+[`09`](09-INGESTA-Y-RECONCILIACION.md).
+
+---
+
+## 3 · Los cuatro relojes
 
 Una sola tabla de cadencias, en un solo lugar, **para que nadie invente la suya**.
 
@@ -73,7 +101,7 @@ una llamada al modelo de lenguaje**. Va por evento, y solo por evento.
 
 ---
 
-## 3 · El reloj principal, que hace dos cosas en una petición
+## 4 · El reloj principal, que hace dos cosas en una petición
 
 Antes eran **dos relojes y dos peticiones**: uno para traer datos del CRM, otro para leer las colas.
 Ahora es una sola llamada que hace las dos mitades. Bajó de 12–13 a **unas 7 peticiones por minuto y por
@@ -113,7 +141,7 @@ hereda la latencia máxima y el radio de explosión completo.
 
 ---
 
-## 4 · El candado del servidor — N pestañas cuestan lo mismo que una
+## 5 · El candado del servidor — N pestañas cuestan lo mismo que una
 
 Es la pieza que hace que todo lo anterior sea sostenible.
 
@@ -143,7 +171,7 @@ Es la perilla que hay que tener clara antes de que alguien pida "que sea más r�
 
 ---
 
-## 5 · La marca de agua — por qué el costo no crece con la cuenta
+## 6 · La marca de agua — por qué el costo no crece con la cuenta
 
 El filtro por tags del buscador del CRM **se ignora** —está verificado—, así que **no se puede pedir
 "solo los de mi territorio"**.
@@ -174,7 +202,7 @@ No son evidentes leyendo el código, y **romper cualquiera pierde mensajes**:
 
 ---
 
-## 6 · La pasada que cierra los mensajes en el aire
+## 7 · La pasada que cierra los mensajes en el aire
 
 Un caso que la marca de agua no cubre, y que sin esto queda roto para siempre.
 
@@ -191,7 +219,7 @@ costaría 2 llamadas por ciclo, para siempre, sin resolver nada.
 
 ---
 
-## 7 · Los relojes del servidor
+## 8 · Los relojes del servidor
 
 Independientes del frontend: corren **aunque nadie tenga la aplicación abierta**.
 
@@ -217,7 +245,7 @@ dispara webhook no tenía ninguna vía de entrar**.
 
 ---
 
-## 8 · El presupuesto, en una tabla
+## 9 · El presupuesto, en una tabla
 
 Lo que cuesta cada cosa en llamadas al CRM. Es la tabla que hay que mirar antes de agregar cualquier
 reloj.
