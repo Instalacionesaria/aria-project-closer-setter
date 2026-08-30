@@ -36,6 +36,7 @@ externos. Se puede copiar a otro proyecto tal cual.
 | [closer-setter-excc-1](closer-setter-excc-1.md) | **Las dos pantallas del producto**: Closer y Setter — qué muestra cada tab, qué endpoint conectar, y en qué orden                                                                                                                    |
 | [LISTA-TAGS](LISTA-TAGS.md)                     | **El inventario de literales del CRM**: 28 tags y 22 custom fields, con quién escribe cada uno y quién lo lee                                                                                                                        |
 | [closer/](closer/README.md)                     | **El módulo Closer completo, para replicarlo**: las cinco colas de Mi Día, las reglas del Pipeline, la Agenda, Avanzar, la fila y sus seis íconos, las etiquetas, y —sobre todo— **el polling y la ingesta con sus números exactos** |
+| [setter/](setter/README.md)                     | **El módulo Setter completo, para replicarlo**: sus seis colas, sus siete etapas propias, las cinco salidas —y por qué tres no escriben campo en el CRM—, el sello de atribución, y **por qué no tiene relojes**                     |
 | [contactos/](contactos/)                        | **Todo lo que involucra al contacto**: cómo entra desde el CRM y con qué etiquetas, qué pasa al hacerle click, el chat, los cinco tabs de la ficha, y su polling                                                                     |
 
 La diferencia importa: los documentos numerados y `PRUEBAS` describen **cómo se construye la base** y

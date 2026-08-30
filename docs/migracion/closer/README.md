@@ -23,6 +23,9 @@ código: no hay nombres de archivo, de tabla ni de proveedor.
 | **08** | [Etiquetas y estados](08-ETIQUETAS-Y-ESTADOS.md)             | Qué etiqueta gobierna qué, y el estado del agente de IA                          |
 | **09** | [Ingesta y reconciliación](09-INGESTA-Y-RECONCILIACION.md)   | **El servidor.** El candado, la marca de agua y el presupuesto, con sus números  |
 
+> **El otro módulo está en la carpeta `setter`**, y se lee después de ésta: buena parte es el mismo
+> mecanismo con otro vocabulario, así que allá solo se explica **lo que cambia**.
+
 **Si vas a replicar esto, empezá por el `04` y el `09`.** Son los dos que explican por qué el sistema
 soporta a todo el equipo mirando la pantalla todo el día sin agotar el límite de un CRM ajeno — y son la
 parte que más fácil se rehace mal, porque un reloj de más no falla: solo gasta.
