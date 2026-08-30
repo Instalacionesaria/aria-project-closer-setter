@@ -58,3 +58,18 @@ CLAUDE.local.md
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+# ── CUERPOS DE WEBHOOK COSECHADOS: DATOS PERSONALES DE LEADS REALES ─────────
+#
+# `tmp-payloads/` guarda cuerpos crudos del buzón de webhooks: correo, teléfono y nombre completo de
+# personas reales, y en los de llamada además los números de origen y destino, la URL pública de la
+# grabación y la TRANSCRIPCIóN ENTERA de la conversación.
+#
+# Su propio `HALLAZGOS.md` afirmaba que esta carpeta ya estaba ignorada. **No lo estaba** — comprobado
+# con `git check-ignore`, que no devolvía nada. Nada se había commiteado todavía, así que la regla llega
+# antes del daño; sin ella, un `git add -A` la subía entera a GitHub.
+#
+# Y las versiones `.anonimo.json` **no son todas seguras**: la de llamada conserva PII real bajo
+# `.variables.user`, `.variables.contact`, `.variables.location` y `.recordings[0]`. El anonimizador
+# cubrió los campos de primer nivel del contacto y no el bloque `variables`. Se ignoran las dos formas.
+tmp-payloads/
