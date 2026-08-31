@@ -38,6 +38,7 @@ externos. Se puede copiar a otro proyecto tal cual.
 | [closer/](closer/README.md)                     | **El módulo Closer completo, para replicarlo**: las cinco colas de Mi Día, las reglas del Pipeline, la Agenda, Avanzar, la fila y sus seis íconos, las etiquetas, y —sobre todo— **el polling y la ingesta con sus números exactos** |
 | [setter/](setter/README.md)                     | **El módulo Setter completo, para replicarlo**: sus seis colas, sus siete etapas propias, las cinco salidas —y por qué tres no escriben campo en el CRM—, el sello de atribución, y **por qué no tiene relojes**                     |
 | [contactos/](contactos/)                        | **Todo lo que involucra al contacto**: cómo entra desde el CRM y con qué etiquetas, qué pasa al hacerle click, el chat, los cinco tabs de la ficha, y su polling                                                                     |
+| [auditoria/](auditoria/README.md)               | **La Auditoría de Agentes completa**: los cuatro auditores, dónde se pegan sus prompts, la rúbrica adentro, los portones y el debounce, **cómo el rojo llega a Intervenciones Urgentes**, el carril amarillo y el costo              |
 
 La diferencia importa: los documentos numerados y `PRUEBAS` describen **cómo se construye la base** y
 sirven para cualquier producto. Ese último describe **qué se construye arriba**, y solo sirve para este.

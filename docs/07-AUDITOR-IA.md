@@ -1,5 +1,11 @@
 # El auditor de IA
 
+> **Para replicarlo en otro proyecto**, la versión portable —sin nombres de archivo, de tabla ni de
+> proveedor— está en [`migracion/auditoria/`](migracion/auditoria/README.md): diez documentos con los
+> cuatro auditores, los espacios de prompts, la rúbrica adentro, los portones, la conexión con
+> Intervenciones Urgentes, el carril amarillo, el costo y los huecos conocidos. Este documento sigue
+> siendo el de referencia **para trabajar en este repo**.
+
 Un agente que audita a los otros agentes. Lee la conversación entre el chatbot de GHL y el
 contacto, la evalúa contra una rúbrica, y produce **dos salidas que no hay que mezclar**:
 
