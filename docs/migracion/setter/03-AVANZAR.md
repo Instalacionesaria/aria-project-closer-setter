@@ -3,13 +3,13 @@
 El mismo mecanismo que el del Closer —un solo lugar donde se registra un resultado— con **cinco** salidas
 en vez de seis, y con tres diferencias de fondo que no son un parámetro.
 
-| Salida          | Columna         | Qué pide                                               | Avisa al CRM  |
-| --------------- | --------------- | ------------------------------------------------------ | ------------- |
-| **Agendó**      | Agendado        | Selector de horarios                                   | **No** — § 2  |
-| **Venta chica** | Oferta chica    | Producto del catálogo + monto editable + forma de pago | **No** — § 3  |
-| **Seguimiento** | En calificación | Situación → después el modo                            | Sí            |
-| **No califica** | Descalificado   | Razón                                                  | Sí (etiqueta) |
-| **Nurture**     | Nurture         | Pidió tiempo / Se enfrió                               | Sí            |
+| Salida          | Columna         | Qué pide                                                    | Avisa al CRM  |
+| --------------- | --------------- | ----------------------------------------------------------- | ------------- |
+| **Agendó**      | Agendado        | Selector de horarios                                        | **No** — § 2  |
+| **Venta chica** | Oferta chica    | Producto de una lista fija + monto editable + forma de pago | **No** — § 3  |
+| **Seguimiento** | En calificación | Situación → después el modo                                 | Sí            |
+| **No califica** | Descalificado   | Razón                                                       | Sí (etiqueta) |
+| **Nurture**     | Nurture         | Pidió tiempo / Se enfrió                                    | Sí            |
 
 **Las cinco escriben en la base propia.** Lo que cambia entre ellas es qué llega al CRM.
 
@@ -101,6 +101,11 @@ trato**. Una venta chica es peor: es **otra venta, mucho menor, sobre el mismo c
 ahí **destruiría el valor de la venta grande** que el closer todavía puede cerrar.
 
 El monto vive en el detalle del avance, que es de donde lo lee el tablero de comisiones.
+
+> **Y la lista de productos está escrita en el código**, con su precio adentro del nombre —el precio
+> prellena el monto, que después es editable—. Es una semilla que quedó: una empresa que venda otra
+> cosa registra sus ventas chicas eligiendo entre tres productos que no son suyos. Ver la carpeta
+> `enlaces-de-pago`, documento `04`.
 
 ---
 
